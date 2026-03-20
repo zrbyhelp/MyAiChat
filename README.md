@@ -43,6 +43,11 @@ If you want to collaborate on this project, please apply through GitHub Issues.
 
 ## Star Progress
 
-If this project is useful to you, please give it a Star on GitHub.
+## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zrbyhelp/MyAiChat&type=Date)](https://www.star-history.com/#zrbyhelp/MyAiChat&Date)
+
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&legend=top-left" />
+ </picture>
