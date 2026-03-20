@@ -12,7 +12,6 @@ import {
   buildSessionSummary,
   clearSessionMemoryRecord,
   deleteSessionRecord,
-  ensureDataFiles,
   getSessionRecord,
   listSessions,
   normalizeModelConfig,
@@ -96,9 +95,8 @@ export function createApp() {
 
   app.get('/api/sessions', async (_req, res, next) => {
     try {
-      await ensureDataFiles()
       res.json({
-        sessions: listSessions().map((item) => buildSessionSummary(item)),
+        sessions: (await listSessions()).map((item) => buildSessionSummary(item)),
       })
     } catch (error) {
       next(error)
@@ -123,7 +121,7 @@ export function createApp() {
 
   app.get('/api/sessions/:id', async (req, res, next) => {
     try {
-      const session = getSessionRecord(req.params.id)
+      const session = await getSessionRecord(req.params.id)
       if (!session) {
         res.status(404).json({ message: '会话不存在' })
         return

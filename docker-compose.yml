@@ -1,0 +1,49 @@
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-myaichat}
+      MYSQL_USER: ${DB_USER:-myaichat}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-myaichat}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  main:
+    build:
+      context: ./main
+    restart: unless-stopped
+    environment:
+      PORT: ${PORT:-3000}
+      STORAGE_DRIVER: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-myaichat}
+      DB_USER: ${DB_USER:-myaichat}
+      DB_PASSWORD: ${DB_PASSWORD:-myaichat}
+      DB_LOGGING: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "${PORT:-3000}:3000"
+
+  chat:
+    build:
+      context: ./chat
+    restart: unless-stopped
+    depends_on:
+      - main
+    ports:
+      - "${CHAT_PORT:-8080}:80"
+
+volumes:
+  mysql-data:

@@ -12,7 +12,7 @@ test-results/
 
 .env
 .env.*
-!.env.example
+!**/.env.example
 
 *.log
 npm-debug.log*

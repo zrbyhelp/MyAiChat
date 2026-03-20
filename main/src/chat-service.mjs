@@ -135,8 +135,8 @@ function buildMemoryPrompt(summary) {
   ].join('\n')
 }
 
-export function getSessionMessages(payload) {
-  const session = getSessionRecord(payload.sessionId)
+export async function getSessionMessages(payload) {
+  const session = await getSessionRecord(payload.sessionId)
   const memory = normalizeSessionMemory(session?.memory)
   const history = (session?.messages || []).slice(-memory.recentMessageLimit)
   const messages = []
@@ -174,7 +174,7 @@ export function getSessionMessages(payload) {
 
 export async function commitSession(payload, assistantMessage, reasoning = '', suggestions = [], form = null, usage = null) {
   const now = new Date().toISOString()
-  const existing = getSessionRecord(payload.sessionId)
+  const existing = await getSessionRecord(payload.sessionId)
   const nextMessages = [...(existing?.messages || [])]
 
   nextMessages.push({
@@ -256,10 +256,10 @@ export async function fetchModels(config) {
   }
 }
 
-function buildUpstreamBody(payload, stream = true) {
+async function buildUpstreamBody(payload, stream = true) {
   const base = {
     model: payload.model,
-    messages: payload.messages || getSessionMessages(payload),
+    messages: payload.messages || await getSessionMessages(payload),
     stream,
   }
 
@@ -292,9 +292,7 @@ async function requestUpstreamChat(payload, stream) {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: buildHeaders(payload),
-      body: JSON.stringify({
-        ...buildUpstreamBody(payload, stream),
-      }),
+      body: JSON.stringify(await buildUpstreamBody(payload, stream)),
     })
 
     if (!response.ok) {
@@ -377,7 +375,7 @@ function getMemoryRefreshState(session) {
 }
 
 export async function refreshSessionMemoryIfNeeded(session, payload, notify) {
-  const latestSession = getSessionRecord(session.id) || session
+  const latestSession = (await getSessionRecord(session.id)) || session
   const { memory, compressibleCount, uncoveredCount, shouldRefresh } = getMemoryRefreshState(latestSession)
   if (!shouldRefresh) {
     return latestSession

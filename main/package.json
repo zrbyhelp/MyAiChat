@@ -5,9 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "migrate": "node ./scripts/migrate.mjs"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "mysql2": "^3.20.0",
+    "sequelize": "^6.37.8",
+    "umzug": "^3.8.2"
   }
 }
