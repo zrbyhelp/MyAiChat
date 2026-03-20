@@ -62,7 +62,7 @@ export function normalizeRobots(input) {
   const list = Array.isArray(input) ? input : []
   const robots = list.map((robot, index) => ({
     id: String(robot?.id || `robot-${index + 1}`),
-    name: String(robot?.name || `机器人 ${index + 1}`),
+    name: String(robot?.name || `智能体 ${index + 1}`),
     description: String(robot?.description || ''),
     avatar: String(robot?.avatar || '').trim(),
     systemPrompt: String(robot?.systemPrompt || ''),

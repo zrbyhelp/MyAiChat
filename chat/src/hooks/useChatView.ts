@@ -11,11 +11,13 @@ import {
   getModelConfigs,
   getRobots,
   getSession,
+  saveRobots,
   saveModelConfigs,
   testModelConnection,
   updateSessionMemory,
   upsertSession,
 } from '@/lib/api'
+import { UnauthorizedError } from '@/lib/auth'
 import type {
   AIFormField,
   AIFormSchema,
@@ -51,6 +53,7 @@ type ChatRenderContent = {
 type ChatRenderMessage = {
   id?: string
   role?: string
+  datetime?: string
   content?: ChatRenderContent[]
   [key: string]: unknown
 }
@@ -64,6 +67,117 @@ type FormDraftValue = string | number | boolean | (string | number | boolean)[]
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+}
+
+function formatMessageDatetime(value?: string) {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return date.toISOString()
+}
+
+function withMessageDatetimes(messages: ChatRenderMessage[], previousMessages: ChatRenderMessage[] = []) {
+  const previousDatetimeById = new Map(
+    previousMessages
+      .filter((message) => message?.id && message?.datetime)
+      .map((message) => [String(message.id), String(message.datetime)]),
+  )
+
+  return messages.map((message) => {
+    const datetime =
+      (typeof message.datetime === 'string' && message.datetime.trim()) ||
+      (message.id ? previousDatetimeById.get(String(message.id)) : '') ||
+      formatMessageDatetime()
+
+    return {
+      ...message,
+      datetime,
+    }
+  })
+}
+
+function formatTimeSeparatorLabel(value?: string) {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  const now = new Date()
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+
+  const timeText = date.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+
+  const isSameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+
+  if (isSameDay) {
+    return timeText
+  }
+
+  const isYesterday =
+    date.getFullYear() === yesterday.getFullYear() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getDate() === yesterday.getDate()
+
+  if (isYesterday) {
+    return `昨天 ${timeText}`
+  }
+
+  const dateText = date.toLocaleDateString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+  })
+
+  return `${dateText} ${timeText}`
+}
+
+function withTimeSeparators(messages: ChatRenderMessage[]) {
+  const result: ChatRenderMessage[] = []
+  let previousTimestamp = 0
+
+  for (const message of messages) {
+    if (message.role === 'system') {
+      result.push(message)
+      continue
+    }
+
+    const timestamp = message.datetime ? new Date(message.datetime).getTime() : Number.NaN
+    const shouldInsertSeparator =
+      Number.isFinite(timestamp) &&
+      (result.length === 0 || !previousTimestamp || timestamp - previousTimestamp >= 5 * 60 * 1000)
+
+    if (shouldInsertSeparator) {
+      result.push({
+        id: `time-${message.id || timestamp}`,
+        role: 'system',
+        content: formatTimeSeparatorLabel(message.datetime)
+          ? [
+              {
+                type: 'text',
+                data: formatTimeSeparatorLabel(message.datetime),
+              },
+            ]
+          : [],
+      })
+    }
+
+    result.push(message)
+
+    if (Number.isFinite(timestamp)) {
+      previousTimestamp = timestamp
+    }
+  }
+
+  return result
 }
 
 function extractActivityFormSchema(content: ChatRenderContent): AIFormSchema | null {
@@ -189,7 +303,7 @@ function normalizeSessionMessages(session: ChatSessionDetail) {
         id: `${session.id}-user-${index}`,
         role: 'user',
         name: '',
-        datetime: item.createdAt,
+        datetime: formatMessageDatetime(item.createdAt),
         content: [
           {
             type: 'text',
@@ -234,7 +348,7 @@ function normalizeSessionMessages(session: ChatSessionDetail) {
       role: 'assistant',
       name: '',
       avatar: session.robot.avatar || '',
-      datetime: item.createdAt,
+      datetime: formatMessageDatetime(item.createdAt),
       content,
     }
   })
@@ -359,9 +473,17 @@ const isMobile = ref(false)
 const sidebarDrawerVisible = ref(false)
 const newChatVisible = ref(false)
 const configVisible = ref(false)
+const agentManageVisible = ref(false)
+const mobileAgentEditorVisible = ref(false)
+const mobileModelEditorVisible = ref(false)
+const desktopModelEditorVisible = ref(false)
 const sessionRobotVisible = ref(false)
 const memoryVisible = ref(false)
 const savingConfig = ref(false)
+const savingAgentTemplates = ref(false)
+const savingMobileAgent = ref(false)
+const savingMobileModel = ref(false)
+const savingDesktopModel = ref(false)
 const loadingModels = ref(false)
 const testingConnection = ref(false)
 const savingMemory = ref(false)
@@ -370,6 +492,13 @@ const chatbotRef = ref<ChatbotInstance | null>(null)
 const chatInstanceKey = ref(0)
 const robotTemplates = ref<AIRobotCard[]>([])
 const selectedNewChatRobotId = ref('')
+const editingAgentId = ref('')
+const mobileAgentEditorMode = ref<'create' | 'edit'>('create')
+const editingMobileAgentId = ref('')
+const mobileModelEditorMode = ref<'create' | 'edit'>('create')
+const editingMobileModelId = ref('')
+const desktopModelEditorMode = ref<'create' | 'edit'>('create')
+const editingDesktopModelId = ref('')
 const pendingChatMessages = ref<ChatRenderMessage[] | null>(null)
 const pendingAssistantSuggestions = ref<SuggestionOption[] | null>(null)
 const pendingAssistantForm = ref<AIFormSchema | null>(null)
@@ -388,13 +517,16 @@ const modelConfigs = ref<AIModelConfigItem[]>([])
 const modelOptionsMap = ref<Record<string, ModelOption[]>>({})
 const formDrafts = reactive<Record<string, Record<string, FormDraftValue>>>({})
 const submittedForms = reactive<Record<string, boolean>>({})
+const rawChatMessages = ref<ChatRenderMessage[]>([])
 
 const editingConfig = reactive<AIModelConfigItem>(createModelConfig())
+const mobileModelDraft = reactive<AIModelConfigItem>(createModelConfig())
+const desktopModelDraft = reactive<AIModelConfigItem>(createModelConfig())
 const currentMemory = reactive<SessionMemoryState>({ ...DEFAULT_SESSION_MEMORY })
 const currentUsage = reactive<SessionUsageState>({ ...DEFAULT_SESSION_USAGE })
 const memoryDraft = reactive<SessionMemoryState>({ ...DEFAULT_SESSION_MEMORY })
 const sessionRobot = reactive<SessionRobotState>({
-  name: '当前机器人',
+  name: '当前智能体',
   avatar: '',
   systemPrompt: '',
 })
@@ -403,6 +535,7 @@ const sessionRobotDraft = reactive<SessionRobotState>({
   avatar: '',
   systemPrompt: '',
 })
+const mobileAgentDraft = reactive<AIRobotCard>(createRobotTemplate())
 const {
   sessionId,
   sessionHistory,
@@ -425,12 +558,15 @@ const activeModelConfig = computed(
     modelConfigs.value[0] ??
     createModelConfig(),
 )
-const currentRobotLabel = computed(() => sessionRobot.name.trim() || '当前机器人')
+const currentRobotLabel = computed(() => sessionRobot.name.trim() || '当前智能体')
 const currentModelLabel = computed(
   () => activeModelConfig.value.name || activeModelConfig.value.model || '选择模型',
 )
 const selectedNewChatRobot = computed(
   () => robotTemplates.value.find((item) => item.id === selectedNewChatRobotId.value) ?? null,
+)
+const editingAgent = computed(
+  () => robotTemplates.value.find((item) => item.id === editingAgentId.value) ?? null,
 )
 const memoryUpdatedLabel = computed(() =>
   currentMemory.updatedAt ? new Date(currentMemory.updatedAt).toLocaleString() : '未生成',
@@ -464,6 +600,14 @@ const suggestionActionHandlers = {
 }
 
 function chatMessageProps(message: { role?: string; avatar?: string; name?: string }) {
+  if (message.role === 'system') {
+    return {
+      name: '',
+      variant: 'text',
+      handleActions: suggestionActionHandlers,
+    }
+  }
+
   if (message.role === 'assistant') {
     return {
       name: '',
@@ -513,14 +657,6 @@ const formActivitySlots = computed<ChatFormSlot[]>(() => {
   })
   return slots
 })
-const modelDropdownOptions = computed<ModelDropdownItem[]>(() => [
-  ...modelConfigs.value.map((item, index) => ({
-    content: item.name || item.model || '未命名配置',
-    value: item.id,
-    divider: index === modelConfigs.value.length - 1,
-  })),
-  { content: '配置', value: 'setting' },
-])
 const editingModelOptions = computed(() =>
   (modelOptionsMap.value[editingConfigId.value] || []).map((item) => ({
     label: item.label,
@@ -531,6 +667,18 @@ const temperatureValue = computed<number | undefined>({
   get: () => editingConfig.temperature ?? undefined,
   set: (value) => {
     editingConfig.temperature = typeof value === 'number' ? value : null
+  },
+})
+const mobileModelTemperatureValue = computed<number | undefined>({
+  get: () => mobileModelDraft.temperature ?? undefined,
+  set: (value) => {
+    mobileModelDraft.temperature = typeof value === 'number' ? value : null
+  },
+})
+const desktopModelTemperatureValue = computed<number | undefined>({
+  get: () => desktopModelDraft.temperature ?? undefined,
+  set: (value) => {
+    desktopModelDraft.temperature = typeof value === 'number' ? value : null
   },
 })
 
@@ -597,17 +745,19 @@ watch(chatbotRef, (instance) => {
 })
 
 function applyChatMessages(messages: ChatRenderMessage[]) {
-  pendingChatMessages.value = messages
-  chatMessages.value = messages
-  initializeFormDrafts(messages)
+  rawChatMessages.value = withMessageDatetimes(messages, rawChatMessages.value)
+  const renderedMessages = withTimeSeparators(rawChatMessages.value)
+  pendingChatMessages.value = renderedMessages
+  chatMessages.value = renderedMessages
+  initializeFormDrafts(renderedMessages)
   const instance = chatbotRef.value
   if (!instance) {
     return
   }
-  if (!messages.length) {
+  if (!renderedMessages.length) {
     instance.clearMessages?.()
   } else {
-    instance.setMessages?.(messages, 'replace')
+    instance.setMessages?.(renderedMessages, 'replace')
   }
   pendingChatMessages.value = null
 }
@@ -744,8 +894,13 @@ function handleChatMessageChange(event: ChatMessageChangeEvent) {
     : event && 'detail' in event && Array.isArray(event.detail)
       ? event.detail
       : []
-  chatMessages.value = messages
-  initializeFormDrafts(messages)
+  rawChatMessages.value = withMessageDatetimes(
+    messages.filter((message) => message?.role !== 'system'),
+    rawChatMessages.value,
+  )
+  const renderedMessages = withTimeSeparators(rawChatMessages.value)
+  chatMessages.value = renderedMessages
+  initializeFormDrafts(renderedMessages)
   if (pendingAssistantSuggestions.value?.length || pendingAssistantForm.value?.fields?.length) {
     nextTick(() => {
       flushPendingAssistantStructuredContent()
@@ -823,8 +978,425 @@ async function refreshCurrentSessionState() {
 async function loadRobotTemplates() {
   const response = await getRobots()
   robotTemplates.value = response.robots
-  if (!selectedNewChatRobotId.value && response.robots.length) {
+  if (!robotTemplates.value.some((item) => item.id === selectedNewChatRobotId.value) && response.robots.length) {
     selectedNewChatRobotId.value = response.robots[0]!.id
+  }
+  if (!robotTemplates.value.some((item) => item.id === editingAgentId.value) && response.robots.length) {
+    editingAgentId.value = response.robots[0]!.id
+  }
+}
+
+function createRobotTemplate(): AIRobotCard {
+  return {
+    id: `robot-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    name: '新智能体',
+    description: '',
+    avatar: '',
+    systemPrompt: '',
+  }
+}
+
+function syncMobileAgentDraft(source?: Partial<AIRobotCard> | null) {
+  const fallback = createRobotTemplate()
+  mobileAgentDraft.id = String(source?.id || fallback.id)
+  mobileAgentDraft.name = String(source?.name || '')
+  mobileAgentDraft.description = String(source?.description || '')
+  mobileAgentDraft.avatar = String(source?.avatar || '')
+  mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
+}
+
+function syncMobileModelDraft(source?: Partial<AIModelConfigItem> | null) {
+  const provider: ProviderType = source?.provider === 'openai' ? 'openai' : 'ollama'
+  const fallback = createModelConfig(provider)
+  mobileModelDraft.id = String(source?.id || fallback.id)
+  mobileModelDraft.name = String(source?.name || '')
+  mobileModelDraft.provider = provider
+  mobileModelDraft.baseUrl = String(source?.baseUrl || fallback.baseUrl)
+  mobileModelDraft.apiKey = String(source?.apiKey || '')
+  mobileModelDraft.model = String(source?.model || '')
+  mobileModelDraft.temperature =
+    typeof source?.temperature === 'number' || source?.temperature === null
+      ? source.temperature
+      : fallback.temperature
+}
+
+function syncDesktopModelDraft(source?: Partial<AIModelConfigItem> | null) {
+  const provider: ProviderType = source?.provider === 'openai' ? 'openai' : 'ollama'
+  const fallback = createModelConfig(provider)
+  desktopModelDraft.id = String(source?.id || fallback.id)
+  desktopModelDraft.name = String(source?.name || '')
+  desktopModelDraft.provider = provider
+  desktopModelDraft.baseUrl = String(source?.baseUrl || fallback.baseUrl)
+  desktopModelDraft.apiKey = String(source?.apiKey || '')
+  desktopModelDraft.model = String(source?.model || '')
+  desktopModelDraft.temperature =
+    typeof source?.temperature === 'number' || source?.temperature === null
+      ? source.temperature
+      : fallback.temperature
+}
+
+async function persistRobotTemplates(nextTemplates: AIRobotCard[], successMessage: string) {
+  const payload = nextTemplates.length
+    ? nextTemplates.map((item, index) => ({
+        ...item,
+        name: item.name.trim() || `智能体 ${index + 1}`,
+        description: item.description.trim(),
+        avatar: item.avatar.trim(),
+      }))
+    : [createRobotTemplate()]
+
+  const response = await saveRobots(payload)
+  robotTemplates.value = response.robots.length ? response.robots : [createRobotTemplate()]
+  if (!robotTemplates.value.some((item) => item.id === selectedNewChatRobotId.value)) {
+    selectedNewChatRobotId.value = robotTemplates.value[0]?.id || ''
+  }
+  if (!robotTemplates.value.some((item) => item.id === editingAgentId.value)) {
+    editingAgentId.value = robotTemplates.value[0]?.id || ''
+  }
+  MessagePlugin.success(successMessage)
+}
+
+async function persistModelConfigs(
+  nextConfigs: AIModelConfigItem[],
+  nextActiveModelId: string,
+  successMessage: string,
+) {
+  const payload = nextConfigs.length
+    ? nextConfigs.map((item, index) => ({
+        ...item,
+        name: item.name.trim() || `模型配置 ${index + 1}`,
+        baseUrl: item.baseUrl.trim(),
+        apiKey: item.apiKey.trim(),
+      }))
+    : [createModelConfig()]
+
+  const activeId = payload.some((item) => item.id === nextActiveModelId)
+    ? nextActiveModelId
+    : payload[0]!.id
+
+  const response = await saveModelConfigs(payload, activeId)
+  applyModelConfigs(response.configs, response.activeModelConfigId)
+  await loadCapabilities()
+  await syncCurrentSessionMeta()
+  MessagePlugin.success(successMessage)
+}
+
+function openAgentManageDialog() {
+  if (!robotTemplates.value.length) {
+    robotTemplates.value = [createRobotTemplate()]
+  }
+  editingAgentId.value = editingAgentId.value || robotTemplates.value[0]?.id || ''
+  agentManageVisible.value = true
+}
+
+function addAgentTemplate() {
+  const next = createRobotTemplate()
+  robotTemplates.value = [...robotTemplates.value, next]
+  editingAgentId.value = next.id
+}
+
+function openMobileAgentCreateDialog() {
+  mobileAgentEditorMode.value = 'create'
+  editingMobileAgentId.value = ''
+  syncMobileAgentDraft(createRobotTemplate())
+  mobileAgentEditorVisible.value = true
+}
+
+function openMobileAgentEditDialog(agentId: string) {
+  const target = robotTemplates.value.find((item) => item.id === agentId)
+  if (!target) {
+    return
+  }
+  mobileAgentEditorMode.value = 'edit'
+  editingMobileAgentId.value = agentId
+  syncMobileAgentDraft(target)
+  mobileAgentEditorVisible.value = true
+}
+
+function openMobileModelCreateDialog() {
+  mobileModelEditorMode.value = 'create'
+  editingMobileModelId.value = ''
+  syncMobileModelDraft(createModelConfig('ollama', modelConfigs.value.length + 1))
+  mobileModelEditorVisible.value = true
+}
+
+function openMobileModelEditDialog(configId: string) {
+  const target = modelConfigs.value.find((item) => item.id === configId)
+  if (!target) {
+    return
+  }
+  mobileModelEditorMode.value = 'edit'
+  editingMobileModelId.value = configId
+  syncMobileModelDraft(target)
+  modelOptionsMap.value = {
+    ...modelOptionsMap.value,
+    [target.id]: modelOptionsMap.value[target.id] || [],
+  }
+  mobileModelEditorVisible.value = true
+}
+
+function openDesktopModelCreateDialog() {
+  desktopModelEditorMode.value = 'create'
+  editingDesktopModelId.value = ''
+  syncDesktopModelDraft(createModelConfig('ollama', modelConfigs.value.length + 1))
+  desktopModelEditorVisible.value = true
+}
+
+function openDesktopModelEditDialog(configId: string) {
+  const target = modelConfigs.value.find((item) => item.id === configId)
+  if (!target) {
+    return
+  }
+  desktopModelEditorMode.value = 'edit'
+  editingDesktopModelId.value = configId
+  syncDesktopModelDraft(target)
+  modelOptionsMap.value = {
+    ...modelOptionsMap.value,
+    [target.id]: modelOptionsMap.value[target.id] || [],
+  }
+  desktopModelEditorVisible.value = true
+}
+
+function removeAgentTemplate(agentId: string) {
+  robotTemplates.value = robotTemplates.value.filter((item) => item.id !== agentId)
+  if (!robotTemplates.value.length) {
+    const fallback = createRobotTemplate()
+    robotTemplates.value = [fallback]
+    editingAgentId.value = fallback.id
+  } else if (!robotTemplates.value.some((item) => item.id === editingAgentId.value)) {
+    editingAgentId.value = robotTemplates.value[0]?.id || ''
+  }
+  if (!robotTemplates.value.some((item) => item.id === selectedNewChatRobotId.value)) {
+    selectedNewChatRobotId.value = robotTemplates.value[0]?.id || ''
+  }
+}
+
+function selectEditingAgent(agentId: string) {
+  if (robotTemplates.value.some((item) => item.id === agentId)) {
+    editingAgentId.value = agentId
+  }
+}
+
+async function removeMobileAgent(agentId: string) {
+  savingMobileAgent.value = true
+  try {
+    const nextTemplates = robotTemplates.value.filter((item) => item.id !== agentId)
+    await persistRobotTemplates(nextTemplates, '智能体已删除')
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return
+    }
+    MessagePlugin.error(error instanceof Error ? error.message : '删除智能体失败')
+  } finally {
+    savingMobileAgent.value = false
+  }
+}
+
+async function saveMobileAgent() {
+  savingMobileAgent.value = true
+  try {
+    const nextAgent: AIRobotCard = {
+      ...mobileAgentDraft,
+      name: mobileAgentDraft.name.trim(),
+      description: mobileAgentDraft.description.trim(),
+      avatar: mobileAgentDraft.avatar.trim(),
+      systemPrompt: mobileAgentDraft.systemPrompt,
+    }
+    const nextTemplates =
+      mobileAgentEditorMode.value === 'edit'
+        ? robotTemplates.value.map((item) => (item.id === editingMobileAgentId.value ? nextAgent : item))
+        : [...robotTemplates.value, nextAgent]
+
+    await persistRobotTemplates(
+      nextTemplates,
+      mobileAgentEditorMode.value === 'edit' ? '智能体已更新' : '智能体已新增',
+    )
+
+    if (mobileAgentEditorMode.value === 'create') {
+      selectedNewChatRobotId.value = nextAgent.id
+      editingAgentId.value = nextAgent.id
+    } else {
+      editingAgentId.value = nextAgent.id
+    }
+
+    mobileAgentEditorVisible.value = false
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return
+    }
+    MessagePlugin.error(error instanceof Error ? error.message : '保存智能体失败')
+  } finally {
+    savingMobileAgent.value = false
+  }
+}
+
+function handleMobileModelProviderChange(value: unknown) {
+  const nextProvider: ProviderType = value === 'openai' ? 'openai' : 'ollama'
+  const defaults = DEFAULT_MODEL_CONFIGS[nextProvider]
+  mobileModelDraft.provider = nextProvider
+  mobileModelDraft.baseUrl = defaults.baseUrl
+  mobileModelDraft.apiKey = ''
+  mobileModelDraft.model = ''
+  mobileModelDraft.temperature = mobileModelDraft.temperature ?? defaults.temperature
+  modelOptionsMap.value = {
+    ...modelOptionsMap.value,
+    [mobileModelDraft.id]: [],
+  }
+}
+
+function handleDesktopModelProviderChange(value: unknown) {
+  const nextProvider: ProviderType = value === 'openai' ? 'openai' : 'ollama'
+  const defaults = DEFAULT_MODEL_CONFIGS[nextProvider]
+  desktopModelDraft.provider = nextProvider
+  desktopModelDraft.baseUrl = defaults.baseUrl
+  desktopModelDraft.apiKey = ''
+  desktopModelDraft.model = ''
+  desktopModelDraft.temperature = desktopModelDraft.temperature ?? defaults.temperature
+  modelOptionsMap.value = {
+    ...modelOptionsMap.value,
+    [desktopModelDraft.id]: [],
+  }
+}
+
+async function refreshMobileModelOptions() {
+  await refreshModelsForConfig(mobileModelDraft)
+}
+
+async function refreshDesktopModelOptions() {
+  await refreshModelsForConfig(desktopModelDraft)
+}
+
+async function handleMobileModelTestConnection() {
+  testingConnection.value = true
+  try {
+    await refreshModelsForConfig({
+      ...mobileModelDraft,
+      name: mobileModelDraft.name.trim() || '未命名配置',
+      baseUrl: mobileModelDraft.baseUrl.trim(),
+      apiKey: mobileModelDraft.apiKey.trim(),
+    })
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '连接失败')
+  } finally {
+    testingConnection.value = false
+  }
+}
+
+async function handleDesktopModelTestConnection() {
+  testingConnection.value = true
+  try {
+    await refreshModelsForConfig({
+      ...desktopModelDraft,
+      name: desktopModelDraft.name.trim() || '未命名配置',
+      baseUrl: desktopModelDraft.baseUrl.trim(),
+      apiKey: desktopModelDraft.apiKey.trim(),
+    })
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '连接失败')
+  } finally {
+    testingConnection.value = false
+  }
+}
+
+async function saveMobileModel() {
+  savingMobileModel.value = true
+  try {
+    const nextConfig: AIModelConfigItem = {
+      ...mobileModelDraft,
+      name: mobileModelDraft.name.trim(),
+      baseUrl: mobileModelDraft.baseUrl.trim(),
+      apiKey: mobileModelDraft.apiKey.trim(),
+    }
+    const nextConfigs =
+      mobileModelEditorMode.value === 'edit'
+        ? modelConfigs.value.map((item) => (item.id === editingMobileModelId.value ? nextConfig : item))
+        : [...modelConfigs.value, nextConfig]
+
+    await persistModelConfigs(
+      nextConfigs,
+      nextConfig.id,
+      mobileModelEditorMode.value === 'edit' ? '模型配置已更新' : '模型配置已新增',
+    )
+    mobileModelEditorVisible.value = false
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '保存失败')
+  } finally {
+    savingMobileModel.value = false
+  }
+}
+
+async function removeMobileModel(configId: string) {
+  savingMobileModel.value = true
+  try {
+    const nextConfigs = modelConfigs.value.filter((item) => item.id !== configId)
+    const nextActiveModelId =
+      activeModelConfigId.value === configId ? nextConfigs[0]?.id || createModelConfig().id : activeModelConfigId.value
+    await persistModelConfigs(nextConfigs, nextActiveModelId, '模型配置已删除')
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '删除模型配置失败')
+  } finally {
+    savingMobileModel.value = false
+  }
+}
+
+async function saveDesktopModel() {
+  savingDesktopModel.value = true
+  try {
+    const nextConfig: AIModelConfigItem = {
+      ...desktopModelDraft,
+      name: desktopModelDraft.name.trim(),
+      baseUrl: desktopModelDraft.baseUrl.trim(),
+      apiKey: desktopModelDraft.apiKey.trim(),
+    }
+    const nextConfigs =
+      desktopModelEditorMode.value === 'edit'
+        ? modelConfigs.value.map((item) =>
+            item.id === editingDesktopModelId.value ? nextConfig : item,
+          )
+        : [...modelConfigs.value, nextConfig]
+
+    await persistModelConfigs(
+      nextConfigs,
+      nextConfig.id,
+      desktopModelEditorMode.value === 'edit' ? '模型配置已更新' : '模型配置已新增',
+    )
+    desktopModelEditorVisible.value = false
+    configVisible.value = false
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '保存失败')
+  } finally {
+    savingDesktopModel.value = false
+  }
+}
+
+async function removeDesktopModel(configId: string) {
+  savingDesktopModel.value = true
+  try {
+    const nextConfigs = modelConfigs.value.filter((item) => item.id !== configId)
+    const nextActiveModelId =
+      activeModelConfigId.value === configId
+        ? nextConfigs[0]?.id || createModelConfig().id
+        : activeModelConfigId.value
+    await persistModelConfigs(nextConfigs, nextActiveModelId, '模型配置已删除')
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '删除模型配置失败')
+  } finally {
+    savingDesktopModel.value = false
+  }
+}
+
+async function saveAgentTemplates() {
+  savingAgentTemplates.value = true
+  try {
+    await persistRobotTemplates(robotTemplates.value, '智能体已保存')
+    agentManageVisible.value = false
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return
+    }
+    MessagePlugin.error(error instanceof Error ? error.message : '保存智能体失败')
+  } finally {
+    savingAgentTemplates.value = false
   }
 }
 
@@ -852,7 +1424,7 @@ async function syncCurrentSessionMeta() {
 
 async function hydrateSession(session: ChatSessionDetail) {
   sessionId.value = session.id
-  sessionRobot.name = session.robot.name || '当前机器人'
+  sessionRobot.name = session.robot.name || '当前智能体'
   sessionRobot.avatar = session.robot.avatar || ''
   sessionRobot.systemPrompt = session.robot.systemPrompt || ''
   applySessionMemory(session.memory)
@@ -874,7 +1446,7 @@ async function hydrateSession(session: ChatSessionDetail) {
 
 async function createNewChat(robot?: AIRobotCard | null) {
   if (robot) {
-    sessionRobot.name = robot.name.trim() || '当前机器人'
+    sessionRobot.name = robot.name.trim() || '当前智能体'
     sessionRobot.avatar = robot.avatar || ''
     sessionRobot.systemPrompt = robot.systemPrompt
   }
@@ -898,12 +1470,12 @@ function openNewChatDialog() {
     newChatVisible.value = true
     return
   }
-  MessagePlugin.warning('暂无机器人卡片，请先去“设置机器人”中新增')
+  MessagePlugin.warning('暂无智能体卡片，请先去“设置智能体”中新增')
 }
 
 async function confirmStartNewChat() {
   if (!selectedNewChatRobot.value) {
-    MessagePlugin.warning('请先选择一个机器人')
+    MessagePlugin.warning('请先选择一个智能体')
     return
   }
   await createNewChat(selectedNewChatRobot.value)
@@ -918,11 +1490,7 @@ function handleNewChatEntry() {
 
 function handleGoToRobotPage() {
   sidebarDrawerVisible.value = false
-  goToRobotPage()
-}
-
-function goToRobotPage() {
-  router.push({ name: 'robots' })
+  openAgentManageDialog()
 }
 
 function switchStream() {
@@ -945,7 +1513,7 @@ function openSessionRobotDialog() {
 }
 
 async function applySessionRobot() {
-  sessionRobot.name = sessionRobotDraft.name.trim() || '当前机器人'
+  sessionRobot.name = sessionRobotDraft.name.trim() || '当前智能体'
   sessionRobot.avatar = sessionRobotDraft.avatar.trim()
   sessionRobot.systemPrompt = sessionRobotDraft.systemPrompt
   sessionRobotVisible.value = false
@@ -1082,6 +1650,13 @@ async function setActiveModel(configId: string) {
   activeModelConfigId.value = configId
   await loadCapabilities()
   await syncCurrentSessionMeta()
+}
+
+async function setActiveModelAndClose(configId: string) {
+  if (activeModelConfigId.value !== configId) {
+    await setActiveModel(configId)
+  }
+  configVisible.value = false
 }
 
 function openConfigDialog() {
@@ -1377,9 +1952,17 @@ onUnmounted(() => {
     sidebarDrawerVisible,
     newChatVisible,
     configVisible,
+    agentManageVisible,
+    mobileAgentEditorVisible,
+    mobileModelEditorVisible,
+    desktopModelEditorVisible,
     sessionRobotVisible,
     memoryVisible,
     savingConfig,
+    savingAgentTemplates,
+    savingMobileAgent,
+    savingMobileModel,
+    savingDesktopModel,
     loadingModels,
     testingConnection,
     savingMemory,
@@ -1391,14 +1974,26 @@ onUnmounted(() => {
     deletingSessionId,
     robotTemplates,
     selectedNewChatRobotId,
+    editingAgentId,
+    mobileAgentEditorMode,
+    editingMobileAgentId,
+    mobileModelEditorMode,
+    editingMobileModelId,
+    desktopModelEditorMode,
+    editingDesktopModelId,
+    editingAgent,
     submittedForms,
     isChatResponding,
     modelConfigs,
+    modelOptionsMap,
     editingConfigId,
     activeModelConfigId,
     editingConfig,
     sessionRobotDraft,
     memoryDraft,
+    mobileAgentDraft,
+    mobileModelDraft,
+    desktopModelDraft,
     mobileOverlayProps,
     currentRobotLabel,
     currentModelLabel,
@@ -1413,9 +2008,10 @@ onUnmounted(() => {
     showStreamToggle,
     showThinkingToggle,
     formActivitySlots,
-    modelDropdownOptions,
     editingModelOptions,
     temperatureValue,
+    mobileModelTemperatureValue,
+    desktopModelTemperatureValue,
     memoryUpdatedLabel,
     currentMemory,
     providerOptions,
@@ -1427,14 +2023,39 @@ onUnmounted(() => {
     switchStream,
     switchThinking,
     switchModel,
+    openConfigDialog,
     refreshEditingModels,
     handleTestConnection,
     handleProviderChange,
     saveAllModelConfigs,
+    openMobileModelCreateDialog,
+    openMobileModelEditDialog,
+    openDesktopModelCreateDialog,
+    openDesktopModelEditDialog,
+    handleMobileModelProviderChange,
+    handleDesktopModelProviderChange,
+    refreshMobileModelOptions,
+    refreshDesktopModelOptions,
+    handleMobileModelTestConnection,
+    handleDesktopModelTestConnection,
+    saveMobileModel,
+    saveDesktopModel,
+    removeMobileModel,
+    removeDesktopModel,
     selectEditingConfig,
     setActiveModel,
+    setActiveModelAndClose,
     removeModelConfig,
     addModelConfig,
+    openAgentManageDialog,
+    addAgentTemplate,
+    openMobileAgentCreateDialog,
+    openMobileAgentEditDialog,
+    removeAgentTemplate,
+    removeMobileAgent,
+    selectEditingAgent,
+    saveMobileAgent,
+    saveAgentTemplates,
     openSessionRobotDialog,
     applySessionRobot,
     openMemoryDialog,

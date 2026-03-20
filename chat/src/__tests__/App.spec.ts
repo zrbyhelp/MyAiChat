@@ -47,9 +47,9 @@ function createResponse(payload: unknown) {
 }
 
 describe('App', () => {
-  afterEach(() => {
+  afterEach(async () => {
     fetchMock.mockReset()
-    router.push('/')
+    await router.push('/')
   })
 
   it('loads chat page with configured model list and current selection', async () => {
@@ -100,9 +100,13 @@ describe('App', () => {
               preview: '你好',
               createdAt: '2026-03-18T08:00:00.000Z',
               updatedAt: '2026-03-18T08:00:00.000Z',
-              robotName: '当前机器人',
+              robotName: '当前智能体',
               modelConfigId: 'cfg-1',
               modelLabel: 'DeepSeek 线上',
+              usage: {
+                promptTokens: 12,
+                completionTokens: 34,
+              },
             },
           ],
         })
@@ -130,15 +134,26 @@ describe('App', () => {
             preview: '你好',
             createdAt: '2026-03-18T08:00:00.000Z',
             updatedAt: '2026-03-18T08:00:00.000Z',
-            robotName: '当前机器人',
+            robotName: '当前智能体',
             modelConfigId: 'cfg-1',
             modelLabel: 'DeepSeek 线上',
             robot: {
-              name: '当前机器人',
+              name: '当前智能体',
               avatar: '',
               systemPrompt: '',
             },
             messages: [],
+            memory: {
+              summary: '',
+              updatedAt: '',
+              sourceMessageCount: 0,
+              threshold: 20,
+              recentMessageLimit: 10,
+            },
+            usage: {
+              promptTokens: 12,
+              completionTokens: 34,
+            },
           },
         })
       }
@@ -146,7 +161,7 @@ describe('App', () => {
       throw new Error(`Unhandled request: ${url}`)
     })
 
-    router.push('/')
+    await router.push('/')
     await router.isReady()
 
     const wrapper = mount(App, {
@@ -181,12 +196,14 @@ describe('App', () => {
       },
     })
 
+    await router.push('/messages')
+    await flushPromises()
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledTimes(5)
-    expect(wrapper.text()).toContain('当前机器人')
+    expect(wrapper.text()).toContain('当前智能体')
     expect(wrapper.text()).toContain('DeepSeek 线上')
-    expect(wrapper.text()).toContain('设置机器人')
+    expect(wrapper.text()).toContain('设置智能体')
     expect(wrapper.text()).toContain('测试会话')
   })
 })

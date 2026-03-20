@@ -20,7 +20,7 @@ export const DEFAULT_MODEL_CONFIGS = {
 export const DEFAULT_ROBOTS = [
   {
     id: 'robot-default',
-    name: '默认机器人',
+    name: '默认智能体',
     description: '',
     avatar: '',
     systemPrompt: '',
@@ -28,7 +28,7 @@ export const DEFAULT_ROBOTS = [
 ]
 
 export const DEFAULT_SESSION_ROBOT = {
-  name: '当前机器人',
+  name: '当前智能体',
   avatar: '',
   systemPrompt: '',
 }

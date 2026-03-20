@@ -46,24 +46,7 @@
               </template>
             </TButton>
           </TSpace>
-          <div class="chatbot-header-left">
-            <div class="token-stats" title="当前会话真实 Token 统计">
-              <TStatistic
-                class="token-stat-card token-stat-card-prompt"
-                prefix="↑"
-                :value="sessionPromptTokens"
-                :animation="promptTokenAnimation"
-                :animation-start="promptTokenAnimationStart"
-              />
-              <TStatistic
-                class="token-stat-card token-stat-card-completion"
-                prefix="↓"
-                :value="sessionCompletionTokens"
-                :animation="completionTokenAnimation"
-                :animation-start="completionTokenAnimationStart"
-              />
-            </div>
-          </div>
+
         </div>
         <div class="chatbot">
           <t-chatbot
@@ -75,7 +58,6 @@
             :is-stream-load="effectiveStream"
             :on-message-change="handleChatMessageChange"
             @messageChange="handleChatMessageChange"
-            class="chatbot-instance"
           >
             <template v-for="slot in formActivitySlots" :key="slot.slotName" #[slot.slotName]>
               <div class="chat-form-card">
@@ -177,16 +159,12 @@
                   </template>
                   <span class="footer-button-label">思考</span>
                 </TButton>
-                <TDropdown :options="modelDropdownOptions" trigger="click" @click="switchModel">
-                  <TButton shape="round" variant="outline" :disabled="!modelConfigs.length">
-                    <template #icon>
-                      <AiEducationIcon />
-                    </template>
-                    <span class="footer-button-label footer-model-label">{{
-                      currentModelLabel
-                    }}</span>
-                  </TButton>
-                </TDropdown>
+                <TButton shape="round" variant="outline" @click="openConfigDialog">
+                  <template #icon>
+                    <SettingIcon />
+                  </template>
+                  <span class="footer-button-label footer-model-label">{{ currentModelLabel }}</span>
+                </TButton>
               </TSpace>
             </template>
           </t-chatbot>
@@ -216,18 +194,17 @@
     />
   </TDrawer>
 
-  <component
-    :is="isMobile ? TDrawer : TDialog"
+  <TDrawer
+    v-if="isMobile"
     v-model:visible="newChatVisible"
-    :header="isMobile ? false : '选择机器人'"
-    v-bind="
-      isMobile ? mobileOverlayProps : { width: '560px', confirmBtn: { content: '开始新聊天' } }
-    "
-    @confirm="confirmStartNewChat"
+    :header="false"
+    placement="right"
+    size="100%"
+    :footer="false"
   >
     <div class="mobile-overlay-body">
-      <div v-if="isMobile" class="mobile-overlay-topbar">
-        <div class="mobile-overlay-title">选择机器人</div>
+      <div class="mobile-overlay-topbar">
+        <div class="mobile-overlay-title">选择智能体</div>
         <TButton variant="text" @click="newChatVisible = false">关闭</TButton>
       </div>
       <div v-if="robotTemplates.length" class="robot-picker-list">
@@ -240,47 +217,229 @@
         >
           <div class="robot-picker-avatar">
             <img v-if="item.avatar" :src="item.avatar" alt="" />
-            <span v-else>{{ (item.name || '机').slice(0, 1) }}</span>
+            <span v-else>{{ (item.name || '智').slice(0, 1) }}</span>
           </div>
-          <div class="robot-picker-name">{{ item.name || '未命名机器人' }}</div>
+          <div class="robot-picker-name">{{ item.name || '未命名智能体' }}</div>
           <div class="robot-picker-desc">{{ item.description || '暂无简介' }}</div>
         </div>
       </div>
-      <div v-else class="history-empty">暂无机器人卡片，请先去“设置机器人”里维护</div>
-      <div v-if="isMobile" class="mobile-overlay-actions">
+      <div v-else class="history-empty">暂无智能体卡片，请先去“设置智能体”里维护</div>
+      <div class="mobile-overlay-actions drawer-actions">
         <TButton block theme="primary" @click="confirmStartNewChat">开始新聊天</TButton>
       </div>
     </div>
-  </component>
-
-  <component
-    :is="isMobile ? TDrawer : TDialog"
-    v-model:visible="configVisible"
-    :header="isMobile ? false : '模型配置'"
-    v-bind="
-      isMobile
-        ? mobileOverlayProps
-        : { width: '900px', confirmBtn: { content: '保存全部配置', loading: savingConfig } }
-    "
-    @confirm="saveAllModelConfigs"
+  </TDrawer>
+  <TDialog
+    v-else
+    v-model:visible="newChatVisible"
+    header="选择智能体"
+    width="560px"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
   >
     <div class="mobile-overlay-body">
-      <div v-if="isMobile" class="mobile-overlay-topbar">
-        <div class="mobile-overlay-title">模型配置</div>
-        <TButton variant="text" @click="configVisible = false">关闭</TButton>
+      <div v-if="robotTemplates.length" class="robot-picker-list">
+        <div
+          v-for="item in robotTemplates"
+          :key="item.id"
+          class="robot-picker-item"
+          :class="{ active: item.id === selectedNewChatRobotId }"
+          @click="selectedNewChatRobotId = item.id"
+        >
+          <div class="robot-picker-avatar">
+            <img v-if="item.avatar" :src="item.avatar" alt="" />
+            <span v-else>{{ (item.name || '智').slice(0, 1) }}</span>
+          </div>
+          <div class="robot-picker-name">{{ item.name || '未命名智能体' }}</div>
+          <div class="robot-picker-desc">{{ item.description || '暂无简介' }}</div>
+        </div>
       </div>
+      <div v-else class="history-empty">暂无智能体卡片，请先去“设置智能体”里维护</div>
+      <div class="mobile-overlay-actions drawer-actions">
+        <TButton block theme="primary" @click="confirmStartNewChat">开始新聊天</TButton>
+      </div>
+    </div>
+  </TDialog>
+
+  <TDrawer
+    v-if="isMobile"
+    v-model:visible="agentManageVisible"
+    placement="right"
+    :footer="false"
+  >
+    <template #header>
+      设置智能体
+    </template>
+    <div class="mobile-overlay-body">
+      <div class="config-layout" :class="{ mobile: isMobile }">
+        <div class="config-list">
+          <TButton block variant="outline" @click="openMobileAgentCreateDialog">新增智能体</TButton>
+          <div v-if="robotTemplates.length" class="config-list-body">
+            <div
+              v-for="(item, index) in robotTemplates"
+              :key="item.id"
+              class="config-card"
+            >
+              <div class="config-card-head">
+                <span class="config-card-name">{{ item.name || `智能体 ${index + 1}` }}</span>
+              </div>
+              <div class="config-card-meta">{{ item.description || '暂无简介' }}</div>
+              <div class="config-card-meta">{{ item.systemPrompt || '未填写 System Prompt' }}</div>
+              <TSpace align="center" size="small">
+                <TButton variant="text" size="small" @click.stop="openMobileAgentEditDialog(item.id)"
+                  >编辑</TButton
+                >
+                <TButton
+                  variant="text"
+                  size="small"
+                  theme="danger"
+                  :loading="savingMobileAgent"
+                  @click.stop="removeMobileAgent(item.id)"
+                  >删除</TButton
+                >
+              </TSpace>
+            </div>
+          </div>
+          <div v-else class="config-empty">暂无智能体配置</div>
+        </div>
+      </div>
+    </div>
+  </TDrawer>
+  <TDrawer
+    v-if="isMobile"
+    v-model:visible="mobileAgentEditorVisible"
+    placement="bottom"
+    size="80%"
+    :footer="false"
+  >
+    <template #header>
+      {{ mobileAgentEditorMode === 'edit' ? '编辑智能体' : '新增智能体' }}
+    </template>
+    <div class="mobile-overlay-body">
+      <TForm label-align="top">
+        <TFormItem label="名称">
+          <TInput v-model="mobileAgentDraft.name" placeholder="例如：销售顾问 / 数据分析师" />
+        </TFormItem>
+        <TFormItem label="简介">
+          <TInput v-model="mobileAgentDraft.description" placeholder="用于卡片展示的说明" />
+        </TFormItem>
+        <TFormItem label="头像">
+          <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
+        </TFormItem>
+        <TFormItem label="System Prompt">
+          <TTextarea
+            v-model="mobileAgentDraft.systemPrompt"
+            :autosize="{ minRows: 5, maxRows: 8 }"
+          />
+        </TFormItem>
+      </TForm>
+      <div class="mobile-overlay-actions drawer-actions">
+        <TButton block theme="primary" :loading="savingMobileAgent" @click="saveMobileAgent">
+          {{ mobileAgentEditorMode === 'edit' ? '保存修改' : '新增智能体' }}
+        </TButton>
+      </div>
+    </div>
+  </TDrawer>
+  <TDialog
+    v-if="!isMobile"
+    v-model:visible="agentManageVisible"
+    header="设置智能体"
+    width="900px"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
+  >
+    <div class="mobile-overlay-body">
       <div class="config-layout" :class="{ mobile: isMobile }">
         <div class="config-list">
           <div class="config-list-header">
-            <span class="config-title">已配置模型</span>
+            <span class="config-title">已配置智能体</span>
           </div>
+          <div v-if="robotTemplates.length" class="config-list-body">
+            <div
+              v-for="(item, index) in robotTemplates"
+              :key="item.id"
+              class="config-card"
+              :class="{ active: item.id === editingAgentId }"
+              @click="selectEditingAgent(item.id)"
+            >
+              <div class="config-card-head">
+                <span class="config-card-name">{{ item.name || `智能体 ${index + 1}` }}</span>
+              </div>
+              <div class="config-card-meta">{{ item.description || '暂无简介' }}</div>
+              <div class="config-card-meta">{{ item.systemPrompt || '未填写 System Prompt' }}</div>
+              <TSpace align="center" size="small">
+                <TButton
+                  variant="text"
+                  size="small"
+                  theme="danger"
+                  @click.stop="removeAgentTemplate(item.id)"
+                  >删除</TButton
+                >
+              </TSpace>
+            </div>
+          </div>
+          <div v-else class="config-empty">暂无智能体配置</div>
+          <TButton block variant="outline" @click="addAgentTemplate">新增智能体</TButton>
+        </div>
+
+        <div class="config-editor">
+          <div v-if="editingAgent" class="session-robot-form-card">
+            <div class="config-title">智能体详情</div>
+            <TForm label-align="top">
+              <TFormItem label="名称">
+                <TInput v-model="editingAgent.name" placeholder="例如：销售顾问 / 数据分析师" />
+              </TFormItem>
+              <TFormItem label="简介">
+                <TInput
+                  v-model="editingAgent.description"
+                  placeholder="用于卡片展示的说明"
+                />
+              </TFormItem>
+              <TFormItem label="头像">
+                <TInput v-model="editingAgent.avatar" placeholder="请输入头像图片 URL" />
+              </TFormItem>
+              <TFormItem label="System Prompt">
+                <TTextarea
+                  v-model="editingAgent.systemPrompt"
+                  :autosize="{ minRows: 5, maxRows: 8 }"
+                />
+              </TFormItem>
+            </TForm>
+          </div>
+          <div v-else class="config-empty">请选择一个智能体</div>
+        </div>
+      </div>
+      <div class="mobile-overlay-actions drawer-actions">
+        <TButton block theme="primary" :loading="savingAgentTemplates" @click="saveAgentTemplates"
+          >保存智能体</TButton
+        >
+      </div>
+    </div>
+  </TDialog>
+
+  <TDrawer
+    v-if="isMobile"
+    v-model:visible="configVisible"
+    placement="right"
+    :footer="false"
+  >
+
+      <template #header>
+        模型配置
+      </template>
+    <div class="mobile-overlay-body">
+      <div class="config-layout" :class="{ mobile: isMobile }">
+        <div class="config-list">
+          <TButton block variant="outline" @click="openMobileModelCreateDialog">增加模型</TButton>
           <div v-if="modelConfigs.length" class="config-list-body">
             <div
               v-for="item in modelConfigs"
               :key="item.id"
               class="config-card"
-              :class="{ active: item.id === editingConfigId }"
-              @click="selectEditingConfig(item.id)"
+              :class="{ active: item.id === activeModelConfigId }"
+              @click="setActiveModelAndClose(item.id)"
             >
               <div class="config-card-head">
                 <span class="config-card-name">{{ item.name || '未命名配置' }}</span>
@@ -291,111 +450,248 @@
               </div>
               <div class="config-card-meta">{{ item.baseUrl || '未填写地址' }}</div>
               <TSpace align="center" size="small">
-                <TButton variant="text" size="small" @click.stop="setActiveModel(item.id)"
-                  >设为当前</TButton
+                <TButton variant="text" size="small" @click.stop="openMobileModelEditDialog(item.id)"
+                  >编辑</TButton
                 >
                 <TButton
                   variant="text"
                   size="small"
                   theme="danger"
-                  @click.stop="removeModelConfig(item.id)"
+                  :loading="savingMobileModel"
+                  @click.stop="removeMobileModel(item.id)"
                   >删除</TButton
                 >
               </TSpace>
             </div>
           </div>
           <div v-else class="config-empty">暂无模型配置</div>
-          <TButton block variant="outline" @click="addModelConfig">增加模型</TButton>
         </div>
-
-        <div class="config-editor">
-          <div class="config-title">配置详情</div>
-          <TForm label-align="top">
-            <TFormItem label="配置名称">
-              <TInput
-                v-model="editingConfig.name"
-                placeholder="例如：DeepSeek 生产环境 / 本地 Ollama"
-              />
-            </TFormItem>
-            <TFormItem label="接入方式">
-              <TSelect
-                v-model="editingConfig.provider"
-                :options="providerOptions"
-                @change="handleProviderChange"
-              />
-            </TFormItem>
-            <TFormItem label="Base URL">
-              <TInput v-model="editingConfig.baseUrl" placeholder="请输入 AI 服务地址" />
-            </TFormItem>
-            <TFormItem v-if="editingConfig.provider === 'openai'" label="API Key">
-              <TInput
-                v-model="editingConfig.apiKey"
-                type="password"
-                placeholder="请输入 OpenAI API Key"
-              />
-            </TFormItem>
-            <TFormItem label="模型">
-              <TSpace align="center" class="config-model-row">
-                <TSelect
-                  v-model="editingConfig.model"
-                  class="config-model-select"
-                  :loading="loadingModels"
-                  :options="editingModelOptions"
-                  placeholder="请选择模型"
-                />
-                <TButton variant="outline" @click="refreshEditingModels">刷新模型</TButton>
-              </TSpace>
-            </TFormItem>
-            <TFormItem label="Temperature">
-              <TInputNumber
-                v-model="temperatureValue"
-                :decimal-places="1"
-                :step="0.1"
-                :min="0"
-                :max="2"
-              />
-            </TFormItem>
-            <TSpace align="center" class="config-test-row">
-              <TButton variant="outline" :loading="testingConnection" @click="handleTestConnection"
-                >测试连接</TButton
-              >
-              <span class="dialog-tip">测试成功后会更新当前配置的模型候选列表</span>
-            </TSpace>
-          </TForm>
-        </div>
-      </div>
-      <div v-if="isMobile" class="mobile-overlay-actions">
-        <TButton block theme="primary" :loading="savingConfig" @click="saveAllModelConfigs"
-          >保存全部配置</TButton
-        >
       </div>
     </div>
-  </component>
-
-  <component
-    :is="isMobile ? TDrawer : TDialog"
-    v-model:visible="sessionRobotVisible"
-    :header="isMobile ? false : '编辑当前机器人'"
-    v-bind="
-      isMobile
-        ? mobileOverlayProps
-        : { width: '560px', confirmBtn: { content: '应用到当前上下文' } }
-    "
-    @confirm="applySessionRobot"
+  </TDrawer>
+  <TDrawer
+    v-if="isMobile"
+    v-model:visible="mobileModelEditorVisible"
+    placement="bottom"
+    size="80%"
+    :footer="false"
+  >
+    <template #header>
+      {{ mobileModelEditorMode === 'edit' ? '编辑模型配置' : '新增模型配置' }}
+    </template>
+    <div class="mobile-overlay-body">
+      <TForm label-align="top">
+        <TFormItem label="配置名称">
+          <TInput
+            v-model="mobileModelDraft.name"
+            placeholder="例如：DeepSeek 生产环境 / 本地 Ollama"
+          />
+        </TFormItem>
+        <TFormItem label="接入方式">
+          <TSelect
+            v-model="mobileModelDraft.provider"
+            :options="providerOptions"
+            @change="handleMobileModelProviderChange"
+          />
+        </TFormItem>
+        <TFormItem label="Base URL">
+          <TInput v-model="mobileModelDraft.baseUrl" placeholder="请输入 AI 服务地址" />
+        </TFormItem>
+        <TFormItem v-if="mobileModelDraft.provider === 'openai'" label="API Key">
+          <TInput
+            v-model="mobileModelDraft.apiKey"
+            type="password"
+            placeholder="请输入 OpenAI API Key"
+          />
+        </TFormItem>
+        <TFormItem label="模型">
+          <div class="mobile-model-picker">
+            <TButton variant="outline" @click="refreshMobileModelOptions">刷新模型</TButton>
+            <div v-if="modelOptionsMap[mobileModelDraft.id]?.length" class="mobile-model-button-list">
+              <TButton
+                v-for="item in modelOptionsMap[mobileModelDraft.id] || []"
+                :key="item.id"
+                :theme="mobileModelDraft.model === item.id ? 'primary' : 'default'"
+                variant="outline"
+                @click="mobileModelDraft.model = item.id"
+              >
+                {{ item.label }}
+              </TButton>
+            </div>
+            <div v-else class="config-empty">暂无模型候选，请先刷新模型</div>
+          </div>
+        </TFormItem>
+        <TFormItem label="Temperature">
+          <TInputNumber
+            v-model="mobileModelTemperatureValue"
+            :decimal-places="1"
+            :step="0.1"
+            :min="0"
+            :max="2"
+          />
+        </TFormItem>
+        <TSpace align="center" class="config-test-row">
+          <TButton variant="outline" :loading="testingConnection" @click="handleMobileModelTestConnection"
+            >测试连接</TButton
+          >
+          <span class="dialog-tip">测试成功后会更新当前配置的模型候选列表</span>
+        </TSpace>
+      </TForm>
+      <div class="mobile-overlay-actions drawer-actions">
+        <TButton block theme="primary" :loading="savingMobileModel" @click="saveMobileModel">
+          {{ mobileModelEditorMode === 'edit' ? '保存修改' : '新增模型配置' }}
+        </TButton>
+      </div>
+    </div>
+  </TDrawer>
+  <TDialog
+    v-else
+    v-model:visible="configVisible"
+    header="模型配置"
+    width="900px"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
   >
     <div class="mobile-overlay-body">
-      <div v-if="isMobile" class="mobile-overlay-topbar">
-        <div class="mobile-overlay-title">编辑当前机器人</div>
+      <div class="desktop-config-grid-shell">
+        <div class="desktop-config-toolbar">
+          <div class="config-list-header">
+            <span class="config-title">已配置模型</span>
+          </div>
+          <TButton variant="outline" @click="openDesktopModelCreateDialog">增加模型</TButton>
+        </div>
+        <div v-if="modelConfigs.length" class="desktop-config-grid">
+            <div
+              v-for="item in modelConfigs"
+              :key="item.id"
+              class="config-card"
+              :class="{ active: item.id === activeModelConfigId }"
+              @click="setActiveModelAndClose(item.id)"
+            >
+              <div class="config-card-head">
+                <span class="config-card-name">{{ item.name || '未命名配置' }}</span>
+                <span v-if="item.id === activeModelConfigId" class="config-badge">当前使用</span>
+              </div>
+              <div class="config-card-meta">
+                {{ item.provider }} / {{ item.model || '未选择模型' }}
+              </div>
+              <div class="config-card-meta">{{ item.baseUrl || '未填写地址' }}</div>
+              <TSpace align="center" size="small">
+                <TButton variant="text" size="small" @click.stop="openDesktopModelEditDialog(item.id)"
+                  >编辑</TButton
+                >
+                <TButton
+                  variant="text"
+                  size="small"
+                  theme="danger"
+                  :loading="savingDesktopModel"
+                  @click.stop="removeDesktopModel(item.id)"
+                  >删除</TButton
+                >
+              </TSpace>
+            </div>
+        </div>
+        <div v-else class="config-empty">暂无模型配置</div>
+      </div>
+    </div>
+  </TDialog>
+  <TDialog
+    v-if="!isMobile"
+    v-model:visible="desktopModelEditorVisible"
+    :header="desktopModelEditorMode === 'edit' ? '编辑模型配置' : '新增模型配置'"
+    width="640px"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
+  >
+    <div class="mobile-overlay-body">
+      <TForm label-align="top">
+        <TFormItem label="配置名称">
+          <TInput
+            v-model="desktopModelDraft.name"
+            placeholder="例如：DeepSeek 生产环境 / 本地 Ollama"
+          />
+        </TFormItem>
+        <TFormItem label="接入方式">
+          <TSelect
+            v-model="desktopModelDraft.provider"
+            :options="providerOptions"
+            @change="handleDesktopModelProviderChange"
+          />
+        </TFormItem>
+        <TFormItem label="Base URL">
+          <TInput v-model="desktopModelDraft.baseUrl" placeholder="请输入 AI 服务地址" />
+        </TFormItem>
+        <TFormItem v-if="desktopModelDraft.provider === 'openai'" label="API Key">
+          <TInput
+            v-model="desktopModelDraft.apiKey"
+            type="password"
+            placeholder="请输入 OpenAI API Key"
+          />
+        </TFormItem>
+        <TFormItem label="模型">
+          <TSpace align="center" class="config-model-row">
+            <TSelect
+              v-model="desktopModelDraft.model"
+              class="config-model-select"
+              :loading="loadingModels"
+              :options="
+                (modelOptionsMap[desktopModelDraft.id] || []).map((item) => ({
+                  label: item.label,
+                  value: item.id,
+                }))
+              "
+              placeholder="请选择模型"
+            />
+            <TButton variant="outline" @click="refreshDesktopModelOptions">刷新模型</TButton>
+          </TSpace>
+        </TFormItem>
+        <TFormItem label="Temperature">
+          <TInputNumber
+            v-model="desktopModelTemperatureValue"
+            :decimal-places="1"
+            :step="0.1"
+            :min="0"
+            :max="2"
+          />
+        </TFormItem>
+        <TSpace align="center" class="config-test-row">
+          <TButton variant="outline" :loading="testingConnection" @click="handleDesktopModelTestConnection"
+            >测试连接</TButton
+          >
+          <span class="dialog-tip">测试成功后会更新当前配置的模型候选列表</span>
+        </TSpace>
+      </TForm>
+      <div class="mobile-overlay-actions drawer-actions">
+        <TButton block theme="primary" :loading="savingDesktopModel" @click="saveDesktopModel">
+          {{ desktopModelEditorMode === 'edit' ? '保存修改' : '新增模型配置' }}
+        </TButton>
+      </div>
+    </div>
+  </TDialog>
+
+  <TDrawer
+    v-if="isMobile"
+    v-model:visible="sessionRobotVisible"
+    :header="false"
+    placement="right"
+    size="100%"
+    :footer="false"
+  >
+    <div class="mobile-overlay-body">
+      <div class="mobile-overlay-topbar">
+        <div class="mobile-overlay-title">编辑当前智能体</div>
         <TButton variant="text" @click="sessionRobotVisible = false">关闭</TButton>
       </div>
       <div class="session-robot-shell">
         <div class="session-robot-hero">
           <div class="session-robot-avatar">
             <img v-if="sessionRobotDraft.avatar" :src="sessionRobotDraft.avatar" alt="" />
-            <span v-else>{{ (sessionRobotDraft.name || '机').slice(0, 1) }}</span>
+            <span v-else>{{ (sessionRobotDraft.name || '智').slice(0, 1) }}</span>
           </div>
           <div class="session-robot-hero-text">
-            <div class="session-robot-hero-title">{{ sessionRobotDraft.name || '当前机器人' }}</div>
+            <div class="session-robot-hero-title">{{ sessionRobotDraft.name || '当前智能体' }}</div>
             <div class="session-robot-hero-subtitle">修改后仅作用于当前会话上下文</div>
           </div>
         </div>
@@ -416,25 +712,65 @@
           </TForm>
         </div>
       </div>
-      <div v-if="isMobile" class="mobile-overlay-actions">
+      <div class="mobile-overlay-actions drawer-actions">
         <TButton block theme="primary" @click="applySessionRobot">应用到当前上下文</TButton>
       </div>
     </div>
-  </component>
-
-  <component
-    :is="isMobile ? TDrawer : TDialog"
-    v-model:visible="memoryVisible"
-    :header="isMobile ? false : '会话记忆'"
-    v-bind="
-      isMobile
-        ? mobileOverlayProps
-        : { width: '640px', confirmBtn: { content: '保存记忆配置', loading: savingMemory } }
-    "
-    @confirm="saveSessionMemoryConfig"
+  </TDrawer>
+  <TDialog
+    v-else
+    v-model:visible="sessionRobotVisible"
+    header="编辑当前智能体"
+    width="560px"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
   >
     <div class="mobile-overlay-body">
-      <div v-if="isMobile" class="mobile-overlay-topbar">
+      <div class="session-robot-shell">
+        <div class="session-robot-hero">
+          <div class="session-robot-avatar">
+            <img v-if="sessionRobotDraft.avatar" :src="sessionRobotDraft.avatar" alt="" />
+            <span v-else>{{ (sessionRobotDraft.name || '智').slice(0, 1) }}</span>
+          </div>
+          <div class="session-robot-hero-text">
+            <div class="session-robot-hero-title">{{ sessionRobotDraft.name || '当前智能体' }}</div>
+            <div class="session-robot-hero-subtitle">修改后仅作用于当前会话上下文</div>
+          </div>
+        </div>
+        <div class="session-robot-form-card">
+          <TForm label-align="top">
+            <TFormItem label="名称">
+              <TInput v-model="sessionRobotDraft.name" placeholder="例如：销售顾问 / 数据分析师" />
+            </TFormItem>
+            <TFormItem label="头像">
+              <TInput v-model="sessionRobotDraft.avatar" placeholder="请输入头像图片 URL" />
+            </TFormItem>
+            <TFormItem label="System Prompt">
+              <TTextarea
+                v-model="sessionRobotDraft.systemPrompt"
+                :autosize="{ minRows: 5, maxRows: 8 }"
+              />
+            </TFormItem>
+          </TForm>
+        </div>
+      </div>
+      <div class="mobile-overlay-actions drawer-actions">
+        <TButton block theme="primary" @click="applySessionRobot">应用到当前上下文</TButton>
+      </div>
+    </div>
+  </TDialog>
+
+  <TDrawer
+    v-if="isMobile"
+    v-model:visible="memoryVisible"
+    :header="false"
+    placement="right"
+    size="100%"
+    :footer="false"
+  >
+    <div class="mobile-overlay-body">
+      <div class="mobile-overlay-topbar">
         <div class="mobile-overlay-title">会话记忆</div>
         <TButton variant="text" @click="memoryVisible = false">关闭</TButton>
       </div>
@@ -462,13 +798,54 @@
           >
         </TSpace>
       </TForm>
-      <div v-if="isMobile" class="mobile-overlay-actions">
+      <div class="mobile-overlay-actions drawer-actions">
         <TButton block theme="primary" :loading="savingMemory" @click="saveSessionMemoryConfig"
           >保存记忆配置</TButton
         >
       </div>
     </div>
-  </component>
+  </TDrawer>
+  <TDialog
+    v-else
+    v-model:visible="memoryVisible"
+    header="会话记忆"
+    width="640px"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
+  >
+    <div class="mobile-overlay-body">
+      <TForm label-align="top">
+        <TFormItem label="压缩阈值">
+          <TInputNumber v-model="memoryDraft.threshold" :min="1" :step="1" />
+        </TFormItem>
+        <TFormItem label="最近原始消息保留条数">
+          <TInputNumber v-model="memoryDraft.recentMessageLimit" :min="1" :step="1" />
+        </TFormItem>
+        <TFormItem label="长期记忆摘要">
+          <TTextarea v-model="memoryDraft.summary" :autosize="{ minRows: 8, maxRows: 14 }" />
+        </TFormItem>
+        <div class="memory-meta">
+          <div>最近更新时间：{{ memoryUpdatedLabel }}</div>
+          <div>已覆盖消息数：{{ currentMemory.sourceMessageCount }}</div>
+        </div>
+        <TSpace align="center" size="small" class="memory-action-row">
+          <TButton
+            theme="danger"
+            variant="outline"
+            :loading="clearingMemory"
+            @click="clearCurrentSessionMemory"
+            >清空记忆</TButton
+          >
+        </TSpace>
+      </TForm>
+      <div class="mobile-overlay-actions drawer-actions">
+        <TButton block theme="primary" :loading="savingMemory" @click="saveSessionMemoryConfig"
+          >保存记忆配置</TButton
+        >
+      </div>
+    </div>
+  </TDialog>
 </template>
 
 <script setup lang="ts">
@@ -478,7 +855,6 @@ import {
   CheckboxGroup as TCheckboxGroup,
   Dialog as TDialog,
   Drawer as TDrawer,
-  Dropdown as TDropdown,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
@@ -508,9 +884,17 @@ const {
   sidebarDrawerVisible,
   newChatVisible,
   configVisible,
+  agentManageVisible,
+  mobileAgentEditorVisible,
+  mobileModelEditorVisible,
+  desktopModelEditorVisible,
   sessionRobotVisible,
   memoryVisible,
   savingConfig,
+  savingAgentTemplates,
+  savingMobileAgent,
+  savingMobileModel,
+  savingDesktopModel,
   loadingModels,
   testingConnection,
   savingMemory,
@@ -522,15 +906,22 @@ const {
   deletingSessionId,
   robotTemplates,
   selectedNewChatRobotId,
+  editingAgentId,
+  mobileAgentEditorMode,
+  desktopModelEditorMode,
+  editingAgent,
   submittedForms,
   isChatResponding,
   modelConfigs,
   editingConfigId,
   activeModelConfigId,
   editingConfig,
+  modelOptionsMap,
   sessionRobotDraft,
   memoryDraft,
-  mobileOverlayProps,
+  mobileAgentDraft,
+  mobileModelDraft,
+  desktopModelDraft,
   currentRobotLabel,
   currentModelLabel,
   sessionPromptTokens,
@@ -544,9 +935,11 @@ const {
   showStreamToggle,
   showThinkingToggle,
   formActivitySlots,
-  modelDropdownOptions,
   editingModelOptions,
   temperatureValue,
+  mobileModelTemperatureValue,
+  desktopModelTemperatureValue,
+  mobileModelEditorMode,
   memoryUpdatedLabel,
   currentMemory,
   providerOptions,
@@ -557,15 +950,38 @@ const {
   submitChatForm,
   switchStream,
   switchThinking,
-  switchModel,
   refreshEditingModels,
   handleTestConnection,
   handleProviderChange,
   saveAllModelConfigs,
+  openConfigDialog,
   selectEditingConfig,
   setActiveModel,
+  setActiveModelAndClose,
   removeModelConfig,
   addModelConfig,
+  addAgentTemplate,
+  openMobileAgentCreateDialog,
+  openMobileAgentEditDialog,
+  openMobileModelCreateDialog,
+  openMobileModelEditDialog,
+  openDesktopModelCreateDialog,
+  openDesktopModelEditDialog,
+  handleDesktopModelProviderChange,
+  refreshDesktopModelOptions,
+  handleDesktopModelTestConnection,
+  handleMobileModelProviderChange,
+  refreshMobileModelOptions,
+  handleMobileModelTestConnection,
+  removeAgentTemplate,
+  removeMobileAgent,
+  removeMobileModel,
+  removeDesktopModel,
+  selectEditingAgent,
+  saveMobileAgent,
+  saveMobileModel,
+  saveDesktopModel,
+  saveAgentTemplates,
   openSessionRobotDialog,
   applySessionRobot,
   openMemoryDialog,

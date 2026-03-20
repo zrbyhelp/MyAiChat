@@ -4,16 +4,16 @@
       <div class="page-header-main">
         <TButton variant="outline" class="back-button" @click="goBack">返回聊天</TButton>
         <div class="page-heading">
-          <div class="title">机器人卡片</div>
+          <div class="title">智能体卡片</div>
           <div class="subtitle">
-            这里只维护可复用的机器人模板，不会直接影响聊天页当前上下文。
+            这里只维护可复用的智能体模板，不会直接影响聊天页当前上下文。
             <span v-if="isLoaded && !isSignedIn">未登录时可浏览页面，保存时会要求登录。</span>
           </div>
         </div>
       </div>
       <TSpace align="center" class="page-header-actions">
         <TButton v-if="isLoaded && !isSignedIn" theme="primary" variant="outline" @click="openSignInModal">登录</TButton>
-        <TButton variant="outline" @click="addRobot">新增卡片</TButton>
+        <TButton variant="outline" @click="addRobot">新增智能体</TButton>
         <TButton theme="primary" :loading="saving" @click="saveRobotCards">保存</TButton>
       </TSpace>
     </div>
@@ -21,7 +21,7 @@
     <div class="grid">
       <div v-for="(robot, index) in robots" :key="robot.id" class="card">
         <TSpace align="center" class="card-head">
-          <span class="card-title">机器人卡片 {{ index + 1 }}</span>
+          <span class="card-title">智能体卡片 {{ index + 1 }}</span>
           <TButton variant="text" theme="danger" @click="removeRobot(robot.id)">删除</TButton>
         </TSpace>
         <TForm label-align="top">
@@ -43,7 +43,7 @@
 
     <div class="mobile-actions">
       <TButton v-if="isLoaded && !isSignedIn" theme="primary" block @click="openSignInModal">登录</TButton>
-      <TButton variant="outline" block @click="addRobot">新增卡片</TButton>
+      <TButton variant="outline" block @click="addRobot">新增智能体</TButton>
       <TButton theme="primary" block :loading="saving" @click="saveRobotCards">保存</TButton>
     </div>
   </div>
@@ -62,7 +62,7 @@ import type { AIRobotCard } from '@/types/ai'
 function createRobotCard(): AIRobotCard {
   return {
     id: `robot-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    name: '新机器人',
+    name: '新智能体',
     description: '',
     avatar: '',
     systemPrompt: '',
@@ -99,7 +99,7 @@ async function loadRobots() {
     if (error instanceof UnauthorizedError) {
       return
     }
-    MessagePlugin.error(error instanceof Error ? error.message : '加载机器人失败')
+    MessagePlugin.error(error instanceof Error ? error.message : '加载智能体失败')
   }
 }
 
@@ -109,7 +109,7 @@ async function saveRobotCards() {
         const payload = robots.value.length
       ? robots.value.map((item, index) => ({
           ...item,
-          name: item.name.trim() || `机器人 ${index + 1}`,
+          name: item.name.trim() || `智能体 ${index + 1}`,
           description: item.description.trim(),
           avatar: item.avatar.trim(),
         }))
@@ -117,7 +117,7 @@ async function saveRobotCards() {
 
     const response = await saveRobots(payload)
     robots.value = response.robots
-    MessagePlugin.success('机器人卡片已保存')
+    MessagePlugin.success('智能体卡片已保存')
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return

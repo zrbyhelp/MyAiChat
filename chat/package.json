@@ -19,6 +19,7 @@
   "dependencies": {
     "@clerk/vue": "^2.0.5",
     "@tdesign-vue-next/chat": "^0.5.1",
+    "millify": "^6.1.0",
     "pinia": "^3.0.4",
     "tdesign-icons-vue-next": "^0.4.2",
     "tdesign-vue-next": "^1.18.5",

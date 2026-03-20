@@ -7,12 +7,12 @@
         </TButton>
       </div>
        <div class="history-sticky-actions">
-        <TButton theme="primary" variant="outline" block @click="emit('go-robots')">
-          设置机器人
+       <TButton theme="primary" variant="outline" block @click="emit('go-robots')">
+          设置智能体
         </TButton>
       </div>
       <div class="side-placeholder">
-        <div class="side-meta">当前机器人：{{ currentRobotLabel }}</div>
+        <div class="side-meta">当前智能体：{{ currentRobotLabel }}</div>
         <div class="side-meta">当前模型：{{ currentModelLabel }}</div>
       </div>
       <div class="history-title">历史聊天列表</div>
@@ -37,8 +37,8 @@
           <div class="history-item-preview">{{ item.preview || item.robotName || '暂无消息' }}</div>
           <div class="history-item-foot">
             <div class="history-item-usage">
-              <span class="usage-chip">↑{{ item.usage.promptTokens }}</span>
-              <span class="usage-chip">↓{{ item.usage.completionTokens }}</span>
+              <span class="usage-chip">↑ {{ formatUsageToken(item.usage.promptTokens) }}</span>
+              <span class="usage-chip">↓ {{ formatUsageToken(item.usage.completionTokens) }}</span>
             </div>
             <TButton
               variant="text"
@@ -59,6 +59,7 @@
 </template>
 
 <script setup lang="ts">
+import { millify } from 'millify'
 import { Button as TButton } from 'tdesign-vue-next'
 
 import type { ChatSessionSummary } from '@/types/ai'
@@ -77,6 +78,17 @@ const emit = defineEmits<{
   (event: 'open-session', id: string): void
   (event: 'delete-session', id: string): void
 }>()
+
+function formatUsageToken(value: number) {
+  if (!Number.isFinite(value)) {
+    return '0'
+  }
+
+  return millify(value, {
+    precision: 1,
+    lowercase: false,
+  })
+}
 
 function formatSessionTime(value: string) {
   if (!value) {

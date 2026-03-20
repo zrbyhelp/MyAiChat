@@ -30,6 +30,11 @@
   background: #fff;
 }
 
+.drawer-actions {
+  margin-top: auto;
+  z-index: 1;
+}
+
 .mobile-overlay-topbar {
   display: flex;
   align-items: center;
@@ -136,7 +141,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 0 20px;
+  padding: 0 20px 0px;
 }
 
 .chatbot {
@@ -151,8 +156,8 @@
 .chatbot-instance {
   /* tdesign-web-components/chatbot 可覆写主题变量（稳定生效） */
   --td-chat-item-default-bg: #ffffff;
-  --td-chat-item-primary-bg: #dcecff;
-  --td-chat-item-outline-border-color: #9bc1ff;
+  --td-chat-item-primary-bg: #ffffff;
+  --td-chat-item-outline-border-color: #dcdcdc;
   --td-chat-item-user-text-color: #123f80;
   --td-chat-item-content-max-width: 760px;
   --td-chat-item-text-radius: 14px;
@@ -174,13 +179,7 @@
   --chat-shell-bg-start: #ffffff;
   --chat-shell-bg-end: #f6f9ff;
   --chat-shell-glow: rgba(59, 130, 246, 0.1);
-  --chat-assistant-border: #d5deef;
-  --chat-assistant-bg-start: #ffffff;
-  --chat-assistant-bg-end: #f5f8ff;
   --chat-assistant-text: #1f2a3d;
-  --chat-user-border: #7cb2ff;
-  --chat-user-bg-start: #dceeff;
-  --chat-user-bg-end: #c9e2ff;
   --chat-user-text: #123f80;
   height: 100%;
   min-height: 0;
@@ -206,43 +205,24 @@
 }
 
 .chatbot-instance .t-chat__text--variant--outline .t-chat__detail {
-  border-radius: 14px !important;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
+  border-radius: 0 !important;
   max-width: min(78%, 700px);
+  border: 1px solid #dcdcdc !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
 }
 
 .chatbot-instance .t-chat__inner:not(.user) .t-chat__detail {
-  border: 1px solid var(--chat-assistant-border) !important;
-  background: linear-gradient(
-    180deg,
-    var(--chat-assistant-bg-start) 0%,
-    var(--chat-assistant-bg-end) 100%
-  ) !important;
-  box-shadow: 0 6px 18px rgba(31, 57, 114, 0.06) !important;
-}
-
-.chatbot-instance .t-chat__inner:not(.user):hover .t-chat__detail {
-  border-color: #c9d8f1;
-  box-shadow: 0 8px 20px rgba(31, 57, 114, 0.09);
+  border: 1px solid #dcdcdc !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
 }
 
 .chatbot-instance .t-chat__inner.user .t-chat__detail {
-  border: 1px solid var(--chat-user-border) !important;
-  background: linear-gradient(
-    135deg,
-    var(--chat-user-bg-start) 0%,
-    var(--chat-user-bg-end) 100%
-  ) !important;
-  box-shadow: 0 6px 16px rgba(45, 96, 218, 0.1) !important;
+  border: 1px solid #dcdcdc !important;
+  background: #ffffff !important;
+  box-shadow: none !important;
   max-width: min(70%, 620px);
-}
-
-.chatbot-instance .t-chat__inner.user:hover .t-chat__detail {
-  border-color: #9abaf7;
-  box-shadow: 0 8px 20px rgba(45, 96, 218, 0.14);
 }
 
 .chatbot-instance .t-chat__inner.user .t-chat__text__content {
@@ -254,23 +234,29 @@
 }
 
 .chatbot-instance .t-chat__inner .t-chat__text {
+  display: flex;
+  flex-direction: column;
   padding-top: 8px;
   padding-bottom: 8px;
 }
 
 .chatbot-instance .t-chat__inner .t-chat__base {
+  order: -1;
+  padding-left: 0;
+  padding-bottom: 6px;
   padding-left: 12px;
   font-size: 11px;
   color: #8a94a7;
 }
 
 .chatbot-instance .t-chat__inner.user .t-chat__base {
-  padding-right: 12px;
+  padding-right: 0;
   padding-left: 0;
+  text-align: right;
 }
 
 .chatbot-instance .t-chat__inner .t-chat__detail {
-  backdrop-filter: saturate(115%);
+  backdrop-filter: none;
 }
 
 .chatbot-instance .t-chat-sender {
@@ -465,6 +451,18 @@
   min-width: 0;
 }
 
+.mobile-model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-model-button-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .config-test-row,
 .memory-action-row {
   flex-wrap: wrap;
@@ -515,6 +513,41 @@
   color: #999;
   font-size: 13px;
   padding: 8px 0;
+}
+
+.desktop-config-grid-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.desktop-config-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desktop-config-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.desktop-config-grid .config-card {
+  min-width: 0;
+}
+
+@media (max-width: 1280px) {
+  .desktop-config-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .desktop-config-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .dialog-tip {
@@ -608,7 +641,7 @@
   }
 
   .chat-container {
-    padding: 0 12px calc(88px + env(safe-area-inset-bottom));
+    padding: 0 12px calc(68px + env(safe-area-inset-bottom));
   }
 
 
