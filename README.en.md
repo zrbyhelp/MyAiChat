@@ -3,54 +3,56 @@
   <a href="./README.en.md">English</a>
 </p>
 
-# myaichat
+<p align="center">
+  <img src="./image/myaichatlogo.png" alt="myaichat" width="480" />
+</p>
 
-`myaichat` is an AI conversation project focused on building a real messaging-style chat experience.
+`myaichat` is an AI conversation project centered on delivering a real messaging-style chat experience.
 
-It is not meant to be just a question-and-answer window. The goal is to make it feel closer to a real chat application: users can have ongoing conversations with AI characters, receive proactive messages from agents, observe interactions between multiple agents, and eventually extend the system toward group chat, character relationships, scene customization, and story progression.
+It is not just a question-and-answer window. The goal is to make it feel closer to a real social chat application: users can keep chatting with agents, receive proactive messages from agents, observe interactions between multiple agents, and eventually extend the system toward group chat, character relationships, scene setup, and story progression.
 
-The project aims to become a highly customizable character-and-scenario chat system with support for character setup, memory, proactive messaging, multi-character interaction, group chat, and future extensions such as vector memory, graph relationships, and visual presentation.
+The project is aimed at becoming a highly customizable character-and-scenario chat system with support for character setup, memory, proactive messaging, multi-character collaboration, group chat interaction, and future extensions such as vector memory, graph relationships, and visual presentation.
 
 The server currently supports two persistence drivers:
 
-- `file`: store runtime data in `main/data/*.json`
-- `mysql`: store runtime data in MySQL through Sequelize
+- `file`: stores runtime data in `main/data/*.json`
+- `mysql`: stores runtime data in MySQL through Sequelize
 
-The current version also uses `Clerk` as the unified authentication layer:
+The current version also integrates `Clerk` as the unified authentication layer:
 
-- `GitHub` sign-in
-- `Google` sign-in
-- `Email` sign-in
-- all business APIs require authentication
-- sessions, character cards, model configs, and memory are isolated per user
+- Supports `GitHub` sign-in
+- Supports `Google` sign-in
+- Supports `Email` sign-in
+- All business APIs require authentication
+- Sessions, character cards, model configs, and memory are isolated per user
 
 ## Project Introduction
 
-The current product direction focuses on:
+The current version focuses on evolving these capabilities:
 
-- a chat window experience closer to a real messaging app
-- proactive agent messages instead of only passive replies
-- multi-character interaction and future group chat support
-- highly customizable characters, relationships, scenarios, and world settings
-- session memory, model management, and local/cloud model switching
-- an extensible architecture for multi-agent collaboration, vector databases, graph databases, dynamic functions, and visual presentation
+- A chat window experience closer to real messaging apps
+- Agents can send proactive messages instead of only passive replies
+- Support for multi-character interaction and future group chat expansion
+- Highly customizable characters, relationships, scenarios, and world settings
+- Session memory, model management, and switching between local and cloud models
+- Reserved extensibility for multi-agent collaboration, vector databases, graph databases, dynamic functions, and visual presentation
 
-## Positioning
+## Project Positioning
 
-This project is better described as:
+This project is better understood as:
 
-- an AI chat simulator
-- a character chat system
-- a multi-agent interactive messaging system
-- an extensible platform for story, scenario, and character-driven chat
+- An AI chat simulator
+- A character chat system
+- A multi-agent interactive chat system
+- An extensible platform for story, scenario, and character-driven conversations
 
 ## GitHub About
 
 Suggested About text:
 
-`An AI chat system focused on real messaging-style conversations, with proactive messages, group chat, multi-agent interaction, and highly customizable characters and scenarios.`
+`An AI conversation system focused on real messaging-style chat, with proactive messages, group chat, multi-agent interaction, and highly customizable characters and scenarios.`
 
-Suggested Topics:
+Suggested keywords:
 
 `ai-chat`
 `character-chat`
@@ -70,29 +72,29 @@ Suggested Topics:
 
 - `chat/`: Vue 3 + Vite front end
 - `main/`: Node.js + Express back end
-- `docker-compose.yml`: full Docker startup for MySQL mode
-- `TASK_CHECKLIST.md`: task checklist
-- `TASK_CHECKLIST.zh-CN.md`: Chinese task checklist
+- `docker-compose.yml`: full Docker startup configuration for MySQL mode
+- `TASK_CHECKLIST.md`: project task checklist in Chinese
+- `TASK_CHECKLIST.en.md`: project task checklist in English
 
 ## Requirements
 
 - Node.js `20.19.0+` or `22.12.0+`
 - pnpm
 - Docker Desktop or Docker Engine
-- a Clerk application configured with `GitHub / Google / Email` sign-in
+- A Clerk application with `GitHub / Google / Email` sign-in configured
 
 ## Docker Startup
 
 Docker mode uses MySQL by default.
 
-1. Create the root env file from `.env.example`
-2. Start the full stack:
+1. Create the root environment file from `.env.example`
+2. Start the full service stack:
 
 ```powershell
 docker compose up --build
 ```
 
-Default access:
+Default access addresses:
 
 - Front end: `http://127.0.0.1:8080`
 - Back end: `http://127.0.0.1:3000`
@@ -101,11 +103,11 @@ Default access:
 In Docker mode:
 
 - `chat` is served by Nginx
-- `/api` is proxied to the `main` container
-- the server runs with `STORAGE_DRIVER=mysql`
-- the front end reads `VITE_CLERK_PUBLISHABLE_KEY` at build time
-- the back end validates tokens with `CLERK_SECRET_KEY`
-- runtime data is stored in MySQL instead of JSON files
+- `/api` is reverse-proxied to the `main` container
+- The server uses `STORAGE_DRIVER=mysql`
+- The front end reads `VITE_CLERK_PUBLISHABLE_KEY` at build time
+- The back end validates authentication state with `CLERK_SECRET_KEY`
+- Runtime data is stored in MySQL instead of JSON files
 
 ## npm/pnpm Startup
 
@@ -133,15 +135,15 @@ npm run dev
 
 In this mode:
 
-- no MySQL is required
+- MySQL is not required
 - `STORAGE_DRIVER` defaults to `file`
-- data is written into `main/data/model-configs.json`
-- data is written into `main/data/robots.json`
-- data is written into `main/data/sessions.json`
+- Data is written into `main/data/model-configs.json`
+- Data is written into `main/data/robots.json`
+- Data is written into `main/data/sessions.json`
 
 ### Mode 2: Local MySQL Storage
 
-Use this mode when you want local development to access MySQL instead of JSON files.
+If you want local development to use MySQL instead of JSON files, use this mode.
 
 1. Create `main/.env` from `main/.env.example`
 2. Set:
@@ -162,7 +164,7 @@ DB_PASSWORD=myaichat
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
 ```
 
-4. Start the server:
+4. Start the back end:
 
 ```powershell
 cd main
@@ -180,13 +182,13 @@ pnpm dev
 
 In this mode:
 
-- the server connects to MySQL with Sequelize
-- database migrations run during startup
-- JSON files in `main/data/` are not used as the active persistence backend
+- The back end connects to MySQL through Sequelize
+- Database migrations run during startup
+- JSON files under `main/data/` are not used as the active data source
 
 ## Environment Variables
 
-Server variables:
+Back-end environment variables:
 
 - `STORAGE_DRIVER=file|mysql`
 - `PORT`
@@ -198,50 +200,102 @@ Server variables:
 - `DB_PASSWORD`
 - `DB_LOGGING=true|false`
 
-Front-end variables:
+Front-end environment variables:
 
 - `VITE_CLERK_PUBLISHABLE_KEY`
 
 Default behavior:
 
-- local `npm run dev`: `file`
+- Local `npm run dev`: `file`
 - Docker Compose: `mysql`
 
 ## Roadmap
 
-Detailed task lists:
+Detailed task checklists:
 
-- [TASK_CHECKLIST.md](C:/Users/Administrator/Desktop/myaichat/TASK_CHECKLIST.md)
-- [TASK_CHECKLIST.zh-CN.md](C:/Users/Administrator/Desktop/myaichat/TASK_CHECKLIST.zh-CN.md)
+- [TASK_CHECKLIST.md](./TASK_CHECKLIST.md)
+- [TASK_CHECKLIST.en.md](./TASK_CHECKLIST.en.md)
 
-Current priorities:
+### Libraries and Tools
 
-- [x] implement independent user login data
-- [ ] improve the real chat window experience
-- [ ] improve token display and settings layout
-- [ ] rename "Robot" to "Agent"
-- [ ] support configurable memory-generation models per session
-- [ ] support local models
-- [ ] support agent sharing, forum, and platform features
-- [ ] support vector databases, graph databases, and multi-agent group chat
-- [ ] support image, voice, and video input together with audio/video interaction features
-- [ ] support Love2D-based visual agent presentation
+- [ ] MinIO
+- [ ] Redis
+
+### Phase 1 Tasks (Near Term)
+
+- [x] Implement per-user isolated login data
+- [x] Front-end page improvements
+  - [x] Improve token number display formatting
+  - [ ] Optimize settings page layout
+  - [x] Rename "Robot" to "Agent"
+  - [ ] Mobile UI adjustments
+
+### Phase 2 Tasks (Depending on Priorities)
+
+- [ ] Project localization
+- [ ] Support plans for local models
+- [ ] Allow configuring the model used for current session memory generation
+- [ ] Deepen agent capabilities
+- [ ] Project platformization
+  - [ ] Build an admin dashboard
+  - [ ] Add agent sharing
+  - [ ] Add forum features
+  - [ ] Store personal agents locally
+  - [ ] Require backend review and storage for paid shared agents
+  - [ ] Add agent import/export
+- [ ] Session MOD features
+  - [ ] MOD import/export
+  - [ ] Local storage for personal MODs
+  - [ ] Require backend review and storage for paid shared MODs
+- [ ] Deepen model management features
+  - [ ] Paid models
+  - [ ] Free models
+  - [ ] Personal models
+- [ ] Deepen token calculation capabilities
+- [ ] Online token purchase features
+- [ ] Deepen agent capabilities
+
+### Phase 3 Tasks (Need Teammates)
+
+- [ ] Organize the codebase
+- [ ] Implement vector database capabilities
+  - [ ] Agent database
+  - [ ] Session database
+- [ ] Implement graph database capabilities
+  - [ ] Create story characters
+  - [ ] Link character lines
+  - [ ] Link character events
+- [ ] Share user preferences across multiple agents
+- [ ] Implement dynamic AI function registration
+  - [ ] Agent integration
+  - [ ] Session integration
+- [ ] Implement a session timer that autonomously generates messages
+
+### Phase 4 Tasks (Someday)
+
+- [ ] Connect to the Love2D engine for visual agent presentation
+- [ ] Implement collaborative multi-agent group chat
+
+### Phase 5 Tasks (Multimodal)
+
+- [ ] Implement image, voice, and video input
+- [ ] Implement video and voice capabilities
 
 ## Notes
 
-- `node_modules/`, build output, logs, and local runtime data are ignored by Git.
-- `main/data/` is treated as local runtime data and is not committed.
-- `main/data/` is kept for file mode and can be disabled by switching `STORAGE_DRIVER=mysql`.
-- `main/package.json` provides `npm run migrate` for manual database migration execution.
+- `node_modules/`, build artifacts, logs, and local runtime data are ignored by Git.
+- `main/data/` is treated as a local runtime data directory and is not committed to the repository.
+- `main/data/` remains available for file mode and can be disabled after switching to `STORAGE_DRIVER=mysql`.
+- `main/package.json` provides `npm run migrate` for manually running database migrations.
 - Unauthenticated users cannot call `/api/*` business endpoints.
-- When a user tries to send a message while signed out, the front end opens the Clerk sign-in modal.
+- If a user sends a message while signed out, the chat page opens the Clerk sign-in dialog directly.
 
 ## Collaboration
 
 If you want to collaborate on this project, please apply through GitHub Issues.
 
-- Use Issues to describe your idea, bug report, feature proposal, or collaboration intent
-- Please include your goal, expected contribution, and contact details when necessary
+- You can use Issues to submit ideas, bugs, feature suggestions, or collaboration intent
+- If needed, please include your goals, expected contribution, and contact information
 
 ## Star History
 

@@ -4,10 +4,8 @@
 </p>
 
 <p align="center">
-  <img src="./image/myaichatlogo.png" alt="myaichat" width="280" />
+  <img src="./image/myaichatlogo.png" alt="myaichat" width="480" />
 </p>
-
-<h1 align="center">myaichat</h1>
 
 `myaichat` 是一个以“真实聊天窗口体验”为核心目标的 AI 对话项目。
 
@@ -75,8 +73,8 @@
 - `chat/`：Vue 3 + Vite 前端
 - `main/`：Node.js + Express 后端
 - `docker-compose.yml`：基于 MySQL 模式的完整 Docker 启动配置
-- `TASK_CHECKLIST.md`：项目任务清单
-- `TASK_CHECKLIST.zh-CN.md`：项目任务清单中文版本
+- `TASK_CHECKLIST.md`：项目任务清单中文版本
+- `TASK_CHECKLIST.en.md`：项目任务清单英文版本
 
 ## 环境要求
 
@@ -215,8 +213,8 @@ pnpm dev
 
 详细任务清单请查看：
 
-- [TASK_CHECKLIST.md](C:/Users/Administrator/Desktop/myaichat/TASK_CHECKLIST.md)
-- [TASK_CHECKLIST.zh-CN.md](C:/Users/Administrator/Desktop/myaichat/TASK_CHECKLIST.zh-CN.md)
+- [TASK_CHECKLIST.md](./TASK_CHECKLIST.md)
+- [TASK_CHECKLIST.en.md](./TASK_CHECKLIST.en.md)
 
 ### 类库,工具清单
 
