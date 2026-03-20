@@ -5,6 +5,8 @@
   <a href="./README.zh-CN.md">中文 README</a>
 </p>
 
+[English Checklist](./TASK_CHECKLIST.md)|[中文清单](./TASK_CHECKLIST.zh-CN.md)|[English README](./README.md)|[中文 README](./README.zh-CN.md)
+
 # 任务清单
 
 ## 已完成
