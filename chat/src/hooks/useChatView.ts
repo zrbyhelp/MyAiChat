@@ -1,7 +1,7 @@
 import type { AIMessageContent, ChatServiceConfig, SSEChunkData } from '@tdesign-vue-next/chat'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useChatSession } from '@/hooks/useChatSession'
 import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
@@ -124,6 +124,7 @@ type MemoryStatusState = {
 
 export function useChatView() {
 const router = useRouter()
+const route = useRoute()
 const DEFAULT_SESSION_MEMORY: SessionMemoryState = {
   summary: '',
   updatedAt: '',
@@ -340,7 +341,20 @@ const providerOptions = [
   { label: 'OpenAI', value: 'openai' },
 ]
 
-const activePrimaryTab = ref<'agent' | 'discover' | 'mine'>('agent')
+const activePrimaryTab = computed<'agent' | 'discover' | 'mine'>({
+  get: () => {
+    if (route.name === 'agent' || route.name === 'mine') {
+      return route.name
+    }
+    return 'discover'
+  },
+  set: (value) => {
+    if (route.name === value) {
+      return
+    }
+    void router.push({ name: value })
+  },
+})
 const isMobile = ref(false)
 const sidebarDrawerVisible = ref(false)
 const newChatVisible = ref(false)
@@ -403,6 +417,7 @@ const {
   onHydrateSession: hydrateSession,
   onCreateNewChat: () => createNewChat(),
 })
+const hasInitializedAgent = ref(false)
 
 const activeModelConfig = computed(
   () =>
@@ -1330,9 +1345,25 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
 onMounted(async () => {
   syncViewportMode()
   window.addEventListener('resize', syncViewportMode)
-  await initializePage()
-  await nextTick()
+  if (activePrimaryTab.value === 'agent' && !hasInitializedAgent.value) {
+    hasInitializedAgent.value = true
+    await initializePage()
+    await nextTick()
+  }
 })
+
+watch(
+  activePrimaryTab,
+  async (tab) => {
+    if (tab !== 'agent' || hasInitializedAgent.value) {
+      return
+    }
+    hasInitializedAgent.value = true
+    await initializePage()
+    await nextTick()
+  },
+  { immediate: false },
+)
 
 onUnmounted(() => {
   if (typeof window === 'undefined') {

@@ -29,46 +29,50 @@ export async function initializeStorage() {
   await getStorageImplementation().initializeStorage()
 }
 
-export async function listSessions() {
-  return getStorageImplementation().listSessions()
+export async function ensureUserRecord(user) {
+  return getStorageImplementation().ensureUserRecord(user)
 }
 
-export async function getSessionRecord(sessionId) {
-  return getStorageImplementation().getSessionRecord(sessionId)
+export async function listSessions(user) {
+  return getStorageImplementation().listSessions(user)
 }
 
-export async function saveSessionRecord(session) {
-  return getStorageImplementation().saveSessionRecord(session)
+export async function getSessionRecord(user, sessionId) {
+  return getStorageImplementation().getSessionRecord(user, sessionId)
 }
 
-export async function upsertSessionRecord(input) {
-  return getStorageImplementation().upsertSessionRecord(input)
+export async function saveSessionRecord(user, session) {
+  return getStorageImplementation().saveSessionRecord(user, session)
 }
 
-export async function updateSessionMemoryRecord(sessionId, patch) {
-  return getStorageImplementation().updateSessionMemoryRecord(sessionId, patch)
+export async function upsertSessionRecord(user, input) {
+  return getStorageImplementation().upsertSessionRecord(user, input)
 }
 
-export async function clearSessionMemoryRecord(sessionId) {
-  return getStorageImplementation().clearSessionMemoryRecord(sessionId)
+export async function updateSessionMemoryRecord(user, sessionId, patch) {
+  return getStorageImplementation().updateSessionMemoryRecord(user, sessionId, patch)
 }
 
-export async function deleteSessionRecord(sessionId) {
-  return getStorageImplementation().deleteSessionRecord(sessionId)
+export async function clearSessionMemoryRecord(user, sessionId) {
+  return getStorageImplementation().clearSessionMemoryRecord(user, sessionId)
 }
 
-export async function readModelConfigs() {
-  return getStorageImplementation().readModelConfigs()
+export async function deleteSessionRecord(user, sessionId) {
+  return getStorageImplementation().deleteSessionRecord(user, sessionId)
 }
 
-export async function writeModelConfigs(payload) {
-  return getStorageImplementation().writeModelConfigs(payload)
+export async function readModelConfigs(user) {
+  return getStorageImplementation().readModelConfigs(user)
 }
 
-export async function readRobots() {
-  return getStorageImplementation().readRobots()
+export async function writeModelConfigs(user, payload) {
+  return getStorageImplementation().writeModelConfigs(user, payload)
 }
 
-export async function writeRobots(robots) {
-  return getStorageImplementation().writeRobots(robots)
+export async function readRobots(user) {
+  return getStorageImplementation().readRobots(user)
+}
+
+export async function writeRobots(user, robots) {
+  return getStorageImplementation().writeRobots(user, robots)
 }

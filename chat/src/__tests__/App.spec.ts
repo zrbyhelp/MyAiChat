@@ -1,10 +1,37 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { computed, shallowRef } from 'vue'
 
 import App from '../App.vue'
 import router from '../router'
 
 const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>()
+
+vi.mock('@clerk/vue', () => ({
+  clerkPlugin: {
+    install() {},
+  },
+  UserButton: {
+    template: '<div class="user-button-stub" />',
+  },
+  useAuth: () => ({
+    isLoaded: computed(() => true),
+    isSignedIn: computed(() => true),
+    userId: computed(() => 'user_test'),
+    getToken: computed(() => async () => 'token_test'),
+  }),
+  useClerk: () => shallowRef({
+    openSignIn: vi.fn(),
+  }),
+  useUser: () => ({
+    user: computed(() => ({
+      fullName: 'Test User',
+      primaryEmailAddress: {
+        emailAddress: 'test@example.com',
+      },
+    })),
+  }),
+}))
 
 vi.stubGlobal('fetch', fetchMock)
 

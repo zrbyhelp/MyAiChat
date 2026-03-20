@@ -16,6 +16,14 @@ The server currently supports two persistence drivers:
 - `file`: store runtime data in `main/data/*.json`
 - `mysql`: store runtime data in MySQL through Sequelize
 
+The current version also uses `Clerk` as the unified authentication layer:
+
+- `GitHub` sign-in
+- `Google` sign-in
+- `Email` sign-in
+- all business APIs require authentication
+- sessions, character cards, model configs, and memory are isolated per user
+
 ## Project Introduction
 
 The current product direction focuses on:
@@ -71,6 +79,7 @@ Suggested Topics:
 - Node.js `20.19.0+` or `22.12.0+`
 - pnpm
 - Docker Desktop or Docker Engine
+- a Clerk application configured with `GitHub / Google / Email` sign-in
 
 ## Docker Startup
 
@@ -94,6 +103,8 @@ In Docker mode:
 - `chat` is served by Nginx
 - `/api` is proxied to the `main` container
 - the server runs with `STORAGE_DRIVER=mysql`
+- the front end reads `VITE_CLERK_PUBLISHABLE_KEY` at build time
+- the back end validates tokens with `CLERK_SECRET_KEY`
 - runtime data is stored in MySQL instead of JSON files
 
 ## npm/pnpm Startup
@@ -107,6 +118,7 @@ Front end:
 ```powershell
 cd chat
 pnpm install
+Copy-Item .env.example .env
 pnpm dev
 ```
 
@@ -115,6 +127,7 @@ Back end:
 ```powershell
 cd main
 npm install
+Copy-Item .env.example .env
 npm run dev
 ```
 
@@ -135,6 +148,7 @@ Use this mode when you want local development to access MySQL instead of JSON fi
 
 ```env
 STORAGE_DRIVER=mysql
+CLERK_SECRET_KEY=sk_test_your_clerk_secret_key
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=myaichat
@@ -142,7 +156,13 @@ DB_USER=myaichat
 DB_PASSWORD=myaichat
 ```
 
-3. Start the server:
+3. Create `chat/.env` from `chat/.env.example`
+
+```env
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+```
+
+4. Start the server:
 
 ```powershell
 cd main
@@ -150,7 +170,7 @@ npm install
 npm run dev
 ```
 
-4. Start the front end:
+5. Start the front end:
 
 ```powershell
 cd chat
@@ -170,12 +190,17 @@ Server variables:
 
 - `STORAGE_DRIVER=file|mysql`
 - `PORT`
+- `CLERK_SECRET_KEY`
 - `DB_HOST`
 - `DB_PORT`
 - `DB_NAME`
 - `DB_USER`
 - `DB_PASSWORD`
 - `DB_LOGGING=true|false`
+
+Front-end variables:
+
+- `VITE_CLERK_PUBLISHABLE_KEY`
 
 Default behavior:
 
@@ -191,7 +216,7 @@ Detailed task lists:
 
 Current priorities:
 
-- [ ] implement independent user login data
+- [x] implement independent user login data
 - [ ] improve the real chat window experience
 - [ ] improve token display and settings layout
 - [ ] rename "Robot" to "Agent"
@@ -199,6 +224,7 @@ Current priorities:
 - [ ] support local models
 - [ ] support agent sharing, forum, and platform features
 - [ ] support vector databases, graph databases, and multi-agent group chat
+- [ ] support image, voice, and video input together with audio/video interaction features
 - [ ] support Love2D-based visual agent presentation
 
 ## Notes
@@ -207,6 +233,8 @@ Current priorities:
 - `main/data/` is treated as local runtime data and is not committed.
 - `main/data/` is kept for file mode and can be disabled by switching `STORAGE_DRIVER=mysql`.
 - `main/package.json` provides `npm run migrate` for manual database migration execution.
+- Unauthenticated users cannot call `/api/*` business endpoints.
+- When a user tries to send a message while signed out, the front end opens the Clerk sign-in modal.
 
 ## Collaboration
 

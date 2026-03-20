@@ -17,6 +17,7 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
+    "@clerk/vue": "^2.0.5",
     "@tdesign-vue-next/chat": "^0.5.1",
     "pinia": "^3.0.4",
     "tdesign-icons-vue-next": "^0.4.2",

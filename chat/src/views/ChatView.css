@@ -360,7 +360,7 @@
   padding: 10px 0px;
   display: flex;
   align-items: center;
-  justify-content: end;
+  justify-content: start;
   gap: 8px;
   box-sizing: border-box;
 }
@@ -604,20 +604,14 @@
   }
 
   .mobile-sidebar-trigger {
-    position: fixed;
-    left: 12px;
-    top: 12px;
-    z-index: 10;
     display: inline-flex;
   }
 
   .chat-container {
-    padding: 0 12px calc(68px + env(safe-area-inset-bottom));
+    padding: 0 12px calc(88px + env(safe-area-inset-bottom));
   }
 
-  .chatbot-header {
-    padding: 10px 0 10px 52px;
-  }
+
 
   .chatbot {
     max-width: none;

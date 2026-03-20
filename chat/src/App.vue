@@ -1,6 +1,47 @@
 <template>
-  <router-view />
+  <div class="app-shell">
+    <div class="auth-entry">
+      <div v-if="isLoaded && isSignedIn" class="auth-entry-signed-in">
+        <span class="auth-entry-name">{{ currentUserLabel }}</span>
+        <UserButton after-sign-out-url="/" />
+      </div>
+      <TButton v-else theme="primary" shape="round" @click="openSignInModal">登录</TButton>
+    </div>
+    <router-view />
+  </div>
 </template>
+
+<script setup lang="ts">
+import { computed, watchEffect } from 'vue'
+import { UserButton, useAuth, useClerk, useUser } from '@clerk/vue'
+import { Button as TButton } from 'tdesign-vue-next'
+
+import { configureAuthBridge } from '@/lib/auth'
+
+const clerk = useClerk()
+const { getToken, isLoaded, isSignedIn } = useAuth()
+const { user } = useUser()
+
+const currentUserLabel = computed(() => user.value?.fullName || user.value?.primaryEmailAddress?.emailAddress || '已登录')
+
+function openSignInModal() {
+  clerk.value?.openSignIn?.()
+}
+
+watchEffect(() => {
+  configureAuthBridge({
+    getToken: async () => {
+      if (!isSignedIn.value) {
+        return null
+      }
+      return getToken.value()
+    },
+    isSignedIn: () => Boolean(isSignedIn.value),
+    openSignIn: openSignInModal,
+    onUnauthorized: openSignInModal,
+  })
+})
+</script>
 
 <style>
 * {
@@ -34,5 +75,52 @@ body::-webkit-scrollbar,
 * {
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+.app-shell {
+  min-height: 100%;
+}
+
+.auth-entry {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.auth-entry-signed-in {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-entry-name {
+  max-width: 200px;
+  overflow: hidden;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .auth-entry {
+    top: 12px;
+    right: 12px;
+    padding: 8px 10px;
+  }
+
+  .auth-entry-name {
+    max-width: 120px;
+  }
 }
 </style>

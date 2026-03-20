@@ -14,11 +14,25 @@ import type {
   RobotsResponse,
   TestConnectionResponse,
 } from '@/types/ai'
+import { UnauthorizedError, createAuthorizedHeaders, handleUnauthorized } from '@/lib/auth'
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init)
+  const response = await fetch(input, {
+    ...init,
+    headers: await createAuthorizedHeaders(init?.headers),
+  })
+  if (response.status === 401) {
+    handleUnauthorized()
+    throw new UnauthorizedError()
+  }
   if (!response.ok) {
-    const message = await response.text()
+    let message = await response.text()
+    try {
+      const payload = JSON.parse(message) as { message?: string }
+      message = payload.message || message
+    } catch {
+      // Fall back to the raw response text.
+    }
     throw new Error(message || `Request failed with status ${response.status}`)
   }
 

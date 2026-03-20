@@ -5,10 +5,14 @@
         <TButton variant="outline" class="back-button" @click="goBack">返回聊天</TButton>
         <div class="page-heading">
           <div class="title">机器人卡片</div>
-          <div class="subtitle">这里只维护可复用的机器人模板，不会直接影响聊天页当前上下文。</div>
+          <div class="subtitle">
+            这里只维护可复用的机器人模板，不会直接影响聊天页当前上下文。
+            <span v-if="isLoaded && !isSignedIn">未登录时可浏览页面，保存时会要求登录。</span>
+          </div>
         </div>
       </div>
       <TSpace align="center" class="page-header-actions">
+        <TButton v-if="isLoaded && !isSignedIn" theme="primary" variant="outline" @click="openSignInModal">登录</TButton>
         <TButton variant="outline" @click="addRobot">新增卡片</TButton>
         <TButton theme="primary" :loading="saving" @click="saveRobotCards">保存</TButton>
       </TSpace>
@@ -38,6 +42,7 @@
     </div>
 
     <div class="mobile-actions">
+      <TButton v-if="isLoaded && !isSignedIn" theme="primary" block @click="openSignInModal">登录</TButton>
       <TButton variant="outline" block @click="addRobot">新增卡片</TButton>
       <TButton theme="primary" block :loading="saving" @click="saveRobotCards">保存</TButton>
     </div>
@@ -45,11 +50,13 @@
 </template>
 
 <script setup lang="ts">
+import { useAuth, useClerk } from '@clerk/vue'
 import { Button as TButton, Form as TForm, FormItem as TFormItem, Input as TInput, MessagePlugin, Space as TSpace, Textarea as TTextarea } from 'tdesign-vue-next'
-import { onMounted, ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { getRobots, saveRobots } from '@/lib/api'
+import { UnauthorizedError } from '@/lib/auth'
 import type { AIRobotCard } from '@/types/ai'
 
 function createRobotCard(): AIRobotCard {
@@ -63,11 +70,17 @@ function createRobotCard(): AIRobotCard {
 }
 
 const router = useRouter()
+const clerk = useClerk()
+const { isLoaded, isSignedIn } = useAuth()
 const saving = ref(false)
 const robots = ref<AIRobotCard[]>([])
 
+function openSignInModal() {
+  clerk.value?.openSignIn?.()
+}
+
 function goBack() {
-  router.push({ name: 'chat' })
+  router.push({ name: 'agent' })
 }
 
 function addRobot() {
@@ -83,6 +96,9 @@ async function loadRobots() {
     const response = await getRobots()
     robots.value = response.robots.length ? response.robots : [createRobotCard()]
   } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return
+    }
     MessagePlugin.error(error instanceof Error ? error.message : '加载机器人失败')
   }
 }
@@ -103,13 +119,29 @@ async function saveRobotCards() {
     robots.value = response.robots
     MessagePlugin.success('机器人卡片已保存')
   } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      return
+    }
     MessagePlugin.error(error instanceof Error ? error.message : '保存失败')
   } finally {
     saving.value = false
   }
 }
 
-onMounted(loadRobots)
+watch(
+  () => [isLoaded.value, isSignedIn.value] as const,
+  ([loaded, signedIn]) => {
+    if (!loaded) {
+      return
+    }
+    if (signedIn) {
+      loadRobots()
+      return
+    }
+    robots.value = robots.value.length ? robots.value : [createRobotCard()]
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>

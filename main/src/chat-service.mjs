@@ -135,8 +135,8 @@ function buildMemoryPrompt(summary) {
   ].join('\n')
 }
 
-export async function getSessionMessages(payload) {
-  const session = await getSessionRecord(payload.sessionId)
+export async function getSessionMessages(payload, user) {
+  const session = await getSessionRecord(user, payload.sessionId)
   const memory = normalizeSessionMemory(session?.memory)
   const history = (session?.messages || []).slice(-memory.recentMessageLimit)
   const messages = []
@@ -172,9 +172,9 @@ export async function getSessionMessages(payload) {
   return messages
 }
 
-export async function commitSession(payload, assistantMessage, reasoning = '', suggestions = [], form = null, usage = null) {
+export async function commitSession(payload, user, assistantMessage, reasoning = '', suggestions = [], form = null, usage = null) {
   const now = new Date().toISOString()
-  const existing = await getSessionRecord(payload.sessionId)
+  const existing = await getSessionRecord(user, payload.sessionId)
   const nextMessages = [...(existing?.messages || [])]
 
   nextMessages.push({
@@ -200,7 +200,7 @@ export async function commitSession(payload, assistantMessage, reasoning = '', s
   const existingUsage = normalizeSessionUsage(existing?.usage)
   const nextUsage = normalizeUsage(usage)
 
-  return saveSessionRecord(normalizeSession({
+  return saveSessionRecord(user, normalizeSession({
     ...(existing || {}),
     id: payload.sessionId,
     title: existing?.messages?.length ? existing.title : createSessionTitle(payload.prompt),
@@ -259,7 +259,7 @@ export async function fetchModels(config) {
 async function buildUpstreamBody(payload, stream = true) {
   const base = {
     model: payload.model,
-    messages: payload.messages || await getSessionMessages(payload),
+    messages: payload.messages || await getSessionMessages(payload, payload.authUser),
     stream,
   }
 
@@ -305,21 +305,22 @@ async function requestUpstreamChat(payload, stream) {
   }
 }
 
-export async function requestNonStreamChat(payload) {
-  const response = await requestUpstreamChat(payload, false)
+export async function requestNonStreamChat(payload, user) {
+  const scopedPayload = { ...payload, authUser: user }
+  const response = await requestUpstreamChat(scopedPayload, false)
   const data = await response.json()
 
   if (payload.provider === 'openai') {
     const message = data.choices?.[0]?.message || {}
     const parsedMessage = extractStructuredPayloadsFromText(extractText(message.content))
     const reasoning = payload.thinking ? extractReasoningFromOpenAIMessage(message) : ''
-    const session = await commitSession(payload, parsedMessage.text, reasoning, parsedMessage.suggestions, parsedMessage.form, normalizeUsage(data.usage))
+    const session = await commitSession(scopedPayload, user, parsedMessage.text, reasoning, parsedMessage.suggestions, parsedMessage.form, normalizeUsage(data.usage))
     return { message: parsedMessage.text, reasoning, suggestions: parsedMessage.suggestions, form: parsedMessage.form, session }
   }
 
   const parsedMessage = extractStructuredPayloadsFromText(extractText(data.message?.content))
   const reasoning = payload.thinking ? extractText(data.message?.thinking || data.thinking) : ''
-  const session = await commitSession(payload, parsedMessage.text, reasoning, parsedMessage.suggestions, parsedMessage.form, normalizeUsage(data))
+  const session = await commitSession(scopedPayload, user, parsedMessage.text, reasoning, parsedMessage.suggestions, parsedMessage.form, normalizeUsage(data))
   return { message: parsedMessage.text, reasoning, suggestions: parsedMessage.suggestions, form: parsedMessage.form, session }
 }
 
@@ -374,8 +375,8 @@ function getMemoryRefreshState(session) {
   }
 }
 
-export async function refreshSessionMemoryIfNeeded(session, payload, notify) {
-  const latestSession = (await getSessionRecord(session.id)) || session
+export async function refreshSessionMemoryIfNeeded(session, payload, notify, user) {
+  const latestSession = (await getSessionRecord(user, session.id)) || session
   const { memory, compressibleCount, uncoveredCount, shouldRefresh } = getMemoryRefreshState(latestSession)
   if (!shouldRefresh) {
     return latestSession
@@ -390,7 +391,7 @@ export async function refreshSessionMemoryIfNeeded(session, payload, notify) {
 
   try {
     const summary = await requestSummary(payload, memory.summary, newMessages)
-    const nextSession = await saveSessionRecord({
+    const nextSession = await saveSessionRecord(user, {
       ...latestSession,
       memory: {
         ...memory,
@@ -421,14 +422,15 @@ function sendUsageSSE(res, session) {
   })
 }
 
-async function finalizeAndRefreshMemory(payload, session, res) {
+async function finalizeAndRefreshMemory(payload, session, res, user) {
   await refreshSessionMemoryIfNeeded(session, payload, (status) => {
     sendSSE(res, { type: 'memory_status', ...status })
-  })
+  }, user)
 }
 
-export async function proxyOpenAIStream(payload, res) {
-  const response = await requestUpstreamChat(payload, true)
+export async function proxyOpenAIStream(payload, res, user) {
+  const scopedPayload = { ...payload, authUser: user }
+  const response = await requestUpstreamChat(scopedPayload, true)
   if (!response.body) {
     throw new Error('OpenAI 流式请求失败')
   }
@@ -493,7 +495,7 @@ export async function proxyOpenAIStream(payload, res) {
     sendSSE(res, { type: 'text', text: finalized.text })
   }
 
-  const session = await commitSession(payload, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
+  const session = await commitSession(scopedPayload, user, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
   sendUsageSSE(res, session)
   if (finalized.suggestions.length) {
     sendSSE(res, { type: 'suggestion', items: finalized.suggestions })
@@ -504,12 +506,13 @@ export async function proxyOpenAIStream(payload, res) {
   if (payload.thinking && reasoningText) {
     sendSSE(res, { type: 'reasoning_done', text: reasoningText })
   }
-  await finalizeAndRefreshMemory(payload, session, res)
+  await finalizeAndRefreshMemory(scopedPayload, session, res, user)
   sendSSE(res, { type: 'done' })
 }
 
-export async function proxyOllamaStream(payload, res) {
-  const response = await requestUpstreamChat(payload, true)
+export async function proxyOllamaStream(payload, res, user) {
+  const scopedPayload = { ...payload, authUser: user }
+  const response = await requestUpstreamChat(scopedPayload, true)
   if (!response.body) {
     throw new Error('Ollama 流式请求失败')
   }
@@ -564,7 +567,7 @@ export async function proxyOllamaStream(payload, res) {
           assistantText += finalized.text
           sendSSE(res, { type: 'text', text: finalized.text })
         }
-        const session = await commitSession(payload, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
+        const session = await commitSession(scopedPayload, user, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
         sendUsageSSE(res, session)
         if (finalized.suggestions.length) {
           sendSSE(res, { type: 'suggestion', items: finalized.suggestions })
@@ -575,7 +578,7 @@ export async function proxyOllamaStream(payload, res) {
         if (payload.thinking && reasoningText) {
           sendSSE(res, { type: 'reasoning_done', text: reasoningText })
         }
-        await finalizeAndRefreshMemory(payload, session, res)
+        await finalizeAndRefreshMemory(scopedPayload, session, res, user)
         sendSSE(res, { type: 'done' })
         return
       }
@@ -588,7 +591,7 @@ export async function proxyOllamaStream(payload, res) {
     sendSSE(res, { type: 'text', text: finalized.text })
   }
 
-  const session = await commitSession(payload, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
+  const session = await commitSession(scopedPayload, user, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
   sendUsageSSE(res, session)
   if (finalized.suggestions.length) {
     sendSSE(res, { type: 'suggestion', items: finalized.suggestions })
@@ -599,11 +602,12 @@ export async function proxyOllamaStream(payload, res) {
   if (payload.thinking && reasoningText) {
     sendSSE(res, { type: 'reasoning_done', text: reasoningText })
   }
-  await finalizeAndRefreshMemory(payload, session, res)
+  await finalizeAndRefreshMemory(scopedPayload, session, res, user)
   sendSSE(res, { type: 'done' })
 }
 
-export async function handleChatStream(payload, res) {
+export async function handleChatStream(payload, res, user) {
+  const scopedPayload = { ...payload, authUser: user }
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -616,7 +620,7 @@ export async function handleChatStream(payload, res) {
     }
 
     if (!payload.stream) {
-      const result = await requestNonStreamChat(payload)
+      const result = await requestNonStreamChat(scopedPayload, user)
       sendUsageSSE(res, result.session)
       if (payload.thinking && result.reasoning) {
         sendSSE(res, { type: 'reasoning', text: result.reasoning })
@@ -631,12 +635,12 @@ export async function handleChatStream(payload, res) {
       if (result.form?.fields?.length) {
         sendSSE(res, { type: 'form', form: result.form })
       }
-      await finalizeAndRefreshMemory(payload, result.session, res)
+      await finalizeAndRefreshMemory(scopedPayload, result.session, res, user)
       sendSSE(res, { type: 'done' })
     } else if (payload.provider === 'openai') {
-      await proxyOpenAIStream(payload, res)
+      await proxyOpenAIStream(scopedPayload, res, user)
     } else {
-      await proxyOllamaStream(payload, res)
+      await proxyOllamaStream(scopedPayload, res, user)
     }
   } catch (error) {
     sendSSE(res, {
@@ -658,7 +662,7 @@ export async function testConnectionModels(body) {
   }
 }
 
-export async function getActiveLegacyConfig() {
-  const legacy = await readModelConfigs()
+export async function getActiveLegacyConfig(user) {
+  const legacy = await readModelConfigs(user)
   return { config: legacy.configs.find((item) => item.id === legacy.activeModelConfigId) ?? legacy.configs[0] }
 }

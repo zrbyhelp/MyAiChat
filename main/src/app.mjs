@@ -1,5 +1,6 @@
 import express from 'express'
 
+import { attachClerkAuth, requireApiAuth } from './auth.mjs'
 import {
   detectReasoningSupport,
   fetchModels,
@@ -29,6 +30,7 @@ export function createApp() {
   const app = express()
 
   app.use(express.json({ limit: '2mb' }))
+  app.use(attachClerkAuth)
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
@@ -39,10 +41,11 @@ export function createApp() {
     }
     next()
   })
+  app.use('/api', requireApiAuth)
 
-  app.get('/api/model-configs', async (_req, res, next) => {
+  app.get('/api/model-configs', async (req, res, next) => {
     try {
-      res.json(await readModelConfigs())
+      res.json(await readModelConfigs(req.authUser))
     } catch (error) {
       next(error)
     }
@@ -51,7 +54,7 @@ export function createApp() {
   app.post('/api/model-configs', async (req, res, next) => {
     try {
       const payload = normalizeModelConfigsPayload(req.body)
-      await writeModelConfigs(payload)
+      await writeModelConfigs(req.authUser, payload)
       res.json(payload)
     } catch (error) {
       next(error)
@@ -66,9 +69,9 @@ export function createApp() {
     }
   })
 
-  app.get('/api/model-config', async (_req, res, next) => {
+  app.get('/api/model-config', async (req, res, next) => {
     try {
-      res.json(await getActiveLegacyConfig())
+      res.json(await getActiveLegacyConfig(req.authUser))
     } catch (error) {
       next(error)
     }
@@ -78,7 +81,7 @@ export function createApp() {
     try {
       const config = normalizeModelConfig(req.body, 0)
       const payload = normalizeModelConfigsPayload({ configs: [config], activeModelConfigId: config.id })
-      await writeModelConfigs(payload)
+      await writeModelConfigs(req.authUser, payload)
       res.json({ config })
     } catch (error) {
       next(error)
@@ -93,10 +96,10 @@ export function createApp() {
     }
   })
 
-  app.get('/api/sessions', async (_req, res, next) => {
+  app.get('/api/sessions', async (req, res, next) => {
     try {
       res.json({
-        sessions: (await listSessions()).map((item) => buildSessionSummary(item)),
+        sessions: (await listSessions(req.authUser)).map((item) => buildSessionSummary(item)),
       })
     } catch (error) {
       next(error)
@@ -105,7 +108,7 @@ export function createApp() {
 
   app.post('/api/sessions', async (req, res, next) => {
     try {
-      const session = await upsertSessionRecord(req.body)
+      const session = await upsertSessionRecord(req.authUser, req.body)
       res.json({
         session: {
           ...buildSessionSummary(session),
@@ -121,7 +124,7 @@ export function createApp() {
 
   app.get('/api/sessions/:id', async (req, res, next) => {
     try {
-      const session = await getSessionRecord(req.params.id)
+      const session = await getSessionRecord(req.authUser, req.params.id)
       if (!session) {
         res.status(404).json({ message: '会话不存在' })
         return
@@ -141,7 +144,7 @@ export function createApp() {
 
   app.delete('/api/sessions/:id', async (req, res, next) => {
     try {
-      const deleted = await deleteSessionRecord(req.params.id)
+      const deleted = await deleteSessionRecord(req.authUser, req.params.id)
       if (!deleted) {
         res.status(404).json({ message: '会话不存在' })
         return
@@ -156,7 +159,7 @@ export function createApp() {
 
   app.post('/api/sessions/:id/delete', async (req, res, next) => {
     try {
-      const deleted = await deleteSessionRecord(req.params.id)
+      const deleted = await deleteSessionRecord(req.authUser, req.params.id)
       if (!deleted) {
         res.status(404).json({ message: '会话不存在' })
         return
@@ -171,7 +174,7 @@ export function createApp() {
 
   app.post('/api/sessions/:id/memory', async (req, res, next) => {
     try {
-      const session = await updateSessionMemoryRecord(req.params.id, req.body || {})
+      const session = await updateSessionMemoryRecord(req.authUser, req.params.id, req.body || {})
       if (!session) {
         res.status(404).json({ message: '会话不存在' })
         return
@@ -191,7 +194,7 @@ export function createApp() {
 
   app.delete('/api/sessions/:id/memory', async (req, res, next) => {
     try {
-      const session = await clearSessionMemoryRecord(req.params.id)
+      const session = await clearSessionMemoryRecord(req.authUser, req.params.id)
       if (!session) {
         res.status(404).json({ message: '会话不存在' })
         return
@@ -209,9 +212,9 @@ export function createApp() {
     }
   })
 
-  app.get('/api/robots', async (_req, res, next) => {
+  app.get('/api/robots', async (req, res, next) => {
     try {
-      res.json({ robots: await readRobots() })
+      res.json({ robots: await readRobots(req.authUser) })
     } catch (error) {
       next(error)
     }
@@ -220,7 +223,7 @@ export function createApp() {
   app.post('/api/robots', async (req, res, next) => {
     try {
       const robots = normalizeRobots(req.body?.robots)
-      await writeRobots(robots)
+      await writeRobots(req.authUser, robots)
       res.json({ robots })
     } catch (error) {
       next(error)
@@ -253,7 +256,7 @@ export function createApp() {
 
   app.post('/api/chat', async (req, res, next) => {
     try {
-      const result = await requestNonStreamChat(req.body)
+      const result = await requestNonStreamChat(req.body, req.authUser)
       res.json({
         message: result.message,
         reasoning: result.reasoning,
@@ -266,7 +269,7 @@ export function createApp() {
   })
 
   app.post('/api/chat/stream', async (req, res) => {
-    await handleChatStream(req.body, res)
+    await handleChatStream(req.body, res, req.authUser)
   })
 
   app.use((error, _req, res, _next) => {

@@ -19,18 +19,48 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = join(__dirname, '..', 'data')
-const MODEL_CONFIGS_FILE = join(DATA_DIR, 'model-configs.json')
 const LEGACY_MODEL_CONFIG_FILE = join(DATA_DIR, 'model-config.json')
-const ROBOTS_FILE = join(DATA_DIR, 'robots.json')
-const SESSIONS_FILE = join(DATA_DIR, 'sessions.json')
+const USERS_DIR = join(DATA_DIR, 'users')
 
-let sessionState = DEFAULT_SESSIONS_PAYLOAD
+const sessionStateCache = new Map()
+
+function resolveUserId(user) {
+  const userId = String(user?.id || '').trim()
+  if (!userId) {
+    throw new Error('未授权访问')
+  }
+  return userId.replace(/[<>:"/\\|?*]+/g, '_')
+}
+
+function getUserFiles(user) {
+  const userId = resolveUserId(user)
+  const userDataDir = join(USERS_DIR, userId)
+
+  return {
+    userId,
+    userDataDir,
+    modelConfigsFile: join(userDataDir, 'model-configs.json'),
+    robotsFile: join(userDataDir, 'robots.json'),
+    sessionsFile: join(userDataDir, 'sessions.json'),
+  }
+}
 
 export async function initializeStorage() {
   await mkdir(DATA_DIR, { recursive: true })
+  await mkdir(USERS_DIR, { recursive: true })
+}
+
+export async function ensureUserRecord() {
+  return null
+}
+
+async function ensureUserStorage(user) {
+  await initializeStorage()
+  const files = getUserFiles(user)
+  await mkdir(files.userDataDir, { recursive: true })
 
   try {
-    await readFile(MODEL_CONFIGS_FILE, 'utf8')
+    await readFile(files.modelConfigsFile, 'utf8')
   } catch {
     let nextData = DEFAULT_MODEL_CONFIGS
     try {
@@ -41,48 +71,62 @@ export async function initializeStorage() {
     } catch {
       nextData = DEFAULT_MODEL_CONFIGS
     }
-    await writeFile(MODEL_CONFIGS_FILE, `${JSON.stringify(nextData, null, 2)}\n`, 'utf8')
+    await writeFile(files.modelConfigsFile, `${JSON.stringify(nextData, null, 2)}\n`, 'utf8')
   }
 
   try {
-    await readFile(ROBOTS_FILE, 'utf8')
+    await readFile(files.robotsFile, 'utf8')
   } catch {
-    await writeFile(ROBOTS_FILE, `${JSON.stringify(DEFAULT_ROBOTS, null, 2)}\n`, 'utf8')
+    await writeFile(files.robotsFile, `${JSON.stringify(DEFAULT_ROBOTS, null, 2)}\n`, 'utf8')
   }
 
   try {
-    const raw = await readFile(SESSIONS_FILE, 'utf8')
-    sessionState = normalizeSessionsPayload(safeJsonParse(raw, DEFAULT_SESSIONS_PAYLOAD))
+    const raw = await readFile(files.sessionsFile, 'utf8')
+    sessionStateCache.set(files.userId, normalizeSessionsPayload(safeJsonParse(raw, DEFAULT_SESSIONS_PAYLOAD)))
   } catch {
-    sessionState = DEFAULT_SESSIONS_PAYLOAD
-    await writeFile(SESSIONS_FILE, `${JSON.stringify(sessionState, null, 2)}\n`, 'utf8')
+    sessionStateCache.set(files.userId, DEFAULT_SESSIONS_PAYLOAD)
+    await writeFile(files.sessionsFile, `${JSON.stringify(DEFAULT_SESSIONS_PAYLOAD, null, 2)}\n`, 'utf8')
+  }
+
+  return files
+}
+
+async function getSessionState(user) {
+  const files = await ensureUserStorage(user)
+  return {
+    files,
+    state: sessionStateCache.get(files.userId) || DEFAULT_SESSIONS_PAYLOAD,
   }
 }
 
-export async function listSessions() {
-  return sessionState.sessions
+export async function listSessions(user) {
+  const { state } = await getSessionState(user)
+  return state.sessions
 }
 
-async function writeSessionsPayload(payload) {
-  await initializeStorage()
-  sessionState = normalizeSessionsPayload(payload)
-  await writeFile(SESSIONS_FILE, `${JSON.stringify(sessionState, null, 2)}\n`, 'utf8')
+async function writeSessionsPayload(user, payload) {
+  const { files } = await getSessionState(user)
+  const nextState = normalizeSessionsPayload(payload)
+  sessionStateCache.set(files.userId, nextState)
+  await writeFile(files.sessionsFile, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8')
 }
 
-export async function getSessionRecord(sessionId) {
-  return sessionState.sessions.find((item) => item.id === sessionId) || null
+export async function getSessionRecord(user, sessionId) {
+  const { state } = await getSessionState(user)
+  return state.sessions.find((item) => item.id === sessionId) || null
 }
 
-export async function saveSessionRecord(session) {
+export async function saveSessionRecord(user, session) {
   const normalized = normalizeSession(session)
-  const sessions = sessionState.sessions.filter((item) => item.id !== normalized.id)
-  await writeSessionsPayload({ sessions: [normalized, ...sessions] })
+  const { state } = await getSessionState(user)
+  const sessions = state.sessions.filter((item) => item.id !== normalized.id)
+  await writeSessionsPayload(user, { sessions: [normalized, ...sessions] })
   return normalized
 }
 
-export async function upsertSessionRecord(input) {
+export async function upsertSessionRecord(user, input) {
   const now = new Date().toISOString()
-  const existing = input?.id ? await getSessionRecord(String(input.id)) : null
+  const existing = input?.id ? await getSessionRecord(user, String(input.id)) : null
   const nextSession = normalizeSession({
     ...(existing || {}),
     ...input,
@@ -93,11 +137,11 @@ export async function upsertSessionRecord(input) {
     updatedAt: now,
   })
 
-  return saveSessionRecord(nextSession)
+  return saveSessionRecord(user, nextSession)
 }
 
-export async function updateSessionMemoryRecord(sessionId, patch) {
-  const existing = await getSessionRecord(sessionId)
+export async function updateSessionMemoryRecord(user, sessionId, patch) {
+  const existing = await getSessionRecord(user, sessionId)
   if (!existing) {
     return null
   }
@@ -111,21 +155,21 @@ export async function updateSessionMemoryRecord(sessionId, patch) {
       typeof patch?.sourceMessageCount === 'number' ? patch.sourceMessageCount : currentMemory.sourceMessageCount,
   })
 
-  return saveSessionRecord({
+  return saveSessionRecord(user, {
     ...existing,
     memory: nextMemory,
     updatedAt: new Date().toISOString(),
   })
 }
 
-export async function clearSessionMemoryRecord(sessionId) {
-  const existing = await getSessionRecord(sessionId)
+export async function clearSessionMemoryRecord(user, sessionId) {
+  const existing = await getSessionRecord(user, sessionId)
   if (!existing) {
     return null
   }
 
   const currentMemory = normalizeSessionMemory(existing.memory)
-  return saveSessionRecord({
+  return saveSessionRecord(user, {
     ...existing,
     memory: {
       ...currentMemory,
@@ -137,41 +181,42 @@ export async function clearSessionMemoryRecord(sessionId) {
   })
 }
 
-export async function deleteSessionRecord(sessionId) {
-  const existing = await getSessionRecord(sessionId)
+export async function deleteSessionRecord(user, sessionId) {
+  const existing = await getSessionRecord(user, sessionId)
   if (!existing) {
     return null
   }
 
-  await writeSessionsPayload({
-    sessions: sessionState.sessions.filter((item) => item.id !== sessionId),
+  const { state } = await getSessionState(user)
+  await writeSessionsPayload(user, {
+    sessions: state.sessions.filter((item) => item.id !== sessionId),
   })
 
   return existing
 }
 
-export async function readModelConfigs() {
-  await initializeStorage()
-  const raw = await readFile(MODEL_CONFIGS_FILE, 'utf8')
+export async function readModelConfigs(user) {
+  const { modelConfigsFile } = await ensureUserStorage(user)
+  const raw = await readFile(modelConfigsFile, 'utf8')
   return normalizeModelConfigsPayload(safeJsonParse(raw, DEFAULT_MODEL_CONFIGS))
 }
 
-export async function writeModelConfigs(payload) {
-  await initializeStorage()
+export async function writeModelConfigs(user, payload) {
+  const { modelConfigsFile } = await ensureUserStorage(user)
   const normalized = normalizeModelConfigsPayload(payload)
-  await writeFile(MODEL_CONFIGS_FILE, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
+  await writeFile(modelConfigsFile, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
   return normalized
 }
 
-export async function readRobots() {
-  await initializeStorage()
-  const raw = await readFile(ROBOTS_FILE, 'utf8')
+export async function readRobots(user) {
+  const { robotsFile } = await ensureUserStorage(user)
+  const raw = await readFile(robotsFile, 'utf8')
   return normalizeRobots(safeJsonParse(raw, []))
 }
 
-export async function writeRobots(robots) {
-  await initializeStorage()
+export async function writeRobots(user, robots) {
+  const { robotsFile } = await ensureUserStorage(user)
   const normalized = normalizeRobots(robots)
-  await writeFile(ROBOTS_FILE, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
+  await writeFile(robotsFile, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
   return normalized
 }

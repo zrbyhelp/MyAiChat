@@ -1,8 +1,16 @@
 <template>
   <div class="session-history-panel">
     <div class="side-shell">
-      <div class="side-action" @click="emit('new-chat')">新聊天</div>
-      <div class="side-action" @click="emit('go-robots')">设置机器人</div>
+      <div class="history-sticky-actions">
+        <TButton theme="primary" variant="outline" block @click="emit('new-chat')">
+          新增聊天
+        </TButton>
+      </div>
+       <div class="history-sticky-actions">
+        <TButton theme="primary" variant="outline" block @click="emit('go-robots')">
+          设置机器人
+        </TButton>
+      </div>
       <div class="side-placeholder">
         <div class="side-meta">当前机器人：{{ currentRobotLabel }}</div>
         <div class="side-meta">当前模型：{{ currentModelLabel }}</div>
@@ -11,11 +19,7 @@
     </div>
 
     <div class="history-scroll-area">
-      <div class="history-sticky-actions">
-        <TButton theme="primary" variant="outline" block @click="emit('new-chat')">
-          新增聊天
-        </TButton>
-      </div>
+
       <div v-if="sessionHistory.length" class="history-list">
         <div
           v-for="item in sessionHistory"

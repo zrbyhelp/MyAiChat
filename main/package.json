@@ -9,6 +9,7 @@
     "migrate": "node ./scripts/migrate.mjs"
   },
   "dependencies": {
+    "@clerk/express": "^2.0.5",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "mysql2": "^3.20.0",

@@ -38,10 +38,36 @@ export function getModels() {
 
   const sequelize = getSequelize()
 
+  const User = sequelize.define('User', {
+    id: {
+      type: DataTypes.STRING(120),
+      primaryKey: true,
+    },
+    email: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    displayName: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      field: 'display_name',
+    },
+    avatarUrl: {
+      type: DataTypes.STRING(1024),
+      allowNull: true,
+      field: 'avatar_url',
+    },
+  })
+
   const ModelConfig = sequelize.define('ModelConfig', {
     id: {
       type: DataTypes.STRING(120),
       primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+      field: 'user_id',
     },
     name: {
       type: DataTypes.STRING(255),
@@ -82,6 +108,11 @@ export function getModels() {
       type: DataTypes.STRING(120),
       primaryKey: true,
     },
+    userId: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+      field: 'user_id',
+    },
     name: {
       type: DataTypes.STRING(255),
       allowNull: false,
@@ -108,6 +139,11 @@ export function getModels() {
     id: {
       type: DataTypes.STRING(120),
       primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+      field: 'user_id',
     },
     title: {
       type: DataTypes.STRING(255),
@@ -255,6 +291,30 @@ export function getModels() {
     onDelete: 'CASCADE',
     hooks: true,
   })
+  User.hasMany(ModelConfig, {
+    foreignKey: 'userId',
+    as: 'modelConfigs',
+  })
+  User.hasMany(Robot, {
+    foreignKey: 'userId',
+    as: 'robots',
+  })
+  User.hasMany(Session, {
+    foreignKey: 'userId',
+    as: 'sessions',
+  })
+  ModelConfig.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  })
+  Robot.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  })
+  Session.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  })
   SessionMessage.belongsTo(Session, {
     foreignKey: 'sessionId',
     as: 'session',
@@ -262,6 +322,7 @@ export function getModels() {
 
   modelRegistry = {
     sequelize,
+    User,
     ModelConfig,
     Robot,
     Session,

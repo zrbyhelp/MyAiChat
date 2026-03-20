@@ -16,6 +16,14 @@
 - `file`：将运行数据写入 `main/data/*.json`
 - `mysql`：通过 Sequelize 将运行数据写入 MySQL
 
+当前版本同时接入了 `Clerk` 统一认证：
+
+- 支持 `GitHub` 登录
+- 支持 `Google` 登录
+- 支持 `邮箱` 登录
+- 所有业务 API 都需要登录后访问
+- 会话、角色卡片、模型配置和记忆都按用户独立隔离
+
 ## 项目介绍
 
 当前版本重点围绕这些能力演进：
@@ -71,6 +79,7 @@
 - Node.js `20.19.0+` 或 `22.12.0+`
 - pnpm
 - Docker Desktop 或 Docker Engine
+- 一个已配置好 `GitHub / Google / Email` 登录方式的 Clerk 应用
 
 ## Docker 启动方式
 
@@ -94,6 +103,8 @@ docker compose up --build
 - `chat` 由 Nginx 提供静态资源
 - `/api` 会反向代理到 `main` 容器
 - 后端使用 `STORAGE_DRIVER=mysql`
+- 前端在构建时读取 `VITE_CLERK_PUBLISHABLE_KEY`
+- 后端通过 `CLERK_SECRET_KEY` 校验登录态
 - 运行时数据存储在 MySQL 中，而不是 JSON 文件中
 
 ## npm/pnpm 启动方式
@@ -107,6 +118,7 @@ docker compose up --build
 ```powershell
 cd chat
 pnpm install
+Copy-Item .env.example .env
 pnpm dev
 ```
 
@@ -115,6 +127,7 @@ pnpm dev
 ```powershell
 cd main
 npm install
+Copy-Item .env.example .env
 npm run dev
 ```
 
@@ -135,6 +148,7 @@ npm run dev
 
 ```env
 STORAGE_DRIVER=mysql
+CLERK_SECRET_KEY=sk_test_your_clerk_secret_key
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=myaichat
@@ -142,7 +156,13 @@ DB_USER=myaichat
 DB_PASSWORD=myaichat
 ```
 
-3. 启动后端：
+3. 根据 `chat/.env.example` 创建 `chat/.env`
+
+```env
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+```
+
+4. 启动后端：
 
 ```powershell
 cd main
@@ -150,7 +170,7 @@ npm install
 npm run dev
 ```
 
-4. 启动前端：
+5. 启动前端：
 
 ```powershell
 cd chat
@@ -170,12 +190,17 @@ pnpm dev
 
 - `STORAGE_DRIVER=file|mysql`
 - `PORT`
+- `CLERK_SECRET_KEY`
 - `DB_HOST`
 - `DB_PORT`
 - `DB_NAME`
 - `DB_USER`
 - `DB_PASSWORD`
 - `DB_LOGGING=true|false`
+
+前端相关环境变量：
+
+- `VITE_CLERK_PUBLISHABLE_KEY`
 
 默认行为：
 
@@ -191,7 +216,7 @@ pnpm dev
 
 当前重点方向：
 
-- [ ] 实现用户登录数据独立
+- [x] 实现用户登录数据独立
 - [ ] 优化真实聊天窗口体验
 - [ ] 优化 token 显示方式与设置页面布局
 - [ ] 将“机器人”统一更名为“智能体”
@@ -199,6 +224,7 @@ pnpm dev
 - [ ] 支持本地模型
 - [ ] 支持智能体分享、论坛与平台化能力
 - [ ] 支持向量数据库、图数据库、多智能体协同群聊
+- [ ] 支持图片、语音、视频输入与音视频能力
 - [ ] 支持 Love2D 驱动的智能体可视化展示
 
 ## 说明
@@ -207,6 +233,8 @@ pnpm dev
 - `main/data/` 被视为本地运行数据目录，不会提交到仓库。
 - `main/data/` 会继续保留给文件模式使用，切换到 `STORAGE_DRIVER=mysql` 后可停用。
 - `main/package.json` 中提供了手动执行数据库迁移的 `npm run migrate` 命令。
+- 未登录用户无法调用 `/api/*` 业务接口。
+- 聊天页发送消息时如果尚未登录，会直接弹出 Clerk 登录窗口。
 
 ## 协作方式
 
