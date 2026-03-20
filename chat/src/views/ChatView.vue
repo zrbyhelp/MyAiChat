@@ -1,75 +1,61 @@
 <template>
   <div class="main">
-    <div class="mess-list">
-      <div class="side-shell">
-        <div class="side-action" @click="handleNewChatEntry">新聊天</div>
-        <div class="side-action" @click="handleGoToRobotPage">设置机器人</div>
-        <div class="side-placeholder">
-          <div class="side-meta">当前机器人：{{ currentRobotLabel }}</div>
-          <div class="side-meta">当前模型：{{ currentModelLabel }}</div>
-        </div>
-        <div class="history-title">历史聊天列表</div>
+    <PrimaryNav v-model="activePrimaryTab" />
+    <template v-if="activePrimaryTab === 'agent'">
+      <div class="mess-list">
+        <SessionHistoryPanel
+          :current-robot-label="currentRobotLabel"
+          :current-model-label="currentModelLabel"
+          :session-history="sessionHistory"
+          :session-id="sessionId"
+          :deleting-session-id="deletingSessionId"
+          @new-chat="handleNewChatEntry"
+          @go-robots="handleGoToRobotPage"
+          @open-session="openHistorySession"
+          @delete-session="handleDeleteSession"
+        />
       </div>
-      <div class="history-scroll-area">
-        <div v-if="sessionHistory.length" class="history-list">
-          <div v-for="item in sessionHistory" :key="item.id" class="history-item"
-            :class="{ active: item.id === sessionId }" @click="openHistorySession(item.id)">
-            <div class="history-item-head">
-              <div class="history-item-title">{{ item.title || '新对话' }}</div>
-              <TButton variant="text" size="small" theme="danger" class="history-delete-button"
-                :loading="deletingSessionId === item.id" @click.stop="handleDeleteSession(item.id)">
-                删除
-              </TButton>
-            </div>
-            <div class="history-item-preview">{{ item.preview || item.robotName || '暂无消息' }}</div>
-          </div>
-        </div>
-        <div v-else class="history-empty">
-          暂无历史聊天
-        </div>
-      </div>
-    </div>
-    <TButton class="mobile-sidebar-trigger" shape="circle" variant="outline" @click="sidebarDrawerVisible = true">
-      <template #icon>
-        <MenuIcon />
-      </template>
-    </TButton>
-    <div class="chat-container">
-      <div class="chatbot-header">
-        <div class="chatbot-header-left">
-          <div class="token-stats" title="当前会话真实 Token 统计">
-            <div class="token-stat-item">
-              <svg class="token-stat-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 4l6 7h-4v8h-4v-8H6l6-7Z" fill="currentColor" />
-              </svg>
-              <span>{{ sessionPromptTokens }}</span>
-            </div>
-            <div class="token-stat-item">
-              <svg class="token-stat-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 20l-6-7h4V5h4v8h4l-6 7Z" fill="currentColor" />
-              </svg>
-              <span>{{ sessionCompletionTokens }}</span>
+      <TButton class="mobile-sidebar-trigger" shape="circle" variant="outline" @click="sidebarDrawerVisible = true">
+        <template #icon>
+          <MenuIcon />
+        </template>
+      </TButton>
+      <div class="chat-container">
+        <div class="chatbot-header">
+          <div class="chatbot-header-left">
+            <div class="token-stats" title="当前会话真实 Token 统计">
+              <div class="token-stat-item">
+                <svg class="token-stat-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 4l6 7h-4v8h-4v-8H6l6-7Z" fill="currentColor" />
+                </svg>
+                <span>{{ sessionPromptTokens }}</span>
+              </div>
+              <div class="token-stat-item">
+                <svg class="token-stat-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 20l-6-7h4V5h4v8h4l-6 7Z" fill="currentColor" />
+                </svg>
+                <span>{{ sessionCompletionTokens }}</span>
+              </div>
             </div>
           </div>
+          <TSpace align="center" size="small">
+            <TButton shape="circle" variant="text" @click="openMemoryDialog">
+              <template #icon>
+                <svg class="memory-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M9 4.5a3.5 3.5 0 0 0-3.28 4.73A3.75 3.75 0 0 0 4 12.5c0 1.34.7 2.52 1.75 3.18v1.07A2.25 2.25 0 0 0 8 19h1v1.25a.75.75 0 0 0 1.5 0V19h3v1.25a.75.75 0 0 0 1.5 0V19h1a2.25 2.25 0 0 0 2.25-2.25v-1.07A3.74 3.74 0 0 0 20 12.5a3.75 3.75 0 0 0-1.72-3.27A3.5 3.5 0 0 0 12 6.3 3.5 3.5 0 0 0 9 4.5Zm0 1.5c.97 0 1.82.63 2.13 1.54a.75.75 0 0 0 1.43 0A2.25 2.25 0 0 1 16.75 9a.75.75 0 0 0 .55.86 2.25 2.25 0 0 1 .45 4.18.75.75 0 0 0-.37.65v2.06a.75.75 0 0 1-.75.75H8a.75.75 0 0 1-.75-.75V14.7a.75.75 0 0 0-.37-.65 2.25 2.25 0 0 1 .45-4.18A.75.75 0 0 0 7.88 9 2.25 2.25 0 0 1 9 6Z"
+                    fill="currentColor" />
+                </svg>
+              </template>
+            </TButton>
+            <TButton shape="circle" variant="text" @click="openSessionRobotDialog">
+              <template #icon>
+                <SettingIcon />
+              </template>
+            </TButton>
+          </TSpace>
         </div>
-        <TSpace align="center" size="small">
-          <TButton shape="circle" variant="text" @click="openMemoryDialog">
-            <template #icon>
-              <svg class="memory-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M9 4.5a3.5 3.5 0 0 0-3.28 4.73A3.75 3.75 0 0 0 4 12.5c0 1.34.7 2.52 1.75 3.18v1.07A2.25 2.25 0 0 0 8 19h1v1.25a.75.75 0 0 0 1.5 0V19h3v1.25a.75.75 0 0 0 1.5 0V19h1a2.25 2.25 0 0 0 2.25-2.25v-1.07A3.74 3.74 0 0 0 20 12.5a3.75 3.75 0 0 0-1.72-3.27A3.5 3.5 0 0 0 12 6.3 3.5 3.5 0 0 0 9 4.5Zm0 1.5c.97 0 1.82.63 2.13 1.54a.75.75 0 0 0 1.43 0A2.25 2.25 0 0 1 16.75 9a.75.75 0 0 0 .55.86 2.25 2.25 0 0 1 .45 4.18.75.75 0 0 0-.37.65v2.06a.75.75 0 0 1-.75.75H8a.75.75 0 0 1-.75-.75V14.7a.75.75 0 0 0-.37-.65 2.25 2.25 0 0 1 .45-4.18A.75.75 0 0 0 7.88 9 2.25 2.25 0 0 1 9 6Z"
-                  fill="currentColor" />
-              </svg>
-            </template>
-          </TButton>
-          <TButton shape="circle" variant="text" @click="openSessionRobotDialog">
-            <template #icon>
-              <SettingIcon />
-            </template>
-          </TButton>
-        </TSpace>
-      </div>
-      <div class="chatbot">
+        <div class="chatbot">
         <t-chatbot :key="chatbotRuntimeKey" ref="chatbotRef" layout="both" :message-props="chatMessageProps"
           :chat-service-config="chatServiceConfig" :is-stream-load="effectiveStream"
           :on-message-change="handleChatMessageChange" @messageChange="handleChatMessageChange"
@@ -78,25 +64,25 @@
             <div class="chat-form-card">
               <div class="chat-form-title">{{ slot.schema.title || '请补充信息' }}</div>
               <div v-if="slot.schema.description" class="chat-form-desc">{{ slot.schema.description }}</div>
-              <template v-for="draft in [getFormDraft(slot.formId, slot.schema)]" :key="`${slot.formId}-draft`">
+              <template v-for="(draft, draftIndex) in [getFormDraft(slot.formId, slot.schema)]" :key="`${slot.formId}-draft-${draftIndex}`">
                 <TForm label-align="top">
                   <TFormItem v-for="field in slot.schema.fields" :key="field.name" :label="field.label">
-                    <TInput v-if="field.type === 'input'" v-model="draft[field.name]"
+                    <TInput v-if="field.type === 'input'" v-model="draft[field.name] as string | number"
                       :type="field.inputType === 'number' ? 'number' : 'text'" :placeholder="field.placeholder || ''"
                       :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding" />
-                    <TRadioGroup v-else-if="field.type === 'radio'" v-model="draft[field.name]"
+                    <TRadioGroup v-else-if="field.type === 'radio'" v-model="draft[field.name] as string | number | boolean"
                       :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding">
                       <TRadio v-for="option in field.options || []" :key="option.value" :value="option.value">
                         {{ option.label }}
                       </TRadio>
                     </TRadioGroup>
-                    <TCheckboxGroup v-else-if="field.type === 'checkbox'" v-model="draft[field.name]"
+                    <TCheckboxGroup v-else-if="field.type === 'checkbox'" v-model="draft[field.name] as (string | number | boolean)[]"
                       :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding">
                       <TCheckbox v-for="option in field.options || []" :key="option.value" :value="option.value">
                         {{ option.label }}
                       </TCheckbox>
                     </TCheckboxGroup>
-                    <TSelect v-else-if="field.type === 'select'" v-model="draft[field.name]"
+                    <TSelect v-else-if="field.type === 'select'" v-model="draft[field.name] as string | number | (string | number)[]"
                       :multiple="Boolean(field.multiple)" :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
                       :options="(field.options || []).map((option) => ({ label: option.label, value: option.value }))"
                       :placeholder="field.placeholder || ''" />
@@ -135,40 +121,24 @@
             </TSpace>
           </template>
         </t-chatbot>
+        </div>
       </div>
-    </div>
+    </template>
+    <PlaceholderPane v-else :title="activePrimaryTab === 'discover' ? '发现' : '我的'" />
   </div>
 
   <TDrawer v-model:visible="sidebarDrawerVisible" header="会话列表" placement="left" size="280px" :footer="false">
-    <div class="drawer-side">
-      <div class="side-shell">
-        <div class="side-action" @click="handleNewChatEntry">新聊天</div>
-        <div class="side-action" @click="handleGoToRobotPage">设置机器人</div>
-        <div class="side-placeholder">
-          <div class="side-meta">当前机器人：{{ currentRobotLabel }}</div>
-          <div class="side-meta">当前模型：{{ currentModelLabel }}</div>
-        </div>
-        <div class="history-title">历史聊天列表</div>
-      </div>
-      <div class="history-scroll-area">
-        <div v-if="sessionHistory.length" class="history-list">
-          <div v-for="item in sessionHistory" :key="item.id" class="history-item"
-            :class="{ active: item.id === sessionId }" @click="openHistorySession(item.id)">
-            <div class="history-item-head">
-              <div class="history-item-title">{{ item.title || '新对话' }}</div>
-              <TButton variant="text" size="small" theme="danger" class="history-delete-button"
-                :loading="deletingSessionId === item.id" @click.stop="handleDeleteSession(item.id)">
-                删除
-              </TButton>
-            </div>
-            <div class="history-item-preview">{{ item.preview || item.robotName || '暂无消息' }}</div>
-          </div>
-        </div>
-        <div v-else class="history-empty">
-          暂无历史聊天
-        </div>
-      </div>
-    </div>
+    <SessionHistoryPanel
+      :current-robot-label="currentRobotLabel"
+      :current-model-label="currentModelLabel"
+      :session-history="sessionHistory"
+      :session-id="sessionId"
+      :deleting-session-id="deletingSessionId"
+      @new-chat="handleNewChatEntry"
+      @go-robots="handleGoToRobotPage"
+      @open-session="openHistorySession"
+      @delete-session="handleDeleteSession"
+    />
   </TDrawer>
 
   <component :is="isMobile ? TDrawer : TDialog" v-model:visible="newChatVisible" :header="isMobile ? false : '选择机器人'"
@@ -277,17 +247,31 @@
         <div class="mobile-overlay-title">编辑当前机器人</div>
         <TButton variant="text" @click="sessionRobotVisible = false">关闭</TButton>
       </div>
-      <TForm label-align="top">
-        <TFormItem label="名称">
-          <TInput v-model="sessionRobotDraft.name" placeholder="例如：销售顾问 / 数据分析师" />
-        </TFormItem>
-        <TFormItem label="头像">
-          <TInput v-model="sessionRobotDraft.avatar" placeholder="请输入头像图片 URL" />
-        </TFormItem>
-        <TFormItem label="System Prompt">
-          <TTextarea v-model="sessionRobotDraft.systemPrompt" :autosize="{ minRows: 5, maxRows: 8 }" />
-        </TFormItem>
-      </TForm>
+      <div class="session-robot-shell">
+        <div class="session-robot-hero">
+          <div class="session-robot-avatar">
+            <img v-if="sessionRobotDraft.avatar" :src="sessionRobotDraft.avatar" alt="" />
+            <span v-else>{{ (sessionRobotDraft.name || '机').slice(0, 1) }}</span>
+          </div>
+          <div class="session-robot-hero-text">
+            <div class="session-robot-hero-title">{{ sessionRobotDraft.name || '当前机器人' }}</div>
+            <div class="session-robot-hero-subtitle">修改后仅作用于当前会话上下文</div>
+          </div>
+        </div>
+        <div class="session-robot-form-card">
+          <TForm label-align="top">
+            <TFormItem label="名称">
+              <TInput v-model="sessionRobotDraft.name" placeholder="例如：销售顾问 / 数据分析师" />
+            </TFormItem>
+            <TFormItem label="头像">
+              <TInput v-model="sessionRobotDraft.avatar" placeholder="请输入头像图片 URL" />
+            </TFormItem>
+            <TFormItem label="System Prompt">
+              <TTextarea v-model="sessionRobotDraft.systemPrompt" :autosize="{ minRows: 5, maxRows: 8 }" />
+            </TFormItem>
+          </TForm>
+        </div>
+      </div>
       <div v-if="isMobile" class="mobile-overlay-actions">
         <TButton block theme="primary" @click="applySessionRobot">应用到当前上下文</TButton>
       </div>
@@ -351,6 +335,9 @@ import { AiEducationIcon, LightbulbIcon, MenuIcon, OrderIcon, SettingIcon } from
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
+import PlaceholderPane from '@/components/chat/PlaceholderPane.vue'
+import PrimaryNav from '@/components/chat/PrimaryNav.vue'
+import SessionHistoryPanel from '@/components/chat/SessionHistoryPanel.vue'
 import { clearSessionMemory, deleteSession, getCapabilities, getModelConfigs, getRobots, getSession, getSessions, saveModelConfigs, testModelConnection, updateSessionMemory, upsertSession } from '@/lib/api'
 import type {
   AIFormField,
@@ -369,10 +356,41 @@ import type {
 } from '@/types/ai'
 
 type ChatbotInstance = {
-  registerMergeStrategy?: (type: string, handler: (chunk: any, existing?: any) => any) => void
-  setMessages?: (messages: any[], mode?: 'replace' | 'prepend' | 'append') => void
+  registerMergeStrategy?: (type: string, handler: (chunk: unknown, existing?: unknown) => unknown) => void
+  setMessages?: (messages: ChatRenderMessage[], mode?: 'replace' | 'prepend' | 'append') => void
   clearMessages?: () => void
   sendUserMessage?: (params: { prompt?: string }) => Promise<void>
+}
+
+type ChatRenderContent = {
+  type?: string
+  slotName?: string
+  data?: unknown
+  [key: string]: unknown
+}
+
+type ChatRenderMessage = {
+  id?: string
+  role?: string
+  content?: ChatRenderContent[]
+  [key: string]: unknown
+}
+
+type ChatMessageChangeEvent = CustomEvent<ChatRenderMessage[]> | ChatRenderMessage[] | null | undefined
+type FormDraftValue = string | number | boolean | (string | number | boolean)[]
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+}
+
+function extractActivityFormSchema(content: ChatRenderContent): AIFormSchema | null {
+  if (content?.type !== 'activity-form') {
+    return null
+  }
+
+  const data = asRecord(content.data)
+  const schema = data.content as AIFormSchema | undefined
+  return schema?.fields?.length ? schema : null
 }
 
 type NormalizedStreamPayload = {
@@ -577,7 +595,7 @@ function normalizeSessionUsage(usage?: Partial<SessionUsageState> | null): Sessi
 }
 
 function createInitialFormValues(schema: AIFormSchema) {
-  return schema.fields.reduce<Record<string, any>>((result, field) => {
+  return schema.fields.reduce<Record<string, FormDraftValue>>((result, field) => {
     if (Array.isArray(field.defaultValue)) {
       result[field.name] = [...field.defaultValue]
     } else if (typeof field.defaultValue === 'string') {
@@ -598,7 +616,7 @@ function getFormDraft(formId: string, schema: AIFormSchema) {
   return formDrafts[formId]
 }
 
-function getFormFieldLabel(field: AIFormField, value: any) {
+function getFormFieldLabel(field: AIFormField, value: FormDraftValue | undefined) {
   if (Array.isArray(value)) {
     const labels = value
       .map((item) => field.options?.find((option) => option.value === item)?.label || String(item))
@@ -613,7 +631,7 @@ function getFormFieldLabel(field: AIFormField, value: any) {
   return String(value ?? '')
 }
 
-function buildFormPrompt(schema: AIFormSchema, values: Record<string, any>) {
+function buildFormPrompt(schema: AIFormSchema, values: Record<string, FormDraftValue>) {
   const lines = [schema.title ? `已填写表单《${schema.title}》` : '已填写表单']
   schema.fields.forEach((field) => {
     const value = values[field.name]
@@ -629,6 +647,7 @@ const providerOptions = [
   { label: 'OpenAI', value: 'openai' },
 ]
 
+const activePrimaryTab = ref<'agent' | 'discover' | 'mine'>('agent')
 const isMobile = ref(false)
 const sidebarDrawerVisible = ref(false)
 const newChatVisible = ref(false)
@@ -647,10 +666,10 @@ const sessionHistory = ref<ChatSessionSummary[]>([])
 const deletingSessionId = ref('')
 const robotTemplates = ref<AIRobotCard[]>([])
 const selectedNewChatRobotId = ref('')
-const pendingChatMessages = ref<any[] | null>(null)
+const pendingChatMessages = ref<ChatRenderMessage[] | null>(null)
 const pendingAssistantSuggestions = ref<SuggestionOption[] | null>(null)
 const pendingAssistantForm = ref<AIFormSchema | null>(null)
-const chatMessages = ref<any[]>([])
+const chatMessages = ref<ChatRenderMessage[]>([])
 const pendingAssistantMemoryStatus = ref<MemoryStatusState | null>(null)
 const streamEnabled = ref(true)
 const thinkingEnabled = ref(false)
@@ -663,7 +682,7 @@ const capabilities = ref<ModelCapabilities>({
 })
 const modelConfigs = ref<AIModelConfigItem[]>([])
 const modelOptionsMap = ref<Record<string, ModelOption[]>>({})
-const formDrafts = reactive<Record<string, Record<string, any>>>({})
+const formDrafts = reactive<Record<string, Record<string, FormDraftValue>>>({})
 const submittedForms = reactive<Record<string, boolean>>({})
 
 const editingConfig = reactive<AIModelConfigItem>(createModelConfig())
@@ -745,15 +764,16 @@ const formActivitySlots = computed<ChatFormSlot[]>(() => {
     if (!Array.isArray(message?.content)) {
       return
     }
-    message.content.forEach((content: any, index: number) => {
-      if (content?.type !== 'activity-form' || !content?.data?.content?.fields?.length) {
+    message.content.forEach((content: ChatRenderContent, index: number) => {
+      const schema = extractActivityFormSchema(content)
+      if (!schema) {
         return
       }
       const activitySlotName = content.slotName || `activity-form-${index}`
       slots.push({
         slotName: `${message.id}-${activitySlotName}`,
         formId: `${message.id}-${activitySlotName}`,
-        schema: content.data.content as AIFormSchema,
+        schema,
       })
     })
   })
@@ -813,26 +833,36 @@ watch(chatbotRef, (instance) => {
     return
   }
 
-  instance.registerMergeStrategy('markdown', (chunk, existing) => ({
-    ...chunk,
-    data: `${existing?.data ?? ''}${chunk.data ?? ''}`,
-  }))
+  instance.registerMergeStrategy('markdown', (chunk, existing) => {
+    const chunkObj = asRecord(chunk)
+    const existingObj = asRecord(existing)
+    return {
+      ...chunkObj,
+      data: `${String(existingObj.data ?? '')}${String(chunkObj.data ?? '')}`,
+    }
+  })
 
-  instance.registerMergeStrategy('thinking', (chunk, existing) => ({
-    ...chunk,
-    data: {
-      ...existing?.data,
-      ...chunk?.data,
-      text: `${existing?.data?.text ?? ''}${chunk?.data?.text ?? ''}`,
-    },
-  }))
+  instance.registerMergeStrategy('thinking', (chunk, existing) => {
+    const chunkObj = asRecord(chunk)
+    const existingObj = asRecord(existing)
+    const existingData = asRecord(existingObj.data)
+    const chunkData = asRecord(chunkObj.data)
+    return {
+      ...chunkObj,
+      data: {
+        ...existingData,
+        ...chunkData,
+        text: `${String(existingData.text ?? '')}${String(chunkData.text ?? '')}`,
+      },
+    }
+  })
 
   if (pendingChatMessages.value !== null) {
     applyChatMessages(pendingChatMessages.value)
   }
 })
 
-function applyChatMessages(messages: any[]) {
+function applyChatMessages(messages: ChatRenderMessage[]) {
   pendingChatMessages.value = messages
   chatMessages.value = messages
   initializeFormDrafts(messages)
@@ -848,7 +878,7 @@ function applyChatMessages(messages: any[]) {
   pendingChatMessages.value = null
 }
 
-function injectAssistantMemoryStatus(messages: any[], status: 'running' | 'success' | 'error', text: string) {
+function injectAssistantMemoryStatus(messages: ChatRenderMessage[], status: 'running' | 'success' | 'error', text: string) {
   const nextMessages = messages.map((message) => ({
     ...message,
     content: Array.isArray(message?.content) ? [...message.content] : [],
@@ -858,10 +888,10 @@ function injectAssistantMemoryStatus(messages: any[], status: 'running' | 'succe
     return null
   }
 
-  const withoutMemoryStatus = targetMessage.content.filter((content: any) => {
+  const withoutMemoryStatus = targetMessage.content.filter((content: ChatRenderContent) => {
     return !(content?.type === 'markdown' && typeof content?.data === 'string' && content.data.includes('<!--memory-status:'))
   })
-  const insertionIndex = withoutMemoryStatus.findIndex((content: any) => {
+  const insertionIndex = withoutMemoryStatus.findIndex((content: ChatRenderContent) => {
     return content?.type === 'suggestion' || content?.type === 'activity-form'
   })
   const memoryStatusContent = {
@@ -908,9 +938,9 @@ function flushPendingAssistantStructuredContent() {
     return
   }
 
-  targetMessage.content = targetMessage.content.filter((content: any) => content?.type !== 'suggestion' && content?.type !== 'activity-form')
+  targetMessage.content = targetMessage.content.filter((content: ChatRenderContent) => content?.type !== 'suggestion' && content?.type !== 'activity-form')
 
-  const memoryStatusIndex = targetMessage.content.findIndex((content: any) => {
+  const memoryStatusIndex = targetMessage.content.findIndex((content: ChatRenderContent) => {
     return content?.type === 'markdown' && typeof content?.data === 'string' && content.data.includes('<!--memory-status:')
   })
   const insertionIndex = memoryStatusIndex === -1 ? targetMessage.content.length : memoryStatusIndex
@@ -929,19 +959,20 @@ function flushPendingAssistantStructuredContent() {
   applyChatMessages(nextMessages)
 }
 
-function initializeFormDrafts(messages: any[]) {
+function initializeFormDrafts(messages: ChatRenderMessage[]) {
   messages.forEach((message) => {
     if (!Array.isArray(message?.content)) {
       return
     }
-    message.content.forEach((content: any, index: number) => {
-      if (content?.type !== 'activity-form' || !content?.data?.content?.fields?.length) {
+    message.content.forEach((content: ChatRenderContent, index: number) => {
+      const schema = extractActivityFormSchema(content)
+      if (!schema) {
         return
       }
       const activitySlotName = content.slotName || `activity-form-${index}`
       const formId = `${message.id}-${activitySlotName}`
       if (!formDrafts[formId]) {
-        formDrafts[formId] = createInitialFormValues(content.data.content as AIFormSchema)
+        formDrafts[formId] = createInitialFormValues(schema)
       }
       if (submittedForms[formId] === undefined) {
         submittedForms[formId] = false
@@ -950,8 +981,12 @@ function initializeFormDrafts(messages: any[]) {
   })
 }
 
-function handleChatMessageChange(event: CustomEvent<any[]> | any) {
-  const messages = Array.isArray(event?.detail) ? event.detail : Array.isArray(event) ? event : []
+function handleChatMessageChange(event: ChatMessageChangeEvent) {
+  const messages = Array.isArray(event)
+    ? event
+    : event && 'detail' in event && Array.isArray(event.detail)
+      ? event.detail
+      : []
   chatMessages.value = messages
   initializeFormDrafts(messages)
   if (pendingAssistantSuggestions.value?.length || pendingAssistantForm.value?.fields?.length) {
@@ -1457,7 +1492,7 @@ async function saveAllModelConfigs() {
   }
 }
 
-async function switchModel(data: { value?: string | number | Record<string, any> }) {
+async function switchModel(data: { value?: string | number | Record<string, unknown> }) {
   const selectedValue = typeof data.value === 'string' ? data.value : ''
   if (selectedValue === 'setting') {
     openConfigDialog()
@@ -1609,23 +1644,6 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-.drawer-side {
-  height: 100%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.side-shell {
-  flex: 0 0 auto;
-}
-
-.history-scroll-area {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
 .mobile-overlay-body {
   display: flex;
   flex-direction: column;
@@ -1659,17 +1677,6 @@ onUnmounted(() => {
 
 .mobile-sidebar-trigger {
   display: none;
-}
-
-.side-action {
-  cursor: pointer;
-  padding: 10px 8px;
-}
-
-.side-placeholder {
-  padding: 10px 8px;
-  color: #8b8b8b;
-  line-height: 1.8;
 }
 
 .robot-picker-list {
@@ -1724,64 +1731,10 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
-.history-title {
-  padding: 12px 8px 8px;
-  font-size: 13px;
-  color: #666;
-}
-
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.history-item {
-  padding: 10px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.history-item-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.history-item.active {
-  background: #f5f9ff;
-}
-
-.history-item-title {
-  font-size: 13px;
-  color: #222;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.history-delete-button {
-  flex: 0 0 auto;
-  margin: -4px -6px 0 0;
-}
-
-.history-item-preview,
 .history-empty {
   font-size: 12px;
   color: #8b8b8b;
   line-height: 1.5;
-}
-
-.history-item-preview {
-  margin-top: 4px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.history-empty {
   padding: 8px;
 }
 
@@ -1800,10 +1753,6 @@ onUnmounted(() => {
 .sender-footer-actions {
   flex-wrap: wrap;
   row-gap: 8px;
-}
-
-.side-meta {
-  font-size: 12px;
 }
 
 .chat-container {
@@ -2051,6 +2000,69 @@ onUnmounted(() => {
   line-height: 1.8;
 }
 
+.session-robot-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.session-robot-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e6e9f2;
+  background: linear-gradient(135deg, #f8fbff 0%, #f5f8ff 100%);
+}
+
+.session-robot-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #e8efff;
+  color: #3f6edb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.session-robot-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.session-robot-hero-text {
+  min-width: 0;
+}
+
+.session-robot-hero-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-robot-hero-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.session-robot-form-card {
+  border: 1px solid #eceff5;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
 @media (max-width: 900px) {
   .sender-footer-actions {
     width: 100%;
@@ -2071,7 +2083,7 @@ onUnmounted(() => {
   }
 
   .chat-container {
-    padding: 0 12px;
+    padding: 0 12px calc(68px + env(safe-area-inset-bottom));
   }
 
   .chatbot-header {
@@ -2099,6 +2111,22 @@ onUnmounted(() => {
 
   .mobile-overlay-body :deep(.t-textarea__inner) {
     min-height: 220px;
+  }
+
+  .session-robot-hero {
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  .session-robot-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+  }
+
+  .session-robot-form-card {
+    padding: 10px;
+    border-radius: 10px;
   }
 
   .sender-footer-actions {
