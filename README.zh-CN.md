@@ -38,6 +38,62 @@
 - 已支持结构化记忆 schema 编辑、树状查看与会话级记忆配置
 - 已支持模型配置的描述、标签、温度与当前模型切换
 
+## 目前进度
+
+### 桌面端
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/z1.png" alt="一期展示 1" width="96%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/z2.png" alt="一期展示 2" width="96%" />
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/z3.png" alt="一期展示 3" width="96%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/z4.png" alt="一期展示 4" width="96%" />
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/z5.png" alt="一期展示 5" width="96%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/z6.png" alt="一期展示 6" width="96%" />
+      </td>
+    </tr>
+  </table>
+</div>
+
+### 移动端
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/p1.png" alt="移动端展示 1" width="88%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/p2.png" alt="移动端展示 2" width="88%" />
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/p3.png" alt="移动端展示 3" width="88%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/p4.png" alt="移动端展示 4" width="88%" />
+      </td>
+    </tr>
+  </table>
+</div>
+
 ## 项目结构
 
 - `chat/`：Vue 3 + Vite 前端
