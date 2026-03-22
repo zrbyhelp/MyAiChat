@@ -5,6 +5,7 @@ import type {
   DeleteSessionResponse,
   SessionResponse,
   SessionsResponse,
+  MemorySchemaState,
   SessionMemoryState,
   SessionRobotState,
   ModelCapabilities,
@@ -14,13 +15,23 @@ import type {
   RobotsResponse,
   TestConnectionResponse,
 } from '@/types/ai'
-import { UnauthorizedError, createAuthorizedHeaders, handleUnauthorized } from '@/lib/auth'
+import { UnauthorizedError, createAuthorizedHeaders, handleUnauthorized, isSignedInNow, waitForAuthReady } from '@/lib/auth'
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, {
+  const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+  const requestInit = async () => ({
     ...init,
     headers: await createAuthorizedHeaders(init?.headers),
   })
+
+  let response = await fetch(input, await requestInit())
+  if (response.status === 401) {
+    await waitForAuthReady()
+    if (isSignedInNow()) {
+      await sleep(800)
+      response = await fetch(input, await requestInit())
+    }
+  }
   if (response.status === 401) {
     handleUnauthorized()
     throw new UnauthorizedError()
@@ -77,9 +88,8 @@ export function saveRobots(robots: AIRobotCard[]) {
   })
 }
 
-export async function getModels(provider: string, baseUrl: string, apiKey: string) {
+export async function getModels(_provider: string, baseUrl: string, apiKey: string) {
   const search = new URLSearchParams({
-    provider,
     baseUrl,
   })
 
@@ -91,9 +101,8 @@ export async function getModels(provider: string, baseUrl: string, apiKey: strin
   return data.models as ModelOption[]
 }
 
-export async function getCapabilities(provider: string, model: string) {
+export async function getCapabilities(_provider: string, model: string) {
   const search = new URLSearchParams({
-    provider,
     model,
   })
 
@@ -127,9 +136,10 @@ export function upsertSession(session: {
   id?: string
   title?: string
   robot?: SessionRobotState
+  memory?: SessionMemoryState
   modelConfigId?: string
   modelLabel?: string
-  memory?: Partial<SessionMemoryState>
+  memorySchema?: MemorySchemaState
 }) {
   return requestJson<SessionResponse>('/api/sessions', {
     method: 'POST',
@@ -137,21 +147,5 @@ export function upsertSession(session: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(session),
-  })
-}
-
-export function updateSessionMemory(sessionId: string, memory: Partial<SessionMemoryState>) {
-  return requestJson<SessionResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/memory`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(memory),
-  })
-}
-
-export function clearSessionMemory(sessionId: string) {
-  return requestJson<SessionResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/memory`, {
-    method: 'DELETE',
   })
 }

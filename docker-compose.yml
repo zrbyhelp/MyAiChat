@@ -31,11 +31,34 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-myaichat}
       DB_LOGGING: "false"
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
+      AGENT_SERVICE_URL: http://agent:8000
     depends_on:
       mysql:
         condition: service_healthy
+      agent:
+        condition: service_started
     ports:
       - "${PORT:-3000}:3000"
+
+  agent:
+    build:
+      context: ./agent
+    restart: unless-stopped
+    environment:
+      AGENT_RELOAD: ${AGENT_RELOAD:-false}
+      AGENT_STORAGE_DRIVER: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-myaichat}
+      DB_USER: ${DB_USER:-myaichat}
+      DB_PASSWORD: ${DB_PASSWORD:-myaichat}
+    volumes:
+      - ./agent/app:/app/app
+      - ./agent/start-agent.sh:/app/start-agent.sh:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
 
   chat:
     build:

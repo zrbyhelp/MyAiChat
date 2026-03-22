@@ -27,3 +27,9 @@ Thumbs.db
 .idea/
 
 main/data/
+
+agent/.deps/
+agent/.run/
+agent/.state/
+agent/.tmp/
+agent/.venv/

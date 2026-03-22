@@ -5,13 +5,17 @@ import { getStorageDriver } from './database-config.mjs'
 export {
   buildSessionSummary,
   createSessionTitle,
+  DEFAULT_SESSION_MEMORY,
+  DEFAULT_SESSION_ROBOT,
   normalizeModelConfig,
   normalizeModelConfigsPayload,
+  normalizeMemorySchema,
   normalizeRobots,
   normalizeSession,
   normalizeSessionMemory,
   normalizeSessionRobot,
   normalizeSessionUsage,
+  normalizeStructuredMemory,
 } from './storage-shared.mjs'
 
 let activeStorage = null

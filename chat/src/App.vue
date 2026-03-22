@@ -36,6 +36,7 @@ watchEffect(() => {
       }
       return getToken.value()
     },
+    isLoaded: () => Boolean(isLoaded.value),
     isSignedIn: () => Boolean(isSignedIn.value),
     openSignIn: openSignInModal,
     onUnauthorized: openSignInModal,

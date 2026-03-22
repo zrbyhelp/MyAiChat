@@ -7,302 +7,285 @@
   <img src="./image/myaichatlogo.png" alt="myaichat" width="480" />
 </p>
 
-`myaichat` 是一个以“真实聊天窗口体验”为核心目标的 AI 对话项目。
+# myaichat
 
-它不只是一个问答窗口，而是希望做成一个更接近真实社交聊天软件的系统：用户可以和智能体持续聊天，接收智能体主动发来的消息，观察多个智能体之间的互动，甚至扩展到群聊、人物关系、场景设定和剧情推进。
+`myaichat` 是一个基于 `Vue 3 + Node.js + Python LangGraph` 的 AI 聊天项目，目标是提供更接近真实聊天软件的对话体验，并为多智能体协作、长期记忆和工具调用预留清晰扩展路径。
 
-项目的方向是构建一个可高度定制的角色与场景聊天系统，支持人物设定、记忆、主动消息、多角色协同、群聊互动，以及后续的向量记忆、图关系和可视化表现能力。
+当前版本采用三服务架构：
 
-后端目前支持两种持久化驱动：
+- `chat/`：Vue 3 + Vite 前端
+- `main/`：Node.js + Express 业务网关
+- `agent/`：Python + FastAPI + LangGraph 智能体服务
 
-- `file`：将运行数据写入 `main/data/*.json`
-- `mysql`：通过 Sequelize 将运行数据写入 MySQL
+## 当前能力
 
-当前版本同时接入了 `Clerk` 统一认证：
+- Clerk 登录鉴权
+- 会话、模型配置、智能体按用户隔离
+- OpenAI-compatible 模型接入
+- LangGraph 多智能体链路
+- 动态结构化记忆 schema
+- 会话级结构化记忆参数控制
+- 模型配置描述与标签
+- Web 工具：搜索与 URL 抓取
+- `file` / `mysql` 持久化模式
 
-- 支持 `GitHub` 登录
-- 支持 `Google` 登录
-- 支持 `邮箱` 登录
-- 所有业务 API 都需要登录后访问
-- 会话、角色卡片、模型配置和记忆都按用户独立隔离
+## 当前进展
 
-## 项目介绍
+结合 [TASK_CHECKLIST.md](./TASK_CHECKLIST.md) 与当前代码，近期已落地的重点如下：
 
-当前版本重点围绕这些能力演进：
-
-- 更接近真实聊天软件的窗口体验
-- 智能体主动发消息，而不只是被动回复
-- 支持多人互动与群聊扩展
-- 支持人物、关系、场景、世界观的高度定制
-- 支持会话记忆、模型管理、本地与云端模型切换
-- 为多智能体协作、向量数据库、图数据库、动态函数和可视化展示预留扩展空间
-
-## 项目定位
-
-这个项目更适合被理解为：
-
-- AI 聊天模拟器
-- 角色聊天系统
-- 多智能体互动聊天系统
-- 可扩展的剧情 / 场景 / 人物聊天平台
-
-## GitHub About
-
-建议的 About 文案：
-
-`一个面向真实聊天体验的 AI 对话系统，支持主动消息、群聊、多智能体互动，以及人物与场景的高度定制。`
-
-建议的关键词：
-
-`ai-chat`
-`character-chat`
-`roleplay`
-`multi-agent`
-`group-chat`
-`interactive-fiction`
-`vue`
-`nodejs`
-`express`
-`sequelize`
-`mysql`
-`ollama`
-`openai`
+- 已完成用户登录后的数据隔离
+- 前端页面已完成一轮重构，包含聊天页、会话列表、模型配置、智能体配置、结构化记忆展示
+- “机器人”命名已统一调整为“智能体”
+- 已支持 Clerk 登录鉴权与受保护业务接口
+- 已支持结构化记忆 schema 编辑、树状查看与会话级记忆配置
+- 已支持模型配置的描述、标签、温度与当前模型切换
 
 ## 项目结构
 
 - `chat/`：Vue 3 + Vite 前端
-- `main/`：Node.js + Express 后端
-- `docker-compose.yml`：基于 MySQL 模式的完整 Docker 启动配置
-- `TASK_CHECKLIST.md`：项目任务清单中文版本
-- `TASK_CHECKLIST.en.md`：项目任务清单英文版本
+- `main/`：Node.js + Express 后端网关
+- `agent/`：Python FastAPI + LangGraph 服务
+- `docker-compose.yml`：完整 Docker 运行配置
+- `DATABASE_DOCKER_SETUP.zh-CN.md`：MySQL Docker 说明
+- `TASK_CHECKLIST*.md`：项目任务清单
 
 ## 环境要求
 
 - Node.js `20.19.0+` 或 `22.12.0+`
 - pnpm
+- Python `3.12+`
 - Docker Desktop 或 Docker Engine
 - 一个已配置好 `GitHub / Google / Email` 登录方式的 Clerk 应用
 
-## Docker 启动方式
+## 本地开发
 
-Docker 模式默认使用 MySQL。
+### 1. 环境变量
 
-1. 根据 `.env.example` 创建根目录环境变量文件
-2. 启动完整服务：
-
-```powershell
-docker compose up --build
-```
-
-默认访问地址：
-
-- 前端：`http://127.0.0.1:8080`
-- 后端：`http://127.0.0.1:3000`
-- MySQL：`127.0.0.1:3306`
-
-在 Docker 模式下：
-
-- `chat` 由 Nginx 提供静态资源
-- `/api` 会反向代理到 `main` 容器
-- 后端使用 `STORAGE_DRIVER=mysql`
-- 前端在构建时读取 `VITE_CLERK_PUBLISHABLE_KEY`
-- 后端通过 `CLERK_SECRET_KEY` 校验登录态
-- 运行时数据存储在 MySQL 中，而不是 JSON 文件中
-
-## npm/pnpm 启动方式
-
-### 模式一：本地文件存储
-
-这是默认的本地开发模式。
-
-前端：
-
-```powershell
-cd chat
-pnpm install
-Copy-Item .env.example .env
-pnpm dev
-```
-
-后端：
-
-```powershell
-cd main
-npm install
-Copy-Item .env.example .env
-npm run dev
-```
-
-在这个模式下：
-
-- 不需要 MySQL
-- `STORAGE_DRIVER` 默认是 `file`
-- 数据会写入 `main/data/model-configs.json`
-- 数据会写入 `main/data/robots.json`
-- 数据会写入 `main/data/sessions.json`
-
-### 模式二：本地 MySQL 存储
-
-如果你希望本地开发时使用 MySQL 而不是 JSON 文件，可以使用这个模式。
-
-1. 根据 `main/.env.example` 创建 `main/.env`
-2. 设置：
+根目录 `.env.example`：
 
 ```env
-STORAGE_DRIVER=mysql
+MYSQL_ROOT_PASSWORD=rootpassword
+DB_HOST=mysql
+DB_PORT=3306
+DB_NAME=myaichat
+DB_USER=myaichat
+DB_PASSWORD=myaichat
 CLERK_SECRET_KEY=sk_test_your_clerk_secret_key
+CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+PORT=3000
+CHAT_PORT=8080
+AGENT_SERVICE_URL=http://agent:8000
+```
+
+`main/.env.example`：
+
+```env
+PORT=3000
+STORAGE_DRIVER=file
+CLERK_SECRET_KEY=sk_test_your_clerk_secret_key
+CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+AGENT_SERVICE_URL=http://127.0.0.1:8000
+
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=myaichat
 DB_USER=myaichat
 DB_PASSWORD=myaichat
+DB_LOGGING=false
 ```
 
-3. 根据 `chat/.env.example` 创建 `chat/.env`
+`chat/.env.example`：
 
 ```env
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
 ```
 
-4. 启动后端：
+### 2. 安装依赖
 
 ```powershell
 cd main
 npm install
+
+cd ..\chat
+pnpm install
+
+cd ..\agent
+python -m pip install -r requirements.txt --user
+```
+
+### 3. 启动三个服务
+
+终端 1：
+
+```powershell
+cd agent
+$env:AGENT_STORAGE_DRIVER="file"
+$env:AGENT_FILE_STORE_DIR="$PWD\.state"
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+终端 2：
+
+```powershell
+cd main
 npm run dev
 ```
 
-5. 启动前端：
+终端 3：
 
 ```powershell
 cd chat
-pnpm install
 pnpm dev
 ```
 
-在这个模式下：
+默认地址：
 
-- 后端通过 Sequelize 连接 MySQL
-- 启动时会执行数据库迁移
-- `main/data/` 下的 JSON 文件不会作为当前有效的数据源
+- 前端：`http://localhost:5173`
+- 主后端：`http://127.0.0.1:3000`
+- Agent：`http://127.0.0.1:8000`
 
-## 环境变量
+本地开发时，`agent` 默认建议使用 `--reload` 热加载；Docker 容器如需热加载，可额外设置：
 
-后端相关环境变量：
+```env
+AGENT_RELOAD=true
+```
 
-- `STORAGE_DRIVER=file|mysql`
-- `PORT`
-- `CLERK_SECRET_KEY`
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_LOGGING=true|false`
+## Docker
 
-前端相关环境变量：
+```powershell
+docker compose up --build
+```
 
-- `VITE_CLERK_PUBLISHABLE_KEY`
+默认地址：
 
-默认行为：
+- 前端：`http://127.0.0.1:8080`
+- 主后端：`http://127.0.0.1:3000`
+- MySQL：`127.0.0.1:3306`
 
-- 本地 `npm run dev`：`file`
-- Docker Compose：`mysql`
+## 模型配置
 
-## 路线图
+当前只支持 `OpenAI-compatible` 语义：
 
-详细任务清单请查看：
+- `baseUrl`
+- `apiKey`
+- `model`
+- `temperature`
+- `description`
+- `tags`
 
-- [TASK_CHECKLIST.md](./TASK_CHECKLIST.md)
-- [TASK_CHECKLIST.en.md](./TASK_CHECKLIST.en.md)
+例如：
 
-### 类库,工具清单
+- `baseUrl`: `https://api.deepseek.com/v1`
+- `model`: `deepseek-chat`
 
-- [ ] MinIO
-- [ ] Redis
+## 结构化记忆
 
-### 一期任务清单(近期)
+长期记忆现在采用“智能体可配置的动态 schema”，不再限制为固定的 `preferences / facts / tasks`。
 
-- [x] 实现用户登陆数据独立
-- [x] 前端页面优化
-  - [x] token数值显示方式优化
-  - [ ] 设置页面布局优化
-  - [x] 机器人更名为智能体
-  - [ ] 手机ui调整
+当前行为：
 
-### 二期任务清单(看情况)
+- 每个智能体模板可以定义自己的 `memorySchema`
+- 新会话会复制该 schema 作为会话快照
+- 会话可单独配置结构化记忆处理间隔与历史消息条数
+- `agent` 会按 `structuredMemoryInterval` 在指定用户轮次触发结构化记忆整理
+- `structuredMemoryHistoryLimit` 用于限制结构化记忆与回答阶段看到的历史消息窗口
+- 后端会按当前 schema 做字段过滤、类型归一化和保底合并
+- 前端以树状结构只读展示最终记忆
 
-- [ ] 项目本土化
-- [ ] 支持本地模型的方案
-- [ ] 可设置当前会话记忆生成模型
-- [ ] 深化智能体功能
-- [ ] 项目平台化
-  - [ ] 实现管理后台
-  - [ ] 增加分享智能体的功能
-  - [ ] 增加论坛功能
-  - [ ] 个人智能体保存在本地
-  - [ ] 分享收费智能体上传后台审核,服务器保存
-  - [ ] 增加智能体导出导入功能
-- [ ] 会话MOD功能
-  - [ ] MOD导入导出功能
-  - [ ] 个人MOD本地存储
-  - [ ] 分享收费MOD上传后台审核,服务器保存
-- [ ] 模型管理功能深化
-  - [ ] 收费模型
-  - [ ] 免费模型
-  - [ ] 个人模型
-- [ ] 深化token计算功能
-- [ ] 线上购买token的功能
-- [ ] 深化智能体功能
+默认模板仍内置了这些示例分类：
 
-### 三期任务清单(需要队友,像大龙虾= =)
+- `preferences`
+- `facts`
+- `tasks`
 
-- [ ] 整理代码
-- [ ] 实现向量数据库功能
-  - [ ] 智能体数据库
-  - [ ] 会话数据库
-- [ ] 实现图数据库功能
-  - [ ] 创建故事人物
-  - [ ] 关联人物线
-  - [ ] 关联人物事件
-- [ ] 实现用户偏好共享到多智能体
-- [ ] 实现AI动态添加函数
-  - [ ] 智能体关联
-  - [ ] 会话关联
-- [ ] 实现会话定时器自主生成消息
+但它们只是默认值，不再是系统唯一支持的结构。
 
-### 四期任务清单(随缘)
+### 当前多智能体
 
-- [ ] 连接Love2d引擎 实现智能体的可视化展示
-- [ ] 实现多智能体的协同群聊功能
+当前固定角色如下：
 
-### 五期任务清单(多模态)
+- `moderator`：判断是否需要联网，并产出搜索词与简短说明
+- `researcher`：执行 Web 搜索与 URL 抓取
+- `answerer`：综合结构化记忆和历史消息生成最终中文内容
+- `memory`：在回复后整理并合并结构化记忆
 
-- [ ] 实现图片、语音、视频的输入
-- [ ] 实现视频、语音功能
+当前 `answerer` 固定追加提示词为：
+
+```text
+你是多智能体系统中面向用户输出的 answerer。
+请综合结构化记忆、历史消息，直接给出中文内容。
+```
+
+`researcher` 当前是工具执行节点，不是单独的 LLM 提示词角色。
+
+### Memory Agent 日志
+
+开发排查时，`memory_agent` 会在 `agent` 控制台输出这些日志：
+
+- `[memory-agent:raw]`：模型原始返回
+- `[memory-agent:parsed]`：解析后的 JSON
+- `[memory-agent:normalized]`：按 schema 归一化后的完整结构化记忆
+- `[memory-agent:merged]`：与当前会话旧记忆合并后的最终结果
+
+默认开启；如需关闭：
+
+```env
+MEMORY_AGENT_LOGGING=false
+```
+
+## 健康检查
+
+```powershell
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:3000/api/capabilities
+curl http://127.0.0.1:5173
+```
+
+## Windows 常见问题
+
+### `python` / `py` 不可用
+
+请安装官方 `Python 3.12+`，并确认：
+
+```powershell
+python --version
+py --version
+```
+
+### `main` 启动时报 `spawn EPERM`
+
+当前 `main` 已改为：
+
+```json
+"dev": "node server.mjs"
+```
+
+### `chat` 启动时报 `spawn EPERM`
+
+当前 `chat` 已使用包装脚本启动 Vite：
+
+```json
+"dev": "node ./scripts/dev-vite.mjs --config vite.config.mjs --configLoader runner"
+```
+
+### `agent` 能启动但不能对话
+
+通常是模型配置无效，需要确认：
+
+- `baseUrl`
+- `apiKey`
+- `model`
 
 ## 说明
 
-- `node_modules/`、构建产物、日志和本地运行数据都已被 Git 忽略。
-- `main/data/` 被视为本地运行数据目录，不会提交到仓库。
-- `main/data/` 会继续保留给文件模式使用，切换到 `STORAGE_DRIVER=mysql` 后可停用。
-- `main/package.json` 中提供了手动执行数据库迁移的 `npm run migrate` 命令。
-- 未登录用户无法调用 `/api/*` 业务接口。
-- 聊天页发送消息时如果尚未登录，会直接弹出 Clerk 登录窗口。
+- `main/package.json` 提供 `npm run migrate`
+- `main/data/` 是 `file` 模式业务数据目录
+- `agent/.state/` 是本地 `file` 模式 agent 状态目录
+- 构建产物、日志和本地运行数据均已被 Git 忽略
 
-## 协作方式
+## 路线图
 
-如果你希望参与这个项目的协作，请通过 GitHub Issues 申请。
-
-- 可以通过 Issues 提交想法、Bug、功能建议或合作意向
-- 如有需要，请说明你的目标、预期贡献和联系方式
-
-## Star 历史
-
-<a href="https://www.star-history.com/?repos=zrbyhelp%2FMyAiChat&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&legend=top-left" />
- </picture>
-</a>
+- [TASK_CHECKLIST.md](./TASK_CHECKLIST.md)
+- [TASK_CHECKLIST.en.md](./TASK_CHECKLIST.en.md)
+- [TASK_CHECKLIST.zh-CN.md](./TASK_CHECKLIST.zh-CN.md)

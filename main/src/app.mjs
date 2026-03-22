@@ -11,7 +11,6 @@ import {
 } from './chat-service.mjs'
 import {
   buildSessionSummary,
-  clearSessionMemoryRecord,
   deleteSessionRecord,
   getSessionRecord,
   listSessions,
@@ -20,7 +19,6 @@ import {
   normalizeRobots,
   readModelConfigs,
   readRobots,
-  updateSessionMemoryRecord,
   upsertSessionRecord,
   writeModelConfigs,
   writeRobots,
@@ -55,7 +53,7 @@ export function createApp() {
     try {
       const payload = normalizeModelConfigsPayload(req.body)
       await writeModelConfigs(req.authUser, payload)
-      res.json(payload)
+      res.json(await readModelConfigs(req.authUser))
     } catch (error) {
       next(error)
     }
@@ -112,9 +110,12 @@ export function createApp() {
       res.json({
         session: {
           ...buildSessionSummary(session),
+          threadId: session.threadId,
           robot: session.robot,
           messages: session.messages,
           memory: session.memory,
+          memorySchema: session.memorySchema,
+          structuredMemory: session.structuredMemory,
         },
       })
     } catch (error) {
@@ -132,9 +133,12 @@ export function createApp() {
       res.json({
         session: {
           ...buildSessionSummary(session),
+          threadId: session.threadId,
           robot: session.robot,
           messages: session.messages,
           memory: session.memory,
+          memorySchema: session.memorySchema,
+          structuredMemory: session.structuredMemory,
         },
       })
     } catch (error) {
@@ -172,46 +176,6 @@ export function createApp() {
     }
   })
 
-  app.post('/api/sessions/:id/memory', async (req, res, next) => {
-    try {
-      const session = await updateSessionMemoryRecord(req.authUser, req.params.id, req.body || {})
-      if (!session) {
-        res.status(404).json({ message: '会话不存在' })
-        return
-      }
-      res.json({
-        session: {
-          ...buildSessionSummary(session),
-          robot: session.robot,
-          messages: session.messages,
-          memory: session.memory,
-        },
-      })
-    } catch (error) {
-      next(error)
-    }
-  })
-
-  app.delete('/api/sessions/:id/memory', async (req, res, next) => {
-    try {
-      const session = await clearSessionMemoryRecord(req.authUser, req.params.id)
-      if (!session) {
-        res.status(404).json({ message: '会话不存在' })
-        return
-      }
-      res.json({
-        session: {
-          ...buildSessionSummary(session),
-          robot: session.robot,
-          messages: session.messages,
-          memory: session.memory,
-        },
-      })
-    } catch (error) {
-      next(error)
-    }
-  })
-
   app.get('/api/robots', async (req, res, next) => {
     try {
       res.json({ robots: await readRobots(req.authUser) })
@@ -233,7 +197,6 @@ export function createApp() {
   app.get('/api/models', async (req, res, next) => {
     try {
       const config = normalizeModelConfig({
-        provider: req.query.provider,
         baseUrl: req.query.baseUrl,
         apiKey: req.query.apiKey,
       })
@@ -244,12 +207,11 @@ export function createApp() {
   })
 
   app.get('/api/capabilities', (req, res) => {
-    const provider = req.query.provider === 'openai' ? 'openai' : 'ollama'
     const model = String(req.query.model || '')
     res.json({
       capabilities: {
         supportsStreaming: true,
-        supportsReasoning: detectReasoningSupport(provider, model),
+        supportsReasoning: detectReasoningSupport('openai', model),
       },
     })
   })

@@ -1,180 +1,152 @@
 import {
-  CHOICE_PROTOCOL_PROMPT,
-  FORM_PROTOCOL_PROMPT,
-  MAX_MESSAGE_HISTORY,
-} from './constants.mjs'
-import {
   createSessionTitle,
+  DEFAULT_SESSION_MEMORY,
+  DEFAULT_SESSION_ROBOT,
   getSessionRecord,
   normalizeModelConfig,
+  normalizeMemorySchema,
   normalizeSession,
-  normalizeSessionMemory,
   normalizeSessionRobot,
   normalizeSessionUsage,
+  normalizeStructuredMemory,
   readModelConfigs,
   saveSessionRecord,
 } from './storage.mjs'
-import {
-  consumeStructuredStreamChunk,
-  createStructuredStreamParser,
-  extractStructuredPayloadsFromText,
-  finalizeStructuredStream,
-  normalizeFormSchema,
-  normalizeSuggestionItems,
-  safeJsonParse,
-} from './structured.mjs'
+import { normalizeFormSchema, normalizeSuggestionItems } from './structured.mjs'
+
+const DEFAULT_AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8000'
 
 export function sanitizeBaseUrl(baseUrl) {
   return String(baseUrl || '').replace(/\/+$/, '')
 }
 
-export function getOpenAIBaseUrl(baseUrl) {
+function getAgentServiceUrl() {
+  return sanitizeBaseUrl(DEFAULT_AGENT_SERVICE_URL)
+}
+
+function getOpenAIBaseUrl(baseUrl) {
   return sanitizeBaseUrl(baseUrl).replace(/\/v1$/i, '')
 }
 
-export function buildHeaders(config) {
-  const headers = {
+function buildHeaders(config) {
+  return {
     'Content-Type': 'application/json',
+    Authorization: config.apiKey ? `Bearer ${config.apiKey}` : '',
   }
-
-  if (config.provider === 'openai' && config.apiKey) {
-    headers.Authorization = `Bearer ${config.apiKey}`
-  }
-
-  return headers
 }
 
-function describeFetchError(error, config, actionLabel) {
+function describeFetchError(error, endpoint, actionLabel) {
   if (!(error instanceof Error)) {
     return `${actionLabel}失败`
   }
 
-  const baseUrl = config?.provider === 'openai' ? getOpenAIBaseUrl(config?.baseUrl) : sanitizeBaseUrl(config?.baseUrl)
   if (error.message === 'fetch failed') {
-    return `${actionLabel}失败，无法连接到 ${baseUrl || '上游服务'}`
+    return `${actionLabel}失败，无法连接到 ${endpoint || '上游服务'}`
   }
 
   if (/ECONNREFUSED|actively refused|积极拒绝|connect/i.test(error.message)) {
-    return `${actionLabel}失败，目标服务拒绝连接：${baseUrl || '上游服务'}`
+    return `${actionLabel}失败，目标服务拒绝连接：${endpoint || '上游服务'}`
   }
 
   return `${actionLabel}失败：${error.message}`
 }
 
-export function detectReasoningSupport(provider, model) {
+export function detectReasoningSupport(_provider, model) {
   if (!model) {
     return false
   }
-  const reasoningPattern = /(deepseek-reasoner|deepseek-r1|qwq|qwen3|reasoner|thinking|r1)/i
-  if (provider === 'openai') {
-    return /^o\d/i.test(model) || /^gpt-5/i.test(model) || reasoningPattern.test(model)
-  }
-  return reasoningPattern.test(model)
-}
-
-export function extractText(value) {
-  if (!value) {
-    return ''
-  }
-  if (typeof value === 'string') {
-    return value
-  }
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => {
-        if (typeof item === 'string') {
-          return item
-        }
-        if (item?.type === 'text') {
-          return item.text ?? ''
-        }
-        if (typeof item?.text === 'string') {
-          return item.text
-        }
-        if (typeof item?.content === 'string') {
-          return item.content
-        }
-        return ''
-      })
-      .join('')
-  }
-  if (typeof value.text === 'string') {
-    return value.text
-  }
-  return ''
+  return /^o\d/i.test(model) || /^gpt-5/i.test(model)
 }
 
 function normalizeUsage(input) {
   return normalizeSessionUsage({
-    promptTokens: input?.promptTokens ?? input?.prompt_tokens ?? input?.prompt_eval_count,
-    completionTokens: input?.completionTokens ?? input?.completion_tokens ?? input?.eval_count ?? input?.output_tokens,
+    promptTokens: input?.promptTokens ?? input?.prompt_tokens ?? input?.input_tokens,
+    completionTokens: input?.completionTokens ?? input?.completion_tokens ?? input?.output_tokens,
   })
 }
 
-function extractReasoningFromOpenAIMessage(message) {
-  return extractText(message?.reasoning || message?.reasoning_content || message?.reasoningContent)
+function normalizePositiveInteger(value, fallback) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback
 }
 
-function buildSystemPrompt(systemPrompt) {
-  const basePrompt = String(systemPrompt || '').trim()
-  const protocolPrompt = `${CHOICE_PROTOCOL_PROMPT}\n\n${FORM_PROTOCOL_PROMPT}`
-  return basePrompt ? `${basePrompt}\n\n${protocolPrompt}` : protocolPrompt
-}
+function buildAgentRequest(payload, user, session) {
+  const memory = session?.memory || DEFAULT_SESSION_MEMORY
+  const robot = session?.robot || payload.robot || DEFAULT_SESSION_ROBOT
+  const structuredMemoryInterval = normalizePositiveInteger(
+    memory?.structuredMemoryInterval,
+    normalizePositiveInteger(robot?.structuredMemoryInterval, DEFAULT_SESSION_MEMORY.structuredMemoryInterval),
+  )
+  const structuredMemoryHistoryLimit = normalizePositiveInteger(
+    memory?.structuredMemoryHistoryLimit,
+    normalizePositiveInteger(robot?.structuredMemoryHistoryLimit, DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit),
+  )
 
-function buildMemoryPrompt(summary) {
-  const compact = String(summary || '').trim()
-  if (!compact) {
-    return ''
-  }
-  return [
-    '以下是当前会话的长期记忆摘要，仅用于保持上下文连续性。若与用户最新表达冲突，以用户最新表达为准。',
-    '',
-    '<session_memory>',
-    compact,
-    '</session_memory>',
-  ].join('\n')
-}
-
-export async function getSessionMessages(payload, user) {
-  const session = await getSessionRecord(user, payload.sessionId)
-  const memory = normalizeSessionMemory(session?.memory)
-  const history = (session?.messages || []).slice(-memory.recentMessageLimit)
-  const messages = []
-
-  const systemPrompt = buildSystemPrompt(payload.systemPrompt)
-  if (systemPrompt) {
-    messages.push({
-      role: 'system',
-      content: systemPrompt,
-    })
-  }
-
-  const memoryPrompt = buildMemoryPrompt(memory.summary)
-  if (memoryPrompt) {
-    messages.push({
-      role: 'system',
-      content: memoryPrompt,
-    })
-  }
-
-  for (const item of history) {
-    messages.push({
+  return {
+    thread_id: session?.threadId || payload.sessionId,
+    session_id: payload.sessionId,
+    prompt: String(payload.prompt || ''),
+    user: {
+      id: user.id,
+      email: user.email || null,
+      display_name: user.displayName || null,
+    },
+    model_config: {
+      base_url: sanitizeBaseUrl(payload.baseUrl),
+      api_key: String(payload.apiKey || ''),
+      model: String(payload.model || ''),
+      temperature: typeof payload.temperature === 'number' ? payload.temperature : 0.7,
+    },
+    robot: {
+      name: robot?.name || payload.robotName || '当前智能体',
+      avatar: robot?.avatar || '',
+      system_prompt: robot?.systemPrompt || payload.systemPrompt || '',
+      structured_memory_interval: normalizePositiveInteger(
+        robot?.structuredMemoryInterval,
+        DEFAULT_SESSION_ROBOT.structuredMemoryInterval,
+      ),
+      structured_memory_history_limit: normalizePositiveInteger(
+        robot?.structuredMemoryHistoryLimit,
+        DEFAULT_SESSION_ROBOT.structuredMemoryHistoryLimit,
+      ),
+    },
+    system_prompt: payload.systemPrompt || '',
+    history: (session?.messages || []).map((item) => ({
       role: item.role,
       content: item.content,
-    })
+    })),
+    memory_schema: normalizeMemorySchema(session?.memorySchema || payload.robot?.memorySchema),
+    structured_memory: normalizeStructuredMemory(session?.structuredMemory),
+    structured_memory_interval: structuredMemoryInterval,
+    structured_memory_history_limit: structuredMemoryHistoryLimit,
   }
-
-  messages.push({
-    role: 'user',
-    content: payload.prompt,
-  })
-
-  return messages
 }
 
-export async function commitSession(payload, user, assistantMessage, reasoning = '', suggestions = [], form = null, usage = null) {
+async function requestAgentRun(payload, user) {
+  const session = await getSessionRecord(user, payload.sessionId)
+  const endpoint = `${getAgentServiceUrl()}/runs/stream`
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(buildAgentRequest(payload, user, session)),
+    })
+
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'Agent 请求失败')
+    }
+
+    return { response, session }
+  } catch (error) {
+    throw new Error(describeFetchError(error, endpoint, '智能体请求'))
+  }
+}
+
+async function commitSession(payload, user, result, existingSession) {
   const now = new Date().toISOString()
-  const existing = await getSessionRecord(user, payload.sessionId)
+  const existing = existingSession || await getSessionRecord(user, payload.sessionId)
   const nextMessages = [...(existing?.messages || [])]
 
   nextMessages.push({
@@ -187,31 +159,31 @@ export async function commitSession(payload, user, assistantMessage, reasoning =
   nextMessages.push({
     id: `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     role: 'assistant',
-    content: String(assistantMessage || ''),
-    reasoning: String(reasoning || ''),
-    suggestions: normalizeSuggestionItems(suggestions),
-    form: normalizeFormSchema(form),
+    content: String(result.message || ''),
+    reasoning: '',
+    suggestions: normalizeSuggestionItems(result.suggestions),
+    form: normalizeFormSchema(result.form),
     createdAt: now,
   })
 
-  const normalizedSuggestions = normalizeSuggestionItems(suggestions)
-  const normalizedForm = normalizeFormSchema(form)
-  const previewText = String(assistantMessage || normalizedForm?.title || normalizedSuggestions[0]?.title || payload.prompt || '')
   const existingUsage = normalizeSessionUsage(existing?.usage)
-  const nextUsage = normalizeUsage(usage)
+  const nextUsage = normalizeUsage(result.usage)
 
   return saveSessionRecord(user, normalizeSession({
     ...(existing || {}),
     id: payload.sessionId,
     title: existing?.messages?.length ? existing.title : createSessionTitle(payload.prompt),
-    preview: previewText,
+    preview: String(result.message || payload.prompt || ''),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     robot: normalizeSessionRobot(payload.robot || { name: payload.robotName, systemPrompt: payload.systemPrompt }),
     modelConfigId: payload.modelConfigId || existing?.modelConfigId || '',
     modelLabel: payload.modelLabel || existing?.modelLabel || payload.model || '',
-    messages: nextMessages.slice(-MAX_MESSAGE_HISTORY),
-    memory: normalizeSessionMemory(existing?.memory),
+    threadId: result.threadId || existing?.threadId || payload.sessionId,
+    messages: nextMessages,
+    memory: existing?.memory,
+    memorySchema: normalizeMemorySchema(existing?.memorySchema || payload.robot?.memorySchema),
+    structuredMemory: normalizeStructuredMemory(result.memory || existing?.structuredMemory),
     usage: {
       promptTokens: existingUsage.promptTokens + nextUsage.promptTokens,
       completionTokens: existingUsage.completionTokens + nextUsage.completionTokens,
@@ -219,193 +191,24 @@ export async function commitSession(payload, user, assistantMessage, reasoning =
   }))
 }
 
-export async function fetchModels(config) {
-  const normalized = normalizeModelConfig(config, 0)
-  const baseUrl = normalized.provider === 'openai' ? getOpenAIBaseUrl(normalized.baseUrl) : sanitizeBaseUrl(normalized.baseUrl)
-
-  try {
-    if (normalized.provider === 'openai') {
-      const response = await fetch(`${baseUrl}/v1/models`, {
-        headers: buildHeaders(normalized),
-      })
-      if (!response.ok) {
-        throw new Error((await response.text()) || 'OpenAI 模型列表获取失败')
-      }
-
-      const data = await response.json()
-      return (data.data || [])
-        .map((item) => ({
-          id: item.id,
-          label: item.id,
-        }))
-        .sort((left, right) => left.label.localeCompare(right.label))
-    }
-
-    const response = await fetch(`${baseUrl}/api/tags`)
-    if (!response.ok) {
-      throw new Error((await response.text()) || 'Ollama 模型列表获取失败')
-    }
-
-    const data = await response.json()
-    return (data.models || []).map((item) => ({
-      id: item.model || item.name,
-      label: item.name || item.model,
-    }))
-  } catch (error) {
-    throw new Error(describeFetchError(error, normalized, '获取模型列表'))
-  }
-}
-
-async function buildUpstreamBody(payload, stream = true) {
-  const base = {
-    model: payload.model,
-    messages: payload.messages || await getSessionMessages(payload, payload.authUser),
-    stream,
-  }
-
-  if (typeof payload.temperature === 'number') {
-    base.temperature = payload.temperature
-  }
-
-  if (payload.provider === 'ollama') {
-    return {
-      ...base,
-      think: Boolean(payload.thinking),
-      options: typeof payload.temperature === 'number' ? { temperature: payload.temperature } : undefined,
-    }
-  }
-
+function parseSseParts(buffer) {
+  const parts = buffer.split('\n\n')
   return {
-    ...base,
-    reasoning: payload.thinking ? { effort: 'medium' } : undefined,
-    stream_options: payload.provider === 'openai' && stream ? { include_usage: true } : undefined,
+    complete: parts.slice(0, -1),
+    rest: parts[parts.length - 1] || '',
   }
 }
 
-async function requestUpstreamChat(payload, stream) {
-  const endpoint =
-    payload.provider === 'openai'
-      ? `${getOpenAIBaseUrl(payload.baseUrl)}/v1/chat/completions`
-      : `${sanitizeBaseUrl(payload.baseUrl)}/api/chat`
-
+function parseSseData(part) {
+  const lines = part.split('\n').map((line) => line.trim()).filter(Boolean)
+  const dataLine = lines.find((line) => line.startsWith('data:'))
+  if (!dataLine) {
+    return null
+  }
   try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: buildHeaders(payload),
-      body: JSON.stringify(await buildUpstreamBody(payload, stream)),
-    })
-
-    if (!response.ok) {
-      throw new Error((await response.text()) || '聊天请求失败')
-    }
-
-    return response
-  } catch (error) {
-    throw new Error(describeFetchError(error, payload, '聊天请求'))
-  }
-}
-
-export async function requestNonStreamChat(payload, user) {
-  const scopedPayload = { ...payload, authUser: user }
-  const response = await requestUpstreamChat(scopedPayload, false)
-  const data = await response.json()
-
-  if (payload.provider === 'openai') {
-    const message = data.choices?.[0]?.message || {}
-    const parsedMessage = extractStructuredPayloadsFromText(extractText(message.content))
-    const reasoning = payload.thinking ? extractReasoningFromOpenAIMessage(message) : ''
-    const session = await commitSession(scopedPayload, user, parsedMessage.text, reasoning, parsedMessage.suggestions, parsedMessage.form, normalizeUsage(data.usage))
-    return { message: parsedMessage.text, reasoning, suggestions: parsedMessage.suggestions, form: parsedMessage.form, session }
-  }
-
-  const parsedMessage = extractStructuredPayloadsFromText(extractText(data.message?.content))
-  const reasoning = payload.thinking ? extractText(data.message?.thinking || data.thinking) : ''
-  const session = await commitSession(scopedPayload, user, parsedMessage.text, reasoning, parsedMessage.suggestions, parsedMessage.form, normalizeUsage(data))
-  return { message: parsedMessage.text, reasoning, suggestions: parsedMessage.suggestions, form: parsedMessage.form, session }
-}
-
-function serializeMessagesForSummary(messages) {
-  return messages
-    .map((item) => `[${item.role === 'assistant' ? '助手' : '用户'}]\n${String(item.content || '').trim()}`)
-    .join('\n\n')
-}
-
-async function requestSummary(payload, existingSummary, newMessages) {
-  const messages = [
-    {
-      role: 'system',
-      content: [
-        '请根据旧摘要和新增对话，输出一份新的完整中文会话摘要。',
-        '要求：',
-        '1. 只输出摘要正文，不要加标题，不要输出 JSON。',
-        '2. 保留重要上下文、用户偏好、约束、任务进展和仍未解决的问题。',
-        '3. 内容尽量精炼，但不要遗漏后续对话需要继续依赖的信息。',
-      ].join('\n'),
-    },
-    {
-      role: 'user',
-      content: [
-        '旧摘要：',
-        existingSummary?.trim() || '（无）',
-        '',
-        '新增对话：',
-        serializeMessagesForSummary(newMessages),
-      ].join('\n'),
-    },
-  ]
-
-  const response = await requestUpstreamChat({ ...payload, thinking: false, messages }, false)
-  const data = await response.json()
-
-  return payload.provider === 'openai'
-    ? extractText(data.choices?.[0]?.message?.content).trim()
-    : extractText(data.message?.content).trim()
-}
-
-function getMemoryRefreshState(session) {
-  const memory = normalizeSessionMemory(session?.memory)
-  const compressibleCount = Math.max((session?.messages?.length || 0) - memory.recentMessageLimit, 0)
-  const uncoveredCount = Math.max(compressibleCount - memory.sourceMessageCount, 0)
-
-  return {
-    memory,
-    compressibleCount,
-    uncoveredCount,
-    shouldRefresh: uncoveredCount >= memory.threshold,
-  }
-}
-
-export async function refreshSessionMemoryIfNeeded(session, payload, notify, user) {
-  const latestSession = (await getSessionRecord(user, session.id)) || session
-  const { memory, compressibleCount, uncoveredCount, shouldRefresh } = getMemoryRefreshState(latestSession)
-  if (!shouldRefresh) {
-    return latestSession
-  }
-
-  const newMessages = latestSession.messages.slice(memory.sourceMessageCount, compressibleCount)
-  if (!newMessages.length) {
-    return latestSession
-  }
-
-  notify?.({ status: 'running', message: '正在整理长期记忆...' })
-
-  try {
-    const summary = await requestSummary(payload, memory.summary, newMessages)
-    const nextSession = await saveSessionRecord(user, {
-      ...latestSession,
-      memory: {
-        ...memory,
-        summary,
-        updatedAt: new Date().toISOString(),
-        sourceMessageCount: compressibleCount,
-      },
-      updatedAt: new Date().toISOString(),
-    })
-    notify?.({ status: 'success', message: `长期记忆已更新（整理 ${uncoveredCount} 条消息）` })
-    return nextSession
-  } catch (error) {
-    notify?.({ status: 'error', message: `长期记忆整理失败：${error instanceof Error ? error.message : '未知错误'}` })
-    return latestSession
+    return JSON.parse(dataLine.slice(5).trim())
+  } catch {
+    return null
   }
 }
 
@@ -422,26 +225,21 @@ function sendUsageSSE(res, session) {
   })
 }
 
-async function finalizeAndRefreshMemory(payload, session, res, user) {
-  await refreshSessionMemoryIfNeeded(session, payload, (status) => {
-    sendSSE(res, { type: 'memory_status', ...status })
-  }, user)
-}
-
-export async function proxyOpenAIStream(payload, res, user) {
-  const scopedPayload = { ...payload, authUser: user }
-  const response = await requestUpstreamChat(scopedPayload, true)
+async function runAgentAndCollect(payload, user, onEvent) {
+  const { response, session } = await requestAgentRun(payload, user)
   if (!response.body) {
-    throw new Error('OpenAI 流式请求失败')
+    throw new Error('Agent 流式请求失败')
   }
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  let assistantText = ''
-  let reasoningText = ''
-  let usage = normalizeUsage(null)
-  const structuredParser = createStructuredStreamParser()
+  let finalMessage = ''
+  let finalMemory = normalizeStructuredMemory(session?.structuredMemory)
+  let finalUsage = normalizeSessionUsage(null)
+  let finalThreadId = session?.threadId || payload.sessionId
+  let finalSuggestions = []
+  let finalForm = null
 
   while (true) {
     const { value, done } = await reader.read()
@@ -450,164 +248,158 @@ export async function proxyOpenAIStream(payload, res, user) {
     }
 
     buffer += decoder.decode(value, { stream: true })
-    const parts = buffer.split('\n\n')
-    buffer = parts.pop() || ''
+    const { complete, rest } = parseSseParts(buffer)
+    buffer = rest
 
-    for (const part of parts) {
-      const lines = part.split('\n').map((line) => line.trim()).filter(Boolean)
-
-      for (const line of lines) {
-        if (!line.startsWith('data:')) {
-          continue
-        }
-
-        const data = line.slice(5).trim()
-        if (data === '[DONE]') {
-          continue
-        }
-
-        const parsed = safeJsonParse(data, null)
-        const delta = parsed?.choices?.[0]?.delta || {}
-        const text = extractText(delta.content)
-        const reasoning = extractText(delta.reasoning || delta.reasoning_content || delta.reasoningContent)
-        if (parsed?.usage) {
-          usage = normalizeUsage(parsed.usage)
-        }
-
-        if (payload.thinking && reasoning) {
-          reasoningText += reasoning
-          sendSSE(res, { type: 'reasoning', text: reasoning })
-        }
-        if (text) {
-          const visibleText = consumeStructuredStreamChunk(structuredParser, text)
-          if (visibleText) {
-            assistantText += visibleText
-            sendSSE(res, { type: 'text', text: visibleText })
-          }
-        }
-      }
-    }
-  }
-
-  const finalized = finalizeStructuredStream(structuredParser)
-  if (finalized.text) {
-    assistantText += finalized.text
-    sendSSE(res, { type: 'text', text: finalized.text })
-  }
-
-  const session = await commitSession(scopedPayload, user, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
-  sendUsageSSE(res, session)
-  if (finalized.suggestions.length) {
-    sendSSE(res, { type: 'suggestion', items: finalized.suggestions })
-  }
-  if (finalized.form?.fields?.length) {
-    sendSSE(res, { type: 'form', form: finalized.form })
-  }
-  if (payload.thinking && reasoningText) {
-    sendSSE(res, { type: 'reasoning_done', text: reasoningText })
-  }
-  await finalizeAndRefreshMemory(scopedPayload, session, res, user)
-  sendSSE(res, { type: 'done' })
-}
-
-export async function proxyOllamaStream(payload, res, user) {
-  const scopedPayload = { ...payload, authUser: user }
-  const response = await requestUpstreamChat(scopedPayload, true)
-  if (!response.body) {
-    throw new Error('Ollama 流式请求失败')
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let assistantText = ''
-  let reasoningText = ''
-  let usage = normalizeUsage(null)
-  const structuredParser = createStructuredStreamParser()
-
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) {
-      break
-    }
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      if (!line.trim()) {
-        continue
-      }
-
-      const parsed = safeJsonParse(line, null)
+    for (const part of complete) {
+      const parsed = parseSseData(part)
       if (!parsed) {
         continue
       }
 
-      usage = normalizeUsage(parsed)
+      if (parsed.type === 'message_delta' && parsed.text) {
+        finalMessage += String(parsed.text)
+      }
+      if (parsed.type === 'message_done' && parsed.text) {
+        finalMessage = String(parsed.text)
+      }
+      if (parsed.type === 'memory_updated' && parsed.memory) {
+        finalMemory = normalizeStructuredMemory(parsed.memory)
+      }
+      if (parsed.type === 'suggestion') {
+        finalSuggestions = normalizeSuggestionItems(parsed.items)
+        finalForm = null
+      }
+      if (parsed.type === 'form') {
+        finalForm = normalizeFormSchema(parsed.form)
+        finalSuggestions = []
+      }
+      if (parsed.type === 'usage') {
+        finalUsage = normalizeUsage(parsed)
+      }
+      if (parsed.type === 'run_completed') {
+        finalThreadId = String(parsed.threadId || finalThreadId)
+        finalMessage = String(parsed.message || finalMessage)
+        finalSuggestions = normalizeSuggestionItems(parsed.suggestions || finalSuggestions)
+        finalForm = normalizeFormSchema(parsed.form || finalForm)
+        finalMemory = normalizeStructuredMemory(parsed.memory || finalMemory)
+        finalUsage = normalizeUsage(parsed.usage || finalUsage)
+      }
 
-      const reasoning = extractText(parsed.message?.thinking || parsed.thinking)
-      const text = extractText(parsed.message?.content)
-
-      if (payload.thinking && reasoning) {
-        reasoningText += reasoning
-        sendSSE(res, { type: 'reasoning', text: reasoning })
-      }
-      if (text) {
-        const visibleText = consumeStructuredStreamChunk(structuredParser, text)
-        if (visibleText) {
-          assistantText += visibleText
-          sendSSE(res, { type: 'text', text: visibleText })
-        }
-      }
-      if (parsed.done) {
-        const finalized = finalizeStructuredStream(structuredParser)
-        if (finalized.text) {
-          assistantText += finalized.text
-          sendSSE(res, { type: 'text', text: finalized.text })
-        }
-        const session = await commitSession(scopedPayload, user, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
-        sendUsageSSE(res, session)
-        if (finalized.suggestions.length) {
-          sendSSE(res, { type: 'suggestion', items: finalized.suggestions })
-        }
-        if (finalized.form?.fields?.length) {
-          sendSSE(res, { type: 'form', form: finalized.form })
-        }
-        if (payload.thinking && reasoningText) {
-          sendSSE(res, { type: 'reasoning_done', text: reasoningText })
-        }
-        await finalizeAndRefreshMemory(scopedPayload, session, res, user)
-        sendSSE(res, { type: 'done' })
-        return
-      }
+      await onEvent?.(parsed)
     }
   }
 
-  const finalized = finalizeStructuredStream(structuredParser)
-  if (finalized.text) {
-    assistantText += finalized.text
-    sendSSE(res, { type: 'text', text: finalized.text })
+  const savedSession = await commitSession(payload, user, {
+    threadId: finalThreadId,
+    message: finalMessage,
+    suggestions: finalSuggestions,
+    form: finalForm,
+    memory: finalMemory,
+    usage: finalUsage,
+  }, session)
+
+  return {
+    message: finalMessage,
+    suggestions: finalSuggestions,
+    form: finalForm,
+    memory: finalMemory,
+    usage: finalUsage,
+    session: savedSession,
+  }
+}
+
+export async function requestNonStreamChat(payload, user) {
+  const result = await runAgentAndCollect(payload, user)
+  return {
+    message: result.message,
+    reasoning: '',
+    suggestions: result.suggestions,
+    form: result.form,
+    session: result.session,
+    memory: result.memory,
+  }
+}
+
+function forwardAgentEvent(res, payload) {
+  if (payload.type === 'agent_turn') {
+    sendSSE(res, {
+      type: 'agent_turn',
+      agent: payload.agent,
+      message: payload.message,
+    })
+    return
   }
 
-  const session = await commitSession(scopedPayload, user, assistantText, reasoningText, finalized.suggestions, finalized.form, usage)
-  sendUsageSSE(res, session)
-  if (finalized.suggestions.length) {
-    sendSSE(res, { type: 'suggestion', items: finalized.suggestions })
+  if (payload.type === 'tool_call' || payload.type === 'tool_result') {
+    sendSSE(res, {
+      type: 'tool_status',
+      toolType: payload.type,
+      tool: payload.tool,
+      query: payload.query,
+      url: payload.url,
+      results: payload.results,
+      page: payload.page,
+    })
+    return
   }
-  if (finalized.form?.fields?.length) {
-    sendSSE(res, { type: 'form', form: finalized.form })
+
+  if (payload.type === 'message_delta' && payload.text) {
+    sendSSE(res, { type: 'text', text: payload.text })
+    return
   }
-  if (payload.thinking && reasoningText) {
-    sendSSE(res, { type: 'reasoning_done', text: reasoningText })
+
+  if (payload.type === 'message_done') {
+    sendSSE(res, { type: 'ui_loading', message: '正在生成交互 UI' })
+    return
   }
-  await finalizeAndRefreshMemory(scopedPayload, session, res, user)
-  sendSSE(res, { type: 'done' })
+
+  if (payload.type === 'suggestion') {
+    sendSSE(res, {
+      type: 'suggestion',
+      items: normalizeSuggestionItems(payload.items),
+    })
+    return
+  }
+
+  if (payload.type === 'form') {
+    sendSSE(res, {
+      type: 'form',
+      form: normalizeFormSchema(payload.form),
+    })
+    return
+  }
+
+  if (payload.type === 'memory_started') {
+    sendSSE(res, {
+      type: 'memory_status',
+      status: 'running',
+      message: '正在整理结构化记忆',
+    })
+    return
+  }
+
+  if (payload.type === 'memory_updated' && payload.memory) {
+    sendSSE(res, { type: 'structured_memory', memory: payload.memory })
+    sendSSE(res, {
+      type: 'memory_status',
+      status: 'running',
+      message: '正在保存会话到数据库',
+    })
+    return
+  }
+
+  if (payload.type === 'usage') {
+    sendSSE(res, {
+      type: 'usage',
+      promptTokens: payload.prompt_tokens ?? payload.promptTokens ?? payload.input_tokens ?? 0,
+      completionTokens: payload.completion_tokens ?? payload.completionTokens ?? payload.output_tokens ?? 0,
+    })
+    return
+  }
 }
 
 export async function handleChatStream(payload, res, user) {
-  const scopedPayload = { ...payload, authUser: user }
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -619,29 +411,12 @@ export async function handleChatStream(payload, res, user) {
       throw new Error('prompt 和 model 不能为空')
     }
 
-    if (!payload.stream) {
-      const result = await requestNonStreamChat(scopedPayload, user)
-      sendUsageSSE(res, result.session)
-      if (payload.thinking && result.reasoning) {
-        sendSSE(res, { type: 'reasoning', text: result.reasoning })
-        sendSSE(res, { type: 'reasoning_done', text: result.reasoning })
-      }
-      if (result.message) {
-        sendSSE(res, { type: 'text', text: result.message })
-      }
-      if (result.suggestions?.length) {
-        sendSSE(res, { type: 'suggestion', items: result.suggestions })
-      }
-      if (result.form?.fields?.length) {
-        sendSSE(res, { type: 'form', form: result.form })
-      }
-      await finalizeAndRefreshMemory(scopedPayload, result.session, res, user)
-      sendSSE(res, { type: 'done' })
-    } else if (payload.provider === 'openai') {
-      await proxyOpenAIStream(scopedPayload, res, user)
-    } else {
-      await proxyOllamaStream(scopedPayload, res, user)
-    }
+    const result = await runAgentAndCollect(payload, user, async (event) => {
+      forwardAgentEvent(res, event)
+    })
+
+    sendUsageSSE(res, result.session)
+    sendSSE(res, { type: 'done' })
   } catch (error) {
     sendSSE(res, {
       type: 'error',
@@ -649,6 +424,30 @@ export async function handleChatStream(payload, res, user) {
     })
   } finally {
     res.end()
+  }
+}
+
+export async function fetchModels(config) {
+  const normalized = normalizeModelConfig(config, 0)
+  const baseUrl = getOpenAIBaseUrl(normalized.baseUrl)
+
+  try {
+    const response = await fetch(`${baseUrl}/v1/models`, {
+      headers: buildHeaders(normalized),
+    })
+    if (!response.ok) {
+      throw new Error((await response.text()) || 'OpenAI-compatible 模型列表获取失败')
+    }
+
+    const data = await response.json()
+    return (data.data || [])
+      .map((item) => ({
+        id: item.id,
+        label: item.id,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label))
+  } catch (error) {
+    throw new Error(describeFetchError(error, baseUrl, '获取模型列表'))
   }
 }
 

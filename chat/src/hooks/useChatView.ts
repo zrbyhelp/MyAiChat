@@ -1,12 +1,12 @@
 import type { AIMessageContent, ChatServiceConfig, SSEChunkData } from '@tdesign-vue-next/chat'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { useAuth } from '@clerk/vue'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useChatSession } from '@/hooks/useChatSession'
 import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
 import {
-  clearSessionMemory,
   getCapabilities,
   getModelConfigs,
   getRobots,
@@ -14,22 +14,24 @@ import {
   saveRobots,
   saveModelConfigs,
   testModelConnection,
-  updateSessionMemory,
   upsertSession,
 } from '@/lib/api'
-import { UnauthorizedError } from '@/lib/auth'
+import { UnauthorizedError, isSignedInNow, waitForAuthReady } from '@/lib/auth'
 import type {
   AIFormField,
   AIFormSchema,
   AIModelConfigItem,
   AIRobotCard,
   ChatSessionDetail,
+  MemorySchemaState,
   ModelCapabilities,
   ModelOption,
   ProviderType,
   SessionMemoryState,
   SessionUsageState,
   SessionRobotState,
+  StructuredMemoryCategory,
+  StructuredMemoryState,
   SuggestionOption,
 } from '@/types/ai'
 
@@ -180,6 +182,30 @@ function withTimeSeparators(messages: ChatRenderMessage[]) {
   return result
 }
 
+function withSystemStatusMessages(
+  messages: ChatRenderMessage[],
+  statuses: Array<{ key: string; text: string }>,
+) {
+  const result = [...messages]
+  statuses.forEach((status, index) => {
+    const text = status.text.trim()
+    if (!text) {
+      return
+    }
+    result.push({
+      id: `status-${status.key}-${index}`,
+      role: 'system',
+      content: [
+        {
+          type: 'markdown',
+          data: `**${text}**`,
+        },
+      ],
+    })
+  })
+  return result
+}
+
 function extractActivityFormSchema(content: ChatRenderContent): AIFormSchema | null {
   if (content?.type !== 'activity-form') {
     return null
@@ -199,6 +225,10 @@ type NormalizedStreamPayload = {
     | 'form'
     | 'memory_status'
     | 'usage'
+    | 'agent_turn'
+    | 'tool_status'
+    | 'structured_memory'
+    | 'ui_loading'
     | 'done'
     | 'error'
   text?: string
@@ -208,12 +238,23 @@ type NormalizedStreamPayload = {
   status?: 'running' | 'success' | 'error'
   promptTokens?: number
   completionTokens?: number
+  agent?: string
+  tool?: string
+  toolType?: 'tool_call' | 'tool_result'
+  query?: string
+  url?: string
+  memory?: StructuredMemoryState
 }
 
 type ChatFormSlot = {
   slotName: string
   formId: string
   schema: AIFormSchema
+}
+
+type ChatLoadingSlot = {
+  slotName: string
+  text: string
 }
 
 type FormActivityContent = {
@@ -239,44 +280,117 @@ type MemoryStatusState = {
 export function useChatView() {
 const router = useRouter()
 const route = useRoute()
+const DEFAULT_STRUCTURED_MEMORY_INTERVAL = 3
+const DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT = 12
 const DEFAULT_SESSION_MEMORY: SessionMemoryState = {
   summary: '',
   updatedAt: '',
   sourceMessageCount: 0,
   threshold: 20,
   recentMessageLimit: 10,
+  structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+  structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+  prompt: [
+    '请根据旧摘要和新增对话，输出一份新的完整中文会话摘要。',
+    '要求：',
+    '1. 只输出摘要正文，不要加标题，不要输出 JSON。',
+    '2. 保留重要上下文、用户偏好、约束、任务进展和仍未解决的问题。',
+    '3. 内容尽量精炼，但不要遗漏后续对话需要继续依赖的信息。',
+  ].join('\n'),
 }
 const DEFAULT_SESSION_USAGE: SessionUsageState = {
   promptTokens: 0,
   completionTokens: 0,
 }
+const DEFAULT_STRUCTURED_MEMORY: StructuredMemoryState = {
+  updatedAt: '',
+  categories: [],
+}
+const DEFAULT_MEMORY_SCHEMA: MemorySchemaState = {
+  categories: [
+    {
+      id: 'preferences',
+      label: '用户偏好',
+      description: '记录长期偏好和约束',
+      extractionInstructions: '提取长期有效的偏好、风格和约束。',
+      fields: [
+        { id: 'preference', name: 'preference', label: '偏好项', type: 'text', required: true },
+        { id: 'value', name: 'value', label: '偏好值', type: 'text', required: true },
+      ],
+    },
+    {
+      id: 'facts',
+      label: '已知事实',
+      description: '记录稳定背景信息和事实',
+      extractionInstructions: '提取后续还会用到的稳定事实。',
+      fields: [
+        { id: 'subject', name: 'subject', label: '主体', type: 'text', required: true },
+        { id: 'predicate', name: 'predicate', label: '关系', type: 'text', required: true },
+        { id: 'value', name: 'value', label: '值', type: 'text', required: true },
+      ],
+    },
+    {
+      id: 'tasks',
+      label: '任务进展',
+      description: '记录目标、状态和下一步',
+      extractionInstructions: '提取任务及其当前状态、阻塞和下一步。',
+      fields: [
+        { id: 'title', name: 'title', label: '任务标题', type: 'text', required: true },
+        {
+          id: 'status',
+          name: 'status',
+          label: '状态',
+          type: 'enum',
+          required: true,
+          options: [
+            { label: '待办', value: 'todo' },
+            { label: '进行中', value: 'in_progress' },
+            { label: '阻塞', value: 'blocked' },
+            { label: '完成', value: 'done' },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'long_term_memory',
+      label: '长期记忆',
+      description: '记录对后续长期有价值的稳定背景、经历和约定',
+      extractionInstructions: '提取后续多轮对话仍值得保留的长期信息，避免一次性细节。',
+      fields: [
+        { id: 'topic', name: 'topic', label: '记忆主题', type: 'text', required: true },
+        { id: 'content', name: 'content', label: '记忆内容', type: 'text', required: true },
+      ],
+    },
+  ],
+}
 const MOBILE_BREAKPOINT = 768
 
-const DEFAULT_MODEL_CONFIGS: Record<
-  ProviderType,
-  Omit<AIModelConfigItem, 'id' | 'name' | 'model'>
-> = {
-  ollama: {
-    provider: 'ollama',
-    baseUrl: 'http://127.0.0.1:11434',
-    apiKey: '',
-    temperature: 0.7,
-  },
+const DEFAULT_MODEL_CONFIGS: Record<ProviderType, Omit<AIModelConfigItem, 'id' | 'name' | 'model'>> = {
   openai: {
     provider: 'openai',
     baseUrl: 'https://api.openai.com',
     apiKey: '',
+    description: '',
+    tags: [],
     temperature: 0.7,
   },
 }
 
-function createModelConfig(provider: ProviderType = 'ollama', index = 1): AIModelConfigItem {
+function createModelConfig(provider: ProviderType = 'openai', index = 1): AIModelConfigItem {
   return {
     id: `model-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     name: `模型配置 ${index}`,
     ...DEFAULT_MODEL_CONFIGS[provider],
     model: '',
   }
+}
+
+function normalizeModelTags(tags?: string[] | string | null) {
+  const list = Array.isArray(tags) ? tags : typeof tags === 'string' ? tags.split(/[,\n，]/) : []
+  return list
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item, index, source) => source.indexOf(item) === index)
 }
 
 function normalizeSessionMemory(memory?: Partial<SessionMemoryState> | null): SessionMemoryState {
@@ -293,6 +407,72 @@ function normalizeSessionMemory(memory?: Partial<SessionMemoryState> | null): Se
       typeof memory?.recentMessageLimit === 'number' && memory.recentMessageLimit > 0
         ? Math.round(memory.recentMessageLimit)
         : DEFAULT_SESSION_MEMORY.recentMessageLimit,
+    structuredMemoryInterval:
+      typeof memory?.structuredMemoryInterval === 'number' && memory.structuredMemoryInterval > 0
+        ? Math.round(memory.structuredMemoryInterval)
+        : DEFAULT_SESSION_MEMORY.structuredMemoryInterval,
+    structuredMemoryHistoryLimit:
+      typeof memory?.structuredMemoryHistoryLimit === 'number' && memory.structuredMemoryHistoryLimit > 0
+        ? Math.round(memory.structuredMemoryHistoryLimit)
+        : DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit,
+    prompt:
+      typeof memory?.prompt === 'string' && memory.prompt.trim()
+        ? memory.prompt
+        : DEFAULT_SESSION_MEMORY.prompt,
+  }
+}
+
+function normalizeStructuredMemory(memory?: Partial<StructuredMemoryState> | null): StructuredMemoryState {
+  return {
+    updatedAt: typeof memory?.updatedAt === 'string' ? memory.updatedAt : '',
+    categories: (Array.isArray(memory?.categories) ? memory.categories : []).map((category) => ({
+      categoryId: String(category?.categoryId || '').trim(),
+      label: String(category?.label || '').trim(),
+      description: String(category?.description || '').trim(),
+      updatedAt: typeof category?.updatedAt === 'string' ? category.updatedAt : '',
+      items: (Array.isArray(category?.items) ? category.items : []).map((item, index) => ({
+        id: String(item?.id || `item-${index + 1}`),
+        summary: String(item?.summary || ''),
+        sourceTurnId: String(item?.sourceTurnId || ''),
+        updatedAt: typeof item?.updatedAt === 'string' ? item.updatedAt : '',
+        values: typeof item?.values === 'object' && item?.values !== null ? item.values : {},
+      })),
+    })),
+  }
+}
+
+function normalizeMemorySchemaField(field: any, fieldIndex = 0): any {
+  return {
+    id: String(field?.id || `field_${fieldIndex + 1}`).trim(),
+    name: String(field?.name || `field_${fieldIndex + 1}`).trim(),
+    label: String(field?.label || `字段 ${fieldIndex + 1}`).trim(),
+    type: ['text', 'number', 'enum', 'boolean', 'object', 'array'].includes(String(field?.type)) ? field.type : 'text',
+    required: Boolean(field?.required),
+    options: Array.isArray(field?.options) ? field.options.map((option: any, optionIndex: number) => ({
+      label: String(option?.label || `选项 ${optionIndex + 1}`),
+      value: String(option?.value || `option_${optionIndex + 1}`),
+    })) : [],
+    fields: (Array.isArray(field?.fields) ? field.fields : []).map((child: any, childIndex: number) => normalizeMemorySchemaField(child, childIndex)),
+    itemType: ['text', 'number', 'enum', 'boolean', 'object'].includes(String(field?.itemType)) ? field.itemType : 'text',
+    itemOptions: Array.isArray(field?.itemOptions) ? field.itemOptions.map((option: any, optionIndex: number) => ({
+      label: String(option?.label || `选项 ${optionIndex + 1}`),
+      value: String(option?.value || `option_${optionIndex + 1}`),
+    })) : [],
+    itemFields: (Array.isArray(field?.itemFields) ? field.itemFields : []).map((child: any, childIndex: number) => normalizeMemorySchemaField(child, childIndex)),
+  }
+}
+
+function normalizeMemorySchema(schema?: Partial<MemorySchemaState> | null): MemorySchemaState {
+  const categories = (Array.isArray(schema?.categories) ? schema.categories : []).map((category, categoryIndex) => ({
+    id: String(category?.id || `category_${categoryIndex + 1}`).trim(),
+    label: String(category?.label || `分类 ${categoryIndex + 1}`).trim(),
+    description: String(category?.description || '').trim(),
+    extractionInstructions: String(category?.extractionInstructions || '').trim(),
+    fields: (Array.isArray(category?.fields) ? category.fields : []).map((field, fieldIndex) => normalizeMemorySchemaField(field, fieldIndex)),
+  })).filter((category) => category.id)
+
+  return {
+    categories: categories.length ? categories : DEFAULT_MEMORY_SCHEMA.categories.map((item) => JSON.parse(JSON.stringify(item))),
   }
 }
 
@@ -368,6 +548,20 @@ function createFormActivityContent(
   }
 }
 
+function createLoadingActivityContent(
+  text = '正在生成交互 UI',
+  slotName = `activity-loading-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+) {
+  return {
+    type: 'activity-loading',
+    slotName,
+    data: {
+      activityType: 'loading',
+      text,
+    },
+  }
+}
+
 function createMemoryStatusContent(
   status: 'running' | 'success' | 'error',
   text: string,
@@ -379,8 +573,8 @@ function createMemoryStatusContent(
 }
 
 function buildMemoryStatusMarkdown(status: 'running' | 'success' | 'error', text: string) {
-  const statusLabel = status === 'running' ? '整理中' : status === 'success' ? '已更新' : '失败'
-  return `<!--memory-status:${status}-->\n> **长期记忆 ${statusLabel}**  \n> ${text}`
+  const statusLabel = status === 'running' ? '处理中' : status === 'success' ? '已完成' : '异常'
+  return `<!--memory-status:${status}-->\n> **${statusLabel}**  \n> ${text}`
 }
 
 function createSuggestionContent(items: SuggestionOption[]) {
@@ -402,8 +596,17 @@ function normalizeSessionUsage(usage?: Partial<SessionUsageState> | null): Sessi
 
 function createInitialFormValues(schema: AIFormSchema) {
   return schema.fields.reduce<Record<string, FormDraftValue>>((result, field) => {
-    if (Array.isArray(field.defaultValue)) {
-      result[field.name] = [...field.defaultValue]
+    const expectsArray = field.type === 'checkbox' || (field.type === 'select' && field.multiple)
+    if (expectsArray) {
+      if (Array.isArray(field.defaultValue)) {
+        result[field.name] = [...field.defaultValue]
+      } else if (typeof field.defaultValue === 'string' && field.defaultValue.trim()) {
+        result[field.name] = [field.defaultValue]
+      } else {
+        result[field.name] = []
+      }
+    } else if (Array.isArray(field.defaultValue)) {
+      result[field.name] = field.defaultValue[0] ?? ''
     } else if (typeof field.defaultValue === 'string') {
       result[field.name] = field.defaultValue
     } else if (field.type === 'checkbox' || (field.type === 'select' && field.multiple)) {
@@ -418,6 +621,23 @@ function createInitialFormValues(schema: AIFormSchema) {
 function getFormDraft(formId: string, schema: AIFormSchema) {
   if (!formDrafts[formId]) {
     formDrafts[formId] = createInitialFormValues(schema)
+  } else {
+    const draft = formDrafts[formId]
+    schema.fields.forEach((field) => {
+      const expectsArray = field.type === 'checkbox' || (field.type === 'select' && field.multiple)
+      const currentValue = draft?.[field.name]
+      if (expectsArray) {
+        if (Array.isArray(currentValue)) {
+          return
+        }
+        draft[field.name] =
+          typeof currentValue === 'string' && currentValue.trim() ? [currentValue] : []
+        return
+      }
+      if (Array.isArray(currentValue)) {
+        draft[field.name] = currentValue[0] ?? ''
+      }
+    })
   }
   return formDrafts[formId]
 }
@@ -450,10 +670,7 @@ function buildFormPrompt(schema: AIFormSchema, values: Record<string, FormDraftV
   return lines.join('\n')
 }
 
-const providerOptions = [
-  { label: 'Ollama', value: 'ollama' },
-  { label: 'OpenAI', value: 'openai' },
-]
+const providerOptions = [{ label: 'OpenAI Compatible', value: 'openai' }]
 
 const activePrimaryTab = computed<'agent' | 'discover' | 'mine'>({
   get: () => {
@@ -480,14 +697,11 @@ const desktopModelEditorVisible = ref(false)
 const sessionRobotVisible = ref(false)
 const memoryVisible = ref(false)
 const savingConfig = ref(false)
-const savingAgentTemplates = ref(false)
 const savingMobileAgent = ref(false)
 const savingMobileModel = ref(false)
 const savingDesktopModel = ref(false)
 const loadingModels = ref(false)
 const testingConnection = ref(false)
-const savingMemory = ref(false)
-const clearingMemory = ref(false)
 const chatbotRef = ref<ChatbotInstance | null>(null)
 const chatInstanceKey = ref(0)
 const robotTemplates = ref<AIRobotCard[]>([])
@@ -495,6 +709,7 @@ const selectedNewChatRobotId = ref('')
 const editingAgentId = ref('')
 const mobileAgentEditorMode = ref<'create' | 'edit'>('create')
 const editingMobileAgentId = ref('')
+const agentEditorStep = ref<1 | 2 | 3>(1)
 const mobileModelEditorMode = ref<'create' | 'edit'>('create')
 const editingMobileModelId = ref('')
 const desktopModelEditorMode = ref<'create' | 'edit'>('create')
@@ -504,6 +719,8 @@ const pendingAssistantSuggestions = ref<SuggestionOption[] | null>(null)
 const pendingAssistantForm = ref<AIFormSchema | null>(null)
 const chatMessages = ref<ChatRenderMessage[]>([])
 const pendingAssistantMemoryStatus = ref<MemoryStatusState | null>(null)
+const currentAssistantLoadingText = ref('')
+const currentMemoryStatusText = ref('')
 const streamEnabled = ref(true)
 const thinkingEnabled = ref(false)
 const isChatResponding = ref(false)
@@ -522,19 +739,26 @@ const rawChatMessages = ref<ChatRenderMessage[]>([])
 const editingConfig = reactive<AIModelConfigItem>(createModelConfig())
 const mobileModelDraft = reactive<AIModelConfigItem>(createModelConfig())
 const desktopModelDraft = reactive<AIModelConfigItem>(createModelConfig())
-const currentMemory = reactive<SessionMemoryState>({ ...DEFAULT_SESSION_MEMORY })
+const mobileModelTagsInput = ref('')
+const desktopModelTagsInput = ref('')
+const currentMemorySchema = reactive<MemorySchemaState>(normalizeMemorySchema(DEFAULT_MEMORY_SCHEMA))
+const currentStructuredMemory = reactive<StructuredMemoryState>({ ...DEFAULT_STRUCTURED_MEMORY })
 const currentUsage = reactive<SessionUsageState>({ ...DEFAULT_SESSION_USAGE })
-const memoryDraft = reactive<SessionMemoryState>({ ...DEFAULT_SESSION_MEMORY })
 const sessionRobot = reactive<SessionRobotState>({
   name: '当前智能体',
   avatar: '',
   systemPrompt: '',
+  structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+  structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
 })
 const sessionRobotDraft = reactive<SessionRobotState>({
   name: '',
   avatar: '',
   systemPrompt: '',
+  structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+  structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
 })
+const sessionMemoryDraft = reactive<SessionMemoryState>(normalizeSessionMemory(DEFAULT_SESSION_MEMORY))
 const mobileAgentDraft = reactive<AIRobotCard>(createRobotTemplate())
 const {
   sessionId,
@@ -551,6 +775,12 @@ const {
   onCreateNewChat: () => createNewChat(),
 })
 const hasInitializedAgent = ref(false)
+const isInitializingAgent = ref(false)
+const { isLoaded: isAuthLoaded, isSignedIn } = useAuth()
+
+function initDebug(message: string, extra?: Record<string, unknown>) {
+  console.debug('[chat-init]', message, extra || {})
+}
 
 const activeModelConfig = computed(
   () =>
@@ -565,11 +795,42 @@ const currentModelLabel = computed(
 const selectedNewChatRobot = computed(
   () => robotTemplates.value.find((item) => item.id === selectedNewChatRobotId.value) ?? null,
 )
-const editingAgent = computed(
-  () => robotTemplates.value.find((item) => item.id === editingAgentId.value) ?? null,
-)
+const isEditingAgentDraft = computed(() => mobileAgentEditorMode.value === 'edit')
 const memoryUpdatedLabel = computed(() =>
-  currentMemory.updatedAt ? new Date(currentMemory.updatedAt).toLocaleString() : '未生成',
+  currentStructuredMemory.updatedAt ? new Date(currentStructuredMemory.updatedAt).toLocaleString() : '未生成',
+)
+const memoryDisplayCategories = computed<StructuredMemoryCategory[]>(() => {
+  const categoryMap = new Map(
+    currentStructuredMemory.categories.map((category) => [category.categoryId, category] as const),
+  )
+
+  const merged = currentMemorySchema.categories.map((schemaCategory) => {
+    const matched = categoryMap.get(schemaCategory.id)
+    return {
+      categoryId: schemaCategory.id,
+      label: matched?.label || schemaCategory.label,
+      description: matched?.description || schemaCategory.description || '',
+      updatedAt: matched?.updatedAt || '',
+      items: matched?.items || [],
+    }
+  })
+
+  currentStructuredMemory.categories.forEach((category) => {
+    if (!merged.some((item) => item.categoryId === category.categoryId)) {
+      merged.push({
+        categoryId: category.categoryId,
+        label: category.label,
+        description: category.description || '',
+        updatedAt: category.updatedAt || '',
+        items: category.items,
+      })
+    }
+  })
+
+  return merged
+})
+const structuredMemoryRecordCount = computed(() =>
+  memoryDisplayCategories.value.reduce((count, category) => count + category.items.length, 0),
 )
 const sessionPromptTokens = computed(() => currentUsage.promptTokens)
 const sessionCompletionTokens = computed(() => currentUsage.completionTokens)
@@ -657,6 +918,29 @@ const formActivitySlots = computed<ChatFormSlot[]>(() => {
   })
   return slots
 })
+const loadingActivitySlots = computed<ChatLoadingSlot[]>(() => {
+  const slots: ChatLoadingSlot[] = []
+  chatMessages.value.forEach((message) => {
+    if (!Array.isArray(message?.content)) {
+      return
+    }
+    message.content.forEach((content: ChatRenderContent, index: number) => {
+      if (content?.type !== 'activity-loading') {
+        return
+      }
+      const activitySlotName = content.slotName || `activity-loading-${index}`
+      slots.push({
+        slotName: `${message.id}-${activitySlotName}`,
+        text:
+          typeof asRecord(content.data).text === 'string' && String(asRecord(content.data).text).trim()
+            ? String(asRecord(content.data).text).trim()
+            : '正在生成交互 UI',
+      })
+    })
+  })
+  return slots
+})
+const memoryStatusActivitySlots = computed(() => [])
 const editingModelOptions = computed(() =>
   (modelOptionsMap.value[editingConfigId.value] || []).map((item) => ({
     label: item.label,
@@ -681,14 +965,36 @@ const desktopModelTemperatureValue = computed<number | undefined>({
     desktopModelDraft.temperature = typeof value === 'number' ? value : null
   },
 })
+const agentCardActionOptions = [
+  { content: '修改', value: 'edit' },
+  { content: '删除', value: 'delete', theme: 'error' as const },
+]
+const modelCardActionOptions = [
+  { content: '修改', value: 'edit' },
+  { content: '删除', value: 'delete', theme: 'error' as const },
+]
 
 function applySessionMemory(memory?: Partial<SessionMemoryState> | null) {
   const normalized = normalizeSessionMemory(memory)
-  currentMemory.summary = normalized.summary
-  currentMemory.updatedAt = normalized.updatedAt
-  currentMemory.sourceMessageCount = normalized.sourceMessageCount
-  currentMemory.threshold = normalized.threshold
-  currentMemory.recentMessageLimit = normalized.recentMessageLimit
+  DEFAULT_SESSION_MEMORY.summary = normalized.summary
+  DEFAULT_SESSION_MEMORY.updatedAt = normalized.updatedAt
+  DEFAULT_SESSION_MEMORY.sourceMessageCount = normalized.sourceMessageCount
+  DEFAULT_SESSION_MEMORY.threshold = normalized.threshold
+  DEFAULT_SESSION_MEMORY.recentMessageLimit = normalized.recentMessageLimit
+  DEFAULT_SESSION_MEMORY.structuredMemoryInterval = normalized.structuredMemoryInterval
+  DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit = normalized.structuredMemoryHistoryLimit
+  DEFAULT_SESSION_MEMORY.prompt = normalized.prompt
+}
+
+function applyStructuredMemory(memory?: Partial<StructuredMemoryState> | null) {
+  const normalized = normalizeStructuredMemory(memory)
+  currentStructuredMemory.updatedAt = normalized.updatedAt
+  currentStructuredMemory.categories = normalized.categories
+}
+
+function applyMemorySchema(schema?: Partial<MemorySchemaState> | null) {
+  const normalized = normalizeMemorySchema(schema)
+  currentMemorySchema.categories = normalized.categories
 }
 
 function applySessionUsage(usage?: Partial<SessionUsageState> | null) {
@@ -745,8 +1051,12 @@ watch(chatbotRef, (instance) => {
 })
 
 function applyChatMessages(messages: ChatRenderMessage[]) {
-  rawChatMessages.value = withMessageDatetimes(messages, rawChatMessages.value)
-  const renderedMessages = withTimeSeparators(rawChatMessages.value)
+  const sourceMessages = messages.filter((message) => message?.role !== 'system')
+  rawChatMessages.value = withMessageDatetimes(sourceMessages, rawChatMessages.value)
+  const renderedMessages = withSystemStatusMessages(withTimeSeparators(rawChatMessages.value), [
+    { key: 'ui-loading', text: currentAssistantLoadingText.value },
+    { key: 'memory-status', text: currentMemoryStatusText.value },
+  ])
   pendingChatMessages.value = renderedMessages
   chatMessages.value = renderedMessages
   initializeFormDrafts(renderedMessages)
@@ -778,14 +1088,29 @@ function injectAssistantMemoryStatus(
     return null
   }
 
-  const withoutMemoryStatus = targetMessage.content.filter((content: ChatRenderContent) => {
+  const existingStatus = targetMessage.content.find((content: ChatRenderContent) => {
+    if (
+      content?.type !== 'markdown' ||
+      typeof content?.data !== 'string' ||
+      !content.data.includes('<!--memory-status:')
+    ) {
+      return false
+    }
+    return content.data.includes(`<!--memory-status:${status}-->`) && content.data.includes(text)
+  })
+  if (existingStatus) {
+    return null
+  }
+
+  targetMessage.content = targetMessage.content.filter((content: ChatRenderContent) => {
     return !(
       content?.type === 'markdown' &&
       typeof content?.data === 'string' &&
       content.data.includes('<!--memory-status:')
     )
   })
-  const insertionIndex = withoutMemoryStatus.findIndex((content: ChatRenderContent) => {
+
+  const insertionIndex = targetMessage.content.findIndex((content: ChatRenderContent) => {
     return content?.type === 'suggestion' || content?.type === 'activity-form'
   })
   const memoryStatusContent = {
@@ -794,32 +1119,65 @@ function injectAssistantMemoryStatus(
   }
 
   if (insertionIndex === -1) {
-    withoutMemoryStatus.push(memoryStatusContent)
+    targetMessage.content.push(memoryStatusContent)
   } else {
-    withoutMemoryStatus.splice(insertionIndex, 0, memoryStatusContent)
+    targetMessage.content.splice(insertionIndex, 0, memoryStatusContent)
   }
-
-  targetMessage.content = withoutMemoryStatus
   return nextMessages
 }
 
 function flushPendingAssistantMemoryStatus() {
-  const pendingStatus = pendingAssistantMemoryStatus.value
-  if (!pendingStatus) {
-    return
-  }
-
-  const nextMessages = injectAssistantMemoryStatus(
-    chatMessages.value,
-    pendingStatus.status,
-    pendingStatus.text,
-  )
-  if (!nextMessages) {
-    return
-  }
-
   pendingAssistantMemoryStatus.value = null
-  applyChatMessages(nextMessages)
+}
+
+function injectAssistantUiLoading(messages: ChatRenderMessage[], text: string) {
+  const nextMessages = messages.map((message) => ({
+    ...message,
+    content: Array.isArray(message?.content) ? [...message.content] : [],
+  }))
+  const targetMessage = [...nextMessages]
+    .reverse()
+    .find((message) => message?.role === 'assistant' && Array.isArray(message?.content))
+  if (!targetMessage) {
+    return null
+  }
+
+  const existingLoading = targetMessage.content.find((content: ChatRenderContent) => content?.type === 'activity-loading')
+  const existingText = typeof asRecord(existingLoading?.data).text === 'string' ? String(asRecord(existingLoading?.data).text) : ''
+  if (existingText === (text || '正在生成交互 UI')) {
+    return null
+  }
+
+  targetMessage.content = targetMessage.content.filter((content: ChatRenderContent) => {
+    return content?.type !== 'activity-loading'
+  })
+
+  targetMessage.content.push(createLoadingActivityContent(text || '正在生成交互 UI'))
+
+  return nextMessages
+}
+
+function clearAssistantUiLoading(messages: ChatRenderMessage[]) {
+  const nextMessages = messages.map((message) => ({
+    ...message,
+    content: Array.isArray(message?.content) ? [...message.content] : [],
+  }))
+  let changed = false
+
+  nextMessages.forEach((message) => {
+    if (!Array.isArray(message?.content)) {
+      return
+    }
+    const filtered = message.content.filter((content: ChatRenderContent) => {
+      return content?.type !== 'activity-loading'
+    })
+    if (filtered.length !== message.content.length) {
+      message.content = filtered
+      changed = true
+    }
+  })
+
+  return changed ? nextMessages : null
 }
 
 function flushPendingAssistantStructuredContent() {
@@ -898,7 +1256,10 @@ function handleChatMessageChange(event: ChatMessageChangeEvent) {
     messages.filter((message) => message?.role !== 'system'),
     rawChatMessages.value,
   )
-  const renderedMessages = withTimeSeparators(rawChatMessages.value)
+  const renderedMessages = withSystemStatusMessages(withTimeSeparators(rawChatMessages.value), [
+    { key: 'ui-loading', text: currentAssistantLoadingText.value },
+    { key: 'memory-status', text: currentMemoryStatusText.value },
+  ])
   chatMessages.value = renderedMessages
   initializeFormDrafts(renderedMessages)
   if (pendingAssistantSuggestions.value?.length || pendingAssistantForm.value?.fields?.length) {
@@ -950,14 +1311,6 @@ async function submitChatForm(slot: ChatFormSlot) {
   }
 }
 
-function syncMemoryDraftFromCurrentMemory() {
-  memoryDraft.summary = currentMemory.summary
-  memoryDraft.updatedAt = currentMemory.updatedAt
-  memoryDraft.sourceMessageCount = currentMemory.sourceMessageCount
-  memoryDraft.threshold = currentMemory.threshold
-  memoryDraft.recentMessageLimit = currentMemory.recentMessageLimit
-}
-
 async function refreshCurrentSessionState() {
   if (!sessionId.value) {
     return
@@ -966,10 +1319,9 @@ async function refreshCurrentSessionState() {
   try {
     const response = await getSession(sessionId.value)
     applySessionMemory(response.session.memory)
+    applyMemorySchema(response.session.memorySchema)
+    applyStructuredMemory(response.session.structuredMemory)
     applySessionUsage(response.session.usage)
-    if (memoryVisible.value) {
-      syncMemoryDraftFromCurrentMemory()
-    }
   } catch {
     // Ignore transient session refresh failures and keep the current values.
   }
@@ -993,6 +1345,9 @@ function createRobotTemplate(): AIRobotCard {
     description: '',
     avatar: '',
     systemPrompt: '',
+    structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+    structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+    memorySchema: normalizeMemorySchema(DEFAULT_MEMORY_SCHEMA),
   }
 }
 
@@ -1003,10 +1358,19 @@ function syncMobileAgentDraft(source?: Partial<AIRobotCard> | null) {
   mobileAgentDraft.description = String(source?.description || '')
   mobileAgentDraft.avatar = String(source?.avatar || '')
   mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
+  mobileAgentDraft.structuredMemoryInterval =
+    typeof source?.structuredMemoryInterval === 'number' && source.structuredMemoryInterval > 0
+      ? Math.round(source.structuredMemoryInterval)
+      : fallback.structuredMemoryInterval
+  mobileAgentDraft.structuredMemoryHistoryLimit =
+    typeof source?.structuredMemoryHistoryLimit === 'number' && source.structuredMemoryHistoryLimit > 0
+      ? Math.round(source.structuredMemoryHistoryLimit)
+      : fallback.structuredMemoryHistoryLimit
+  mobileAgentDraft.memorySchema = normalizeMemorySchema(source?.memorySchema || fallback.memorySchema)
 }
 
 function syncMobileModelDraft(source?: Partial<AIModelConfigItem> | null) {
-  const provider: ProviderType = source?.provider === 'openai' ? 'openai' : 'ollama'
+  const provider: ProviderType = 'openai'
   const fallback = createModelConfig(provider)
   mobileModelDraft.id = String(source?.id || fallback.id)
   mobileModelDraft.name = String(source?.name || '')
@@ -1014,6 +1378,9 @@ function syncMobileModelDraft(source?: Partial<AIModelConfigItem> | null) {
   mobileModelDraft.baseUrl = String(source?.baseUrl || fallback.baseUrl)
   mobileModelDraft.apiKey = String(source?.apiKey || '')
   mobileModelDraft.model = String(source?.model || '')
+  mobileModelDraft.description = String(source?.description || '')
+  mobileModelDraft.tags = normalizeModelTags(source?.tags || fallback.tags)
+  mobileModelTagsInput.value = mobileModelDraft.tags.join(', ')
   mobileModelDraft.temperature =
     typeof source?.temperature === 'number' || source?.temperature === null
       ? source.temperature
@@ -1021,7 +1388,7 @@ function syncMobileModelDraft(source?: Partial<AIModelConfigItem> | null) {
 }
 
 function syncDesktopModelDraft(source?: Partial<AIModelConfigItem> | null) {
-  const provider: ProviderType = source?.provider === 'openai' ? 'openai' : 'ollama'
+  const provider: ProviderType = 'openai'
   const fallback = createModelConfig(provider)
   desktopModelDraft.id = String(source?.id || fallback.id)
   desktopModelDraft.name = String(source?.name || '')
@@ -1029,6 +1396,9 @@ function syncDesktopModelDraft(source?: Partial<AIModelConfigItem> | null) {
   desktopModelDraft.baseUrl = String(source?.baseUrl || fallback.baseUrl)
   desktopModelDraft.apiKey = String(source?.apiKey || '')
   desktopModelDraft.model = String(source?.model || '')
+  desktopModelDraft.description = String(source?.description || '')
+  desktopModelDraft.tags = normalizeModelTags(source?.tags || fallback.tags)
+  desktopModelTagsInput.value = desktopModelDraft.tags.join(', ')
   desktopModelDraft.temperature =
     typeof source?.temperature === 'number' || source?.temperature === null
       ? source.temperature
@@ -1042,6 +1412,9 @@ async function persistRobotTemplates(nextTemplates: AIRobotCard[], successMessag
         name: item.name.trim() || `智能体 ${index + 1}`,
         description: item.description.trim(),
         avatar: item.avatar.trim(),
+        structuredMemoryInterval: Math.max(1, Math.round(item.structuredMemoryInterval || DEFAULT_STRUCTURED_MEMORY_INTERVAL)),
+        structuredMemoryHistoryLimit: Math.max(1, Math.round(item.structuredMemoryHistoryLimit || DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT)),
+        memorySchema: normalizeMemorySchema(item.memorySchema),
       }))
     : [createRobotTemplate()]
 
@@ -1067,6 +1440,8 @@ async function persistModelConfigs(
         name: item.name.trim() || `模型配置 ${index + 1}`,
         baseUrl: item.baseUrl.trim(),
         apiKey: item.apiKey.trim(),
+        description: item.description.trim(),
+        tags: normalizeModelTags(item.tags),
       }))
     : [createModelConfig()]
 
@@ -1075,30 +1450,42 @@ async function persistModelConfigs(
     : payload[0]!.id
 
   const response = await saveModelConfigs(payload, activeId)
-  applyModelConfigs(response.configs, response.activeModelConfigId)
+  const mergedConfigs = response.configs.map((item) => {
+    const submitted = payload.find((candidate) => candidate.id === item.id)
+    if (!submitted) {
+      return item
+    }
+    return {
+      ...item,
+      description: submitted.description,
+      tags: submitted.tags,
+    }
+  })
+  applyModelConfigs(mergedConfigs, response.activeModelConfigId)
   await loadCapabilities()
   await syncCurrentSessionMeta()
   MessagePlugin.success(successMessage)
 }
 
 function openAgentManageDialog() {
-  if (!robotTemplates.value.length) {
-    robotTemplates.value = [createRobotTemplate()]
-  }
   editingAgentId.value = editingAgentId.value || robotTemplates.value[0]?.id || ''
   agentManageVisible.value = true
 }
 
 function addAgentTemplate() {
-  const next = createRobotTemplate()
-  robotTemplates.value = [...robotTemplates.value, next]
-  editingAgentId.value = next.id
+  openMobileAgentCreateDialog()
+}
+
+function goToAgentEditorStep(step: 1 | 2 | 3) {
+  agentEditorStep.value = step
 }
 
 function openMobileAgentCreateDialog() {
   mobileAgentEditorMode.value = 'create'
   editingMobileAgentId.value = ''
+  editingAgentId.value = ''
   syncMobileAgentDraft(createRobotTemplate())
+  goToAgentEditorStep(1)
   mobileAgentEditorVisible.value = true
 }
 
@@ -1109,14 +1496,28 @@ function openMobileAgentEditDialog(agentId: string) {
   }
   mobileAgentEditorMode.value = 'edit'
   editingMobileAgentId.value = agentId
+  editingAgentId.value = agentId
   syncMobileAgentDraft(target)
+  goToAgentEditorStep(1)
   mobileAgentEditorVisible.value = true
+}
+
+function nextAgentEditorStep() {
+  if (agentEditorStep.value < 3) {
+    agentEditorStep.value = (agentEditorStep.value + 1) as 1 | 2 | 3
+  }
+}
+
+function previousAgentEditorStep() {
+  if (agentEditorStep.value > 1) {
+    agentEditorStep.value = (agentEditorStep.value - 1) as 1 | 2 | 3
+  }
 }
 
 function openMobileModelCreateDialog() {
   mobileModelEditorMode.value = 'create'
   editingMobileModelId.value = ''
-  syncMobileModelDraft(createModelConfig('ollama', modelConfigs.value.length + 1))
+  syncMobileModelDraft(createModelConfig('openai', modelConfigs.value.length + 1))
   mobileModelEditorVisible.value = true
 }
 
@@ -1138,7 +1539,7 @@ function openMobileModelEditDialog(configId: string) {
 function openDesktopModelCreateDialog() {
   desktopModelEditorMode.value = 'create'
   editingDesktopModelId.value = ''
-  syncDesktopModelDraft(createModelConfig('ollama', modelConfigs.value.length + 1))
+  syncDesktopModelDraft(createModelConfig('openai', modelConfigs.value.length + 1))
   desktopModelEditorVisible.value = true
 }
 
@@ -1157,26 +1558,6 @@ function openDesktopModelEditDialog(configId: string) {
   desktopModelEditorVisible.value = true
 }
 
-function removeAgentTemplate(agentId: string) {
-  robotTemplates.value = robotTemplates.value.filter((item) => item.id !== agentId)
-  if (!robotTemplates.value.length) {
-    const fallback = createRobotTemplate()
-    robotTemplates.value = [fallback]
-    editingAgentId.value = fallback.id
-  } else if (!robotTemplates.value.some((item) => item.id === editingAgentId.value)) {
-    editingAgentId.value = robotTemplates.value[0]?.id || ''
-  }
-  if (!robotTemplates.value.some((item) => item.id === selectedNewChatRobotId.value)) {
-    selectedNewChatRobotId.value = robotTemplates.value[0]?.id || ''
-  }
-}
-
-function selectEditingAgent(agentId: string) {
-  if (robotTemplates.value.some((item) => item.id === agentId)) {
-    editingAgentId.value = agentId
-  }
-}
-
 async function removeMobileAgent(agentId: string) {
   savingMobileAgent.value = true
   try {
@@ -1192,6 +1573,17 @@ async function removeMobileAgent(agentId: string) {
   }
 }
 
+function handleAgentCardAction(agentId: string, action?: string | number | Record<string, unknown>) {
+  const nextAction = String(action || '')
+  if (nextAction === 'edit') {
+    openMobileAgentEditDialog(agentId)
+    return
+  }
+  if (nextAction === 'delete') {
+    void removeMobileAgent(agentId)
+  }
+}
+
 async function saveMobileAgent() {
   savingMobileAgent.value = true
   try {
@@ -1201,6 +1593,9 @@ async function saveMobileAgent() {
       description: mobileAgentDraft.description.trim(),
       avatar: mobileAgentDraft.avatar.trim(),
       systemPrompt: mobileAgentDraft.systemPrompt,
+      structuredMemoryInterval: Math.max(1, Math.round(mobileAgentDraft.structuredMemoryInterval || DEFAULT_STRUCTURED_MEMORY_INTERVAL)),
+      structuredMemoryHistoryLimit: Math.max(1, Math.round(mobileAgentDraft.structuredMemoryHistoryLimit || DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT)),
+      memorySchema: normalizeMemorySchema(mobileAgentDraft.memorySchema),
     }
     const nextTemplates =
       mobileAgentEditorMode.value === 'edit'
@@ -1220,6 +1615,7 @@ async function saveMobileAgent() {
     }
 
     mobileAgentEditorVisible.value = false
+    agentManageVisible.value = false
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       return
@@ -1230,8 +1626,12 @@ async function saveMobileAgent() {
   }
 }
 
+async function skipAgentStructureSetup() {
+  await saveMobileAgent()
+}
+
 function handleMobileModelProviderChange(value: unknown) {
-  const nextProvider: ProviderType = value === 'openai' ? 'openai' : 'ollama'
+  const nextProvider: ProviderType = 'openai'
   const defaults = DEFAULT_MODEL_CONFIGS[nextProvider]
   mobileModelDraft.provider = nextProvider
   mobileModelDraft.baseUrl = defaults.baseUrl
@@ -1245,7 +1645,7 @@ function handleMobileModelProviderChange(value: unknown) {
 }
 
 function handleDesktopModelProviderChange(value: unknown) {
-  const nextProvider: ProviderType = value === 'openai' ? 'openai' : 'ollama'
+  const nextProvider: ProviderType = 'openai'
   const defaults = DEFAULT_MODEL_CONFIGS[nextProvider]
   desktopModelDraft.provider = nextProvider
   desktopModelDraft.baseUrl = defaults.baseUrl
@@ -1306,6 +1706,8 @@ async function saveMobileModel() {
       name: mobileModelDraft.name.trim(),
       baseUrl: mobileModelDraft.baseUrl.trim(),
       apiKey: mobileModelDraft.apiKey.trim(),
+      description: mobileModelDraft.description.trim(),
+      tags: normalizeModelTags(mobileModelTagsInput.value),
     }
     const nextConfigs =
       mobileModelEditorMode.value === 'edit'
@@ -1339,6 +1741,17 @@ async function removeMobileModel(configId: string) {
   }
 }
 
+function handleMobileModelCardAction(configId: string, action?: string | number | Record<string, unknown>) {
+  const nextAction = String(action || '')
+  if (nextAction === 'edit') {
+    openMobileModelEditDialog(configId)
+    return
+  }
+  if (nextAction === 'delete') {
+    void removeMobileModel(configId)
+  }
+}
+
 async function saveDesktopModel() {
   savingDesktopModel.value = true
   try {
@@ -1347,6 +1760,8 @@ async function saveDesktopModel() {
       name: desktopModelDraft.name.trim(),
       baseUrl: desktopModelDraft.baseUrl.trim(),
       apiKey: desktopModelDraft.apiKey.trim(),
+      description: desktopModelDraft.description.trim(),
+      tags: normalizeModelTags(desktopModelTagsInput.value),
     }
     const nextConfigs =
       desktopModelEditorMode.value === 'edit'
@@ -1385,18 +1800,14 @@ async function removeDesktopModel(configId: string) {
   }
 }
 
-async function saveAgentTemplates() {
-  savingAgentTemplates.value = true
-  try {
-    await persistRobotTemplates(robotTemplates.value, '智能体已保存')
-    agentManageVisible.value = false
-  } catch (error) {
-    if (error instanceof UnauthorizedError) {
-      return
-    }
-    MessagePlugin.error(error instanceof Error ? error.message : '保存智能体失败')
-  } finally {
-    savingAgentTemplates.value = false
+function handleDesktopModelCardAction(configId: string, action?: string | number | Record<string, unknown>) {
+  const nextAction = String(action || '')
+  if (nextAction === 'edit') {
+    openDesktopModelEditDialog(configId)
+    return
+  }
+  if (nextAction === 'delete') {
+    void removeDesktopModel(configId)
   }
 }
 
@@ -1407,17 +1818,19 @@ async function syncCurrentSessionMeta() {
       name: sessionRobot.name,
       avatar: sessionRobot.avatar,
       systemPrompt: sessionRobot.systemPrompt,
+      structuredMemoryInterval: sessionRobot.structuredMemoryInterval,
+      structuredMemoryHistoryLimit: sessionRobot.structuredMemoryHistoryLimit,
     },
+    memory: normalizeSessionMemory(DEFAULT_SESSION_MEMORY),
     modelConfigId: activeModelConfig.value.id,
     modelLabel: currentModelLabel.value,
-    memory: {
-      threshold: currentMemory.threshold,
-      recentMessageLimit: currentMemory.recentMessageLimit,
-    },
+    memorySchema: currentMemorySchema,
   })
   storeActiveSessionId(response.session.id)
   sessionId.value = response.session.id
   applySessionMemory(response.session.memory)
+  applyMemorySchema(response.session.memorySchema)
+  applyStructuredMemory(response.session.structuredMemory)
   applySessionUsage(response.session.usage)
   await refreshSessionHistory()
 }
@@ -1427,7 +1840,11 @@ async function hydrateSession(session: ChatSessionDetail) {
   sessionRobot.name = session.robot.name || '当前智能体'
   sessionRobot.avatar = session.robot.avatar || ''
   sessionRobot.systemPrompt = session.robot.systemPrompt || ''
+  sessionRobot.structuredMemoryInterval = session.robot.structuredMemoryInterval || DEFAULT_SESSION_MEMORY.structuredMemoryInterval
+  sessionRobot.structuredMemoryHistoryLimit = session.robot.structuredMemoryHistoryLimit || DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit
   applySessionMemory(session.memory)
+  applyMemorySchema(session.memorySchema)
+  applyStructuredMemory(session.structuredMemory)
   applySessionUsage(session.usage)
   storeActiveSessionId(session.id)
 
@@ -1449,8 +1866,23 @@ async function createNewChat(robot?: AIRobotCard | null) {
     sessionRobot.name = robot.name.trim() || '当前智能体'
     sessionRobot.avatar = robot.avatar || ''
     sessionRobot.systemPrompt = robot.systemPrompt
+    sessionRobot.structuredMemoryInterval = robot.structuredMemoryInterval || DEFAULT_SESSION_MEMORY.structuredMemoryInterval
+    sessionRobot.structuredMemoryHistoryLimit = robot.structuredMemoryHistoryLimit || DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit
+    applyMemorySchema(robot.memorySchema)
+  } else {
+    sessionRobot.name = '当前智能体'
+    sessionRobot.avatar = ''
+    sessionRobot.systemPrompt = ''
+    sessionRobot.structuredMemoryInterval = DEFAULT_SESSION_MEMORY.structuredMemoryInterval
+    sessionRobot.structuredMemoryHistoryLimit = DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit
+    applyMemorySchema(DEFAULT_MEMORY_SCHEMA)
   }
-  applySessionMemory(DEFAULT_SESSION_MEMORY)
+  applySessionMemory({
+    ...DEFAULT_SESSION_MEMORY,
+    structuredMemoryInterval: robot?.structuredMemoryInterval || DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+    structuredMemoryHistoryLimit: robot?.structuredMemoryHistoryLimit || DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+  })
+  applyStructuredMemory(DEFAULT_STRUCTURED_MEMORY)
   applySessionUsage(DEFAULT_SESSION_USAGE)
   sessionId.value = createSessionId()
   storeActiveSessionId(sessionId.value)
@@ -1460,7 +1892,7 @@ async function createNewChat(robot?: AIRobotCard | null) {
 }
 
 function openMemoryDialog() {
-  syncMemoryDraftFromCurrentMemory()
+  Object.assign(sessionMemoryDraft, normalizeSessionMemory(DEFAULT_SESSION_MEMORY))
   memoryVisible.value = true
 }
 
@@ -1509,6 +1941,8 @@ function openSessionRobotDialog() {
   sessionRobotDraft.name = sessionRobot.name
   sessionRobotDraft.avatar = sessionRobot.avatar
   sessionRobotDraft.systemPrompt = sessionRobot.systemPrompt
+  sessionRobotDraft.structuredMemoryInterval = sessionRobot.structuredMemoryInterval
+  sessionRobotDraft.structuredMemoryHistoryLimit = sessionRobot.structuredMemoryHistoryLimit
   sessionRobotVisible.value = true
 }
 
@@ -1516,47 +1950,16 @@ async function applySessionRobot() {
   sessionRobot.name = sessionRobotDraft.name.trim() || '当前智能体'
   sessionRobot.avatar = sessionRobotDraft.avatar.trim()
   sessionRobot.systemPrompt = sessionRobotDraft.systemPrompt
+  sessionRobot.structuredMemoryInterval = sessionRobotDraft.structuredMemoryInterval
+  sessionRobot.structuredMemoryHistoryLimit = sessionRobotDraft.structuredMemoryHistoryLimit
   sessionRobotVisible.value = false
   await syncCurrentSessionMeta()
 }
 
-async function saveSessionMemoryConfig() {
-  savingMemory.value = true
-  try {
-    const response = await updateSessionMemory(sessionId.value, {
-      summary: memoryDraft.summary,
-      threshold: Math.max(1, Math.round(memoryDraft.threshold || DEFAULT_SESSION_MEMORY.threshold)),
-      recentMessageLimit: Math.max(
-        1,
-        Math.round(memoryDraft.recentMessageLimit || DEFAULT_SESSION_MEMORY.recentMessageLimit),
-      ),
-    })
-    applySessionMemory(response.session.memory)
-    memoryVisible.value = false
-    MessagePlugin.success('会话记忆已保存')
-  } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '保存会话记忆失败')
-  } finally {
-    savingMemory.value = false
-  }
-}
-
-async function clearCurrentSessionMemory() {
-  clearingMemory.value = true
-  try {
-    const response = await clearSessionMemory(sessionId.value)
-    applySessionMemory(response.session.memory)
-    memoryDraft.summary = response.session.memory.summary
-    memoryDraft.updatedAt = response.session.memory.updatedAt
-    memoryDraft.sourceMessageCount = response.session.memory.sourceMessageCount
-    memoryDraft.threshold = response.session.memory.threshold
-    memoryDraft.recentMessageLimit = response.session.memory.recentMessageLimit
-    MessagePlugin.success('会话记忆已清空')
-  } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '清空会话记忆失败')
-  } finally {
-    clearingMemory.value = false
-  }
+async function applySessionMemorySettings() {
+  applySessionMemory(sessionMemoryDraft)
+  memoryVisible.value = false
+  await syncCurrentSessionMeta()
 }
 
 async function openHistorySession(targetSessionId: string) {
@@ -1577,6 +1980,8 @@ function syncEditingConfig(config: AIModelConfigItem) {
   editingConfig.baseUrl = config.baseUrl
   editingConfig.apiKey = config.apiKey
   editingConfig.model = config.model
+  editingConfig.description = config.description
+  editingConfig.tags = normalizeModelTags(config.tags)
   editingConfig.temperature = config.temperature
 }
 
@@ -1586,6 +1991,8 @@ function commitEditingConfig() {
       ? {
           ...editingConfig,
           name: editingConfig.name.trim() || item.name || '未命名配置',
+          description: String(editingConfig.description || '').trim(),
+          tags: normalizeModelTags(editingConfig.tags),
         }
       : item,
   )
@@ -1603,7 +2010,7 @@ function selectEditingConfig(configId: string) {
 
 function addModelConfig() {
   commitEditingConfig()
-  const next = createModelConfig('ollama', modelConfigs.value.length + 1)
+  const next = createModelConfig('openai', modelConfigs.value.length + 1)
   modelConfigs.value = [...modelConfigs.value, next]
   modelOptionsMap.value = {
     ...modelOptionsMap.value,
@@ -1616,7 +2023,7 @@ function addModelConfig() {
 function removeModelConfig(configId: string) {
   const nextList = modelConfigs.value.filter((item) => item.id !== configId)
   if (!nextList.length) {
-    const fallback = createModelConfig('ollama', 1)
+    const fallback = createModelConfig('openai', 1)
     modelConfigs.value = [fallback]
     activeModelConfigId.value = fallback.id
     editingConfigId.value = fallback.id
@@ -1669,7 +2076,12 @@ function openConfigDialog() {
 }
 
 function applyModelConfigs(configs: AIModelConfigItem[], activeId: string) {
-  const normalized = configs.length ? configs : [createModelConfig()]
+  const normalized = (configs.length ? configs : [createModelConfig()]).map((item, index) => ({
+    ...item,
+    name: String(item.name || `模型配置 ${index + 1}`),
+    description: String(item.description || '').trim(),
+    tags: normalizeModelTags(item.tags),
+  }))
   modelConfigs.value = normalized
   activeModelConfigId.value = normalized.some((item) => item.id === activeId)
     ? activeId
@@ -1712,27 +2124,103 @@ async function refreshEditingModels() {
 }
 
 async function initializePage() {
+  if (isInitializingAgent.value) {
+    initDebug('initializePage skipped: already running')
+    return false
+  }
+
+  isInitializingAgent.value = true
   try {
+    initDebug('initializePage start', {
+      route: String(route.name || ''),
+      authLoaded: Boolean(isAuthLoaded.value),
+      signedIn: isSignedInNow(),
+      hasInitialized: hasInitializedAgent.value,
+    })
+    await waitForAuthReady()
+    if (!isSignedInNow()) {
+      initDebug('initializePage stop: not signed in after auth ready', {
+        authLoaded: Boolean(isAuthLoaded.value),
+        signedIn: isSignedInNow(),
+      })
+      return false
+    }
+    initDebug('request getModelConfigs')
     const { configs, activeModelConfigId: activeId } = await getModelConfigs()
+    initDebug('getModelConfigs success', {
+      configCount: configs.length,
+      activeId,
+    })
     applyModelConfigs(configs, activeId)
     await loadCapabilities()
+    initDebug('loadCapabilities success', {
+      activeModel: activeModelConfig.value.model,
+    })
     await loadRobotTemplates()
+    initDebug('loadRobotTemplates success', {
+      robotCount: robotTemplates.value.length,
+    })
     await refreshSessionHistory()
+    initDebug('refreshSessionHistory success', {
+      sessionCount: sessionHistory.value.length,
+    })
 
     const storedSessionId = getStoredActiveSessionId()
     const initialSessionId = storedSessionId || sessionHistory.value[0]?.id
+    initDebug('resolve initial session', {
+      storedSessionId,
+      initialSessionId: initialSessionId || '',
+    })
     if (initialSessionId) {
       try {
+        initDebug('request getSession', { sessionId: initialSessionId })
         const response = await getSession(initialSessionId)
         await hydrateSession(response.session)
+        initDebug('getSession success', { sessionId: initialSessionId })
       } catch {
+        initDebug('getSession failed, fallback createNewChat', { sessionId: initialSessionId })
         await createNewChat()
       }
     } else {
+      initDebug('no session found, createNewChat')
       await createNewChat()
     }
+    initDebug('initializePage success')
+    return true
   } catch (error) {
+    initDebug('initializePage failed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     MessagePlugin.error(error instanceof Error ? error.message : '初始化失败')
+    return false
+  } finally {
+    isInitializingAgent.value = false
+    initDebug('initializePage end', {
+      hasInitialized: hasInitializedAgent.value,
+      isInitializing: isInitializingAgent.value,
+    })
+  }
+}
+
+async function ensureAgentInitialized() {
+  initDebug('ensureAgentInitialized check', {
+    route: String(route.name || ''),
+    hasInitialized: hasInitializedAgent.value,
+    signedIn: Boolean(isSignedIn.value),
+    authLoaded: Boolean(isAuthLoaded.value),
+  })
+  if (hasInitializedAgent.value || !isSignedIn.value) {
+    initDebug('ensureAgentInitialized skipped', {
+      hasInitialized: hasInitializedAgent.value,
+      signedIn: Boolean(isSignedIn.value),
+    })
+    return
+  }
+
+  if (await initializePage()) {
+    hasInitializedAgent.value = true
+    initDebug('ensureAgentInitialized marked initialized')
+    await nextTick()
   }
 }
 
@@ -1744,7 +2232,7 @@ function syncViewportMode() {
 }
 
 function handleProviderChange(value: unknown) {
-  const nextProvider: ProviderType = value === 'openai' ? 'openai' : 'ollama'
+  const nextProvider: ProviderType = 'openai'
   const defaults = DEFAULT_MODEL_CONFIGS[nextProvider]
   editingConfig.provider = nextProvider
   editingConfig.baseUrl = defaults.baseUrl
@@ -1782,6 +2270,8 @@ async function saveAllModelConfigs() {
       name: item.name.trim() || `模型配置 ${index + 1}`,
       baseUrl: item.baseUrl.trim(),
       apiKey: item.apiKey.trim(),
+      description: item.description.trim(),
+      tags: normalizeModelTags(item.tags),
     }))
     const activeId = payload.some((item) => item.id === activeModelConfigId.value)
       ? activeModelConfigId.value
@@ -1832,6 +2322,18 @@ function createThinkingChunk(text: string, done = false): AIMessageContent {
   } as AIMessageContent
 }
 
+function createAgentStatusChunk(title: string, text: string): AIMessageContent {
+  return {
+    type: 'thinking',
+    strategy: 'merge',
+    status: 'streaming',
+    data: {
+      title,
+      text: `${text}\n`,
+    },
+  } as AIMessageContent
+}
+
 const chatServiceConfig = computed<ChatServiceConfig>(() => ({
   endpoint: '/api/chat/stream',
   stream: true,
@@ -1853,6 +2355,8 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
           name: sessionRobot.name,
           avatar: sessionRobot.avatar,
           systemPrompt: sessionRobot.systemPrompt,
+          structuredMemoryInterval: sessionRobot.structuredMemoryInterval,
+          structuredMemoryHistoryLimit: sessionRobot.structuredMemoryHistoryLimit,
         },
         stream: effectiveStream.value,
         thinking: effectiveThinking.value,
@@ -1877,20 +2381,37 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
     if (payload.type === 'text' && payload.text) {
       return { type: 'markdown', strategy: 'merge', data: payload.text }
     }
+    if (payload.type === 'ui_loading' && payload.message) {
+      currentAssistantLoadingText.value = payload.message || '正在生成交互 UI'
+      applyChatMessages(chatMessages.value)
+      return null
+    }
     if (payload.type === 'suggestion' && payload.items?.length) {
+      currentAssistantLoadingText.value = ''
+      applyChatMessages(chatMessages.value)
       pendingAssistantSuggestions.value = payload.items
       pendingAssistantForm.value = null
+      nextTick(() => {
+        flushPendingAssistantStructuredContent()
+      })
       return null
     }
     if (payload.type === 'form' && payload.form?.fields?.length) {
+      currentAssistantLoadingText.value = ''
+      applyChatMessages(chatMessages.value)
       if (!pendingAssistantSuggestions.value?.length) {
         pendingAssistantForm.value = payload.form
       }
+      nextTick(() => {
+        flushPendingAssistantStructuredContent()
+      })
       return null
     }
     if (payload.type === 'memory_status' && payload.message) {
       const status = createMemoryStatusContent(payload.status || 'running', payload.message)
       pendingAssistantMemoryStatus.value = status
+      currentMemoryStatusText.value = payload.message
+      applyChatMessages(chatMessages.value)
       nextTick(() => {
         flushPendingAssistantMemoryStatus()
       })
@@ -1903,9 +2424,25 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
       })
       return null
     }
+    if (payload.type === 'agent_turn' && payload.message) {
+      return null
+    }
+    if (payload.type === 'tool_status') {
+      const summary = payload.toolType === 'tool_call'
+        ? `调用工具 ${payload.tool || ''} ${payload.query || payload.url || ''}`.trim()
+        : `工具结果 ${payload.tool || ''} 已返回`
+      return createAgentStatusChunk('Tool', summary)
+    }
+    if (payload.type === 'structured_memory' && payload.memory) {
+      applyStructuredMemory(payload.memory)
+      return null
+    }
     if (payload.type === 'done') {
       isChatResponding.value = false
       flushPendingAssistantStructuredContent()
+      currentAssistantLoadingText.value = ''
+      currentMemoryStatusText.value = ''
+      applyChatMessages(chatMessages.value)
       refreshCurrentSessionState().catch(() => {})
       refreshSessionHistory().catch(() => {})
     }
@@ -1913,6 +2450,8 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
   },
   onError: (error) => {
     isChatResponding.value = false
+    currentAssistantLoadingText.value = ''
+    currentMemoryStatusText.value = ''
     MessagePlugin.error(error instanceof Error ? error.message : '聊天失败')
   },
 }))
@@ -1920,24 +2459,49 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
 onMounted(async () => {
   syncViewportMode()
   window.addEventListener('resize', syncViewportMode)
-  if (activePrimaryTab.value === 'agent' && !hasInitializedAgent.value) {
-    hasInitializedAgent.value = true
-    await initializePage()
-    await nextTick()
-  }
+  initDebug('onMounted')
+  await ensureAgentInitialized()
 })
 
 watch(
   activePrimaryTab,
-  async (tab) => {
-    if (tab !== 'agent' || hasInitializedAgent.value) {
-      return
-    }
-    hasInitializedAgent.value = true
-    await initializePage()
-    await nextTick()
+  async () => {
+    initDebug('activePrimaryTab changed', {
+      route: String(route.name || ''),
+      tab: activePrimaryTab.value,
+    })
+    await ensureAgentInitialized()
   },
   { immediate: false },
+)
+
+watch(
+  [isAuthLoaded, isSignedIn],
+  async ([loaded, signedIn], previous) => {
+    const [previousLoaded, previousSignedIn] = previous ?? []
+    initDebug('auth watch fired', {
+      loaded,
+      signedIn,
+      previousLoaded: previousLoaded ?? null,
+      previousSignedIn: previousSignedIn ?? null,
+      route: String(route.name || ''),
+    })
+    if (!loaded) {
+      return
+    }
+
+    if (!signedIn) {
+      hasInitializedAgent.value = false
+      initDebug('auth watch reset initialized: signed out')
+      return
+    }
+
+    if (!previousLoaded || !previousSignedIn) {
+      initDebug('auth watch trigger ensureAgentInitialized')
+      await ensureAgentInitialized()
+    }
+  },
+  { immediate: true },
 )
 
 onUnmounted(() => {
@@ -1959,14 +2523,11 @@ onUnmounted(() => {
     sessionRobotVisible,
     memoryVisible,
     savingConfig,
-    savingAgentTemplates,
     savingMobileAgent,
     savingMobileModel,
     savingDesktopModel,
     loadingModels,
     testingConnection,
-    savingMemory,
-    clearingMemory,
     chatbotRef,
     chatbotRuntimeKey,
     sessionId,
@@ -1975,13 +2536,14 @@ onUnmounted(() => {
     robotTemplates,
     selectedNewChatRobotId,
     editingAgentId,
+    agentEditorStep,
     mobileAgentEditorMode,
     editingMobileAgentId,
     mobileModelEditorMode,
     editingMobileModelId,
     desktopModelEditorMode,
     editingDesktopModelId,
-    editingAgent,
+    isEditingAgentDraft,
     submittedForms,
     isChatResponding,
     modelConfigs,
@@ -1990,10 +2552,12 @@ onUnmounted(() => {
     activeModelConfigId,
     editingConfig,
     sessionRobotDraft,
-    memoryDraft,
+    sessionMemoryDraft,
     mobileAgentDraft,
     mobileModelDraft,
     desktopModelDraft,
+    mobileModelTagsInput,
+    desktopModelTagsInput,
     mobileOverlayProps,
     currentRobotLabel,
     currentModelLabel,
@@ -2008,12 +2572,19 @@ onUnmounted(() => {
     showStreamToggle,
     showThinkingToggle,
     formActivitySlots,
+    loadingActivitySlots,
+    memoryStatusActivitySlots,
     editingModelOptions,
     temperatureValue,
     mobileModelTemperatureValue,
     desktopModelTemperatureValue,
+    agentCardActionOptions,
+    modelCardActionOptions,
     memoryUpdatedLabel,
-    currentMemory,
+    memoryDisplayCategories,
+    structuredMemoryRecordCount,
+    currentMemorySchema,
+    currentStructuredMemory,
     providerOptions,
     chatMessageProps,
     chatServiceConfig,
@@ -2038,6 +2609,9 @@ onUnmounted(() => {
     refreshDesktopModelOptions,
     handleMobileModelTestConnection,
     handleDesktopModelTestConnection,
+    handleAgentCardAction,
+    handleMobileModelCardAction,
+    handleDesktopModelCardAction,
     saveMobileModel,
     saveDesktopModel,
     removeMobileModel,
@@ -2051,16 +2625,15 @@ onUnmounted(() => {
     addAgentTemplate,
     openMobileAgentCreateDialog,
     openMobileAgentEditDialog,
-    removeAgentTemplate,
+    nextAgentEditorStep,
+    previousAgentEditorStep,
+    skipAgentStructureSetup,
     removeMobileAgent,
-    selectEditingAgent,
     saveMobileAgent,
-    saveAgentTemplates,
     openSessionRobotDialog,
     applySessionRobot,
     openMemoryDialog,
-    saveSessionMemoryConfig,
-    clearCurrentSessionMemory,
+    applySessionMemorySettings,
     confirmStartNewChat,
     handleNewChatEntry,
     handleGoToRobotPage,

@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ChatView from '@/views/ChatView.vue'
-import RobotManageView from '@/views/RobotManageView.vue'
-import { isSignedInNow, promptSignIn } from '@/lib/auth'
+import { isAuthLoadedNow, isSignedInNow, promptSignIn } from '@/lib/auth'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -31,16 +30,11 @@ const router = createRouter({
         requiresAuth: true,
       },
     },
-    {
-      path: '/robots',
-      name: 'robots',
-      component: RobotManageView,
-    },
   ],
 })
 
 router.beforeEach((to, from) => {
-  if (!to.meta.requiresAuth || isSignedInNow()) {
+  if (!to.meta.requiresAuth || !isAuthLoadedNow() || isSignedInNow()) {
     return true
   }
 

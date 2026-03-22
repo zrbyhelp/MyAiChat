@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node ./scripts/dev-vite.mjs --config vite.config.mjs --configLoader runner",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "test:unit": "vitest",
@@ -19,6 +19,7 @@
   "dependencies": {
     "@clerk/vue": "^2.0.5",
     "@tdesign-vue-next/chat": "^0.5.1",
+    "element-plus": "^2.11.2",
     "millify": "^6.1.0",
     "pinia": "^3.0.4",
     "tdesign-icons-vue-next": "^0.4.2",

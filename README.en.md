@@ -107,6 +107,7 @@ In Docker mode:
 - The server uses `STORAGE_DRIVER=mysql`
 - The front end reads `VITE_CLERK_PUBLISHABLE_KEY` at build time
 - The back end validates authentication state with `CLERK_SECRET_KEY`
+- The back end also reads `CLERK_PUBLISHABLE_KEY` for Clerk middleware configuration
 - Runtime data is stored in MySQL instead of JSON files
 
 ## npm/pnpm Startup
@@ -151,6 +152,7 @@ If you want local development to use MySQL instead of JSON files, use this mode.
 ```env
 STORAGE_DRIVER=mysql
 CLERK_SECRET_KEY=sk_test_your_clerk_secret_key
+CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=myaichat
@@ -193,6 +195,7 @@ Back-end environment variables:
 - `STORAGE_DRIVER=file|mysql`
 - `PORT`
 - `CLERK_SECRET_KEY`
+- `CLERK_PUBLISHABLE_KEY`
 - `DB_HOST`
 - `DB_PORT`
 - `DB_NAME`

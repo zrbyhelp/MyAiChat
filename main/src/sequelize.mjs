@@ -91,6 +91,17 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
     },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+    },
+    tagsJson: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '[]',
+      field: 'tags_json',
+    },
     temperature: {
       type: DataTypes.FLOAT,
       allowNull: true,
@@ -132,6 +143,30 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'system_prompt',
+    },
+    structuredMemoryInterval: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 3,
+      field: 'structured_memory_interval',
+    },
+    structuredMemoryHistoryLimit: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 12,
+      field: 'structured_memory_history_limit',
+    },
+    memorySchemaJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{"categories":[]}',
+      field: 'memory_schema_json',
+    },
+    memoryPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'memory_prompt',
     },
   })
 
@@ -182,6 +217,24 @@ export function getModels() {
       defaultValue: '',
       field: 'robot_system_prompt',
     },
+    robotStructuredMemoryInterval: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 3,
+      field: 'robot_structured_memory_interval',
+    },
+    robotStructuredMemoryHistoryLimit: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 12,
+      field: 'robot_structured_memory_history_limit',
+    },
+    robotMemoryPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_memory_prompt',
+    },
     modelConfigId: {
       type: DataTypes.STRING(120),
       allowNull: false,
@@ -193,6 +246,12 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'model_label',
+    },
+    threadId: {
+      type: DataTypes.STRING(160),
+      allowNull: false,
+      defaultValue: '',
+      field: 'thread_id',
     },
     memorySummary: {
       type: DataTypes.TEXT,
@@ -220,6 +279,36 @@ export function getModels() {
       type: DataTypes.INTEGER,
       allowNull: false,
       field: 'memory_recent_message_limit',
+    },
+    memoryPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'memory_prompt',
+    },
+    structuredMemoryInterval: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 3,
+      field: 'structured_memory_interval',
+    },
+    structuredMemoryHistoryLimit: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 12,
+      field: 'structured_memory_history_limit',
+    },
+    memorySchemaJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{"categories":[]}',
+      field: 'memory_schema_json',
+    },
+    structuredMemoryJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{"updatedAt":"","preferences":[],"facts":[],"tasks":[]}',
+      field: 'structured_memory_json',
     },
     promptTokens: {
       type: DataTypes.INTEGER,

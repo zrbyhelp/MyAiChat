@@ -4,11 +4,14 @@ import {
   DEFAULT_MODEL_CONFIGS,
   DEFAULT_ROBOTS,
   DEFAULT_SESSION_MEMORY,
+  DEFAULT_STRUCTURED_MEMORY,
   normalizeModelConfigsPayload,
+  normalizeMemorySchema,
   normalizeRobots,
   normalizeSession,
   normalizeSessionMemory,
   normalizeSessionRobot,
+  normalizeStructuredMemory,
   normalizeSessionsPayload,
   safeJsonParse,
 } from './storage-shared.mjs'
@@ -58,16 +61,24 @@ function mapSessionRow(user, row) {
       name: row.robotName,
       avatar: row.robotAvatar,
       systemPrompt: row.robotSystemPrompt,
+      structuredMemoryInterval: row.robotStructuredMemoryInterval,
+      structuredMemoryHistoryLimit: row.robotStructuredMemoryHistoryLimit,
     },
     modelConfigId: row.modelConfigId,
     modelLabel: row.modelLabel,
+    threadId: row.threadId,
     memory: {
       summary: row.memorySummary,
       updatedAt: row.memoryUpdatedAt instanceof Date ? row.memoryUpdatedAt.toISOString() : row.memoryUpdatedAt || '',
       sourceMessageCount: row.memorySourceMessageCount,
       threshold: row.memoryThreshold,
       recentMessageLimit: row.memoryRecentMessageLimit,
+      prompt: row.memoryPrompt,
+      structuredMemoryInterval: row.structuredMemoryInterval,
+      structuredMemoryHistoryLimit: row.structuredMemoryHistoryLimit,
     },
+    memorySchema: normalizeMemorySchema(safeJsonParse(row.memorySchemaJson, null)),
+    structuredMemory: normalizeStructuredMemory(safeJsonParse(row.structuredMemoryJson, DEFAULT_STRUCTURED_MEMORY)),
     usage: {
       promptTokens: row.promptTokens,
       completionTokens: row.completionTokens,
@@ -98,9 +109,16 @@ async function ensureDefaults(user) {
     const defaults = normalizeModelConfigsPayload(DEFAULT_MODEL_CONFIGS)
     await ModelConfig.bulkCreate(
       defaults.configs.map((config) => ({
-        ...config,
         id: scopeId(user, config.id),
         userId,
+        name: config.name,
+        provider: config.provider,
+        baseUrl: config.baseUrl,
+        apiKey: config.apiKey,
+        model: config.model,
+        description: config.description,
+        tagsJson: JSON.stringify(config.tags || []),
+        temperature: config.temperature,
         isActive: config.id === defaults.activeModelConfigId,
       })),
     )
@@ -108,9 +126,15 @@ async function ensureDefaults(user) {
 
   if ((await Robot.count({ where: { userId } })) === 0) {
     await Robot.bulkCreate(normalizeRobots(DEFAULT_ROBOTS).map((robot) => ({
-      ...robot,
       id: scopeId(user, robot.id),
       userId,
+      name: robot.name,
+      description: robot.description,
+      avatar: robot.avatar,
+      systemPrompt: robot.systemPrompt,
+      structuredMemoryInterval: robot.structuredMemoryInterval,
+      structuredMemoryHistoryLimit: robot.structuredMemoryHistoryLimit,
+      memorySchemaJson: JSON.stringify(robot.memorySchema),
     })))
   }
 }
@@ -182,13 +206,21 @@ export async function saveSessionRecord(user, session) {
       robotName: normalized.robot.name,
       robotAvatar: normalized.robot.avatar,
       robotSystemPrompt: normalized.robot.systemPrompt,
+      robotStructuredMemoryInterval: normalized.robot.structuredMemoryInterval,
+      robotStructuredMemoryHistoryLimit: normalized.robot.structuredMemoryHistoryLimit,
       modelConfigId: normalized.modelConfigId,
       modelLabel: normalized.modelLabel,
+      threadId: normalized.threadId,
       memorySummary: normalized.memory.summary,
       memoryUpdatedAt: toDateOrNull(normalized.memory.updatedAt),
       memorySourceMessageCount: normalized.memory.sourceMessageCount,
       memoryThreshold: normalized.memory.threshold,
       memoryRecentMessageLimit: normalized.memory.recentMessageLimit,
+      memoryPrompt: normalized.memory.prompt,
+      structuredMemoryInterval: normalized.memory.structuredMemoryInterval,
+      structuredMemoryHistoryLimit: normalized.memory.structuredMemoryHistoryLimit,
+      memorySchemaJson: JSON.stringify(normalized.memorySchema),
+      structuredMemoryJson: JSON.stringify(normalized.structuredMemory || DEFAULT_STRUCTURED_MEMORY),
       promptTokens: normalized.usage.promptTokens,
       completionTokens: normalized.usage.completionTokens,
     }, { transaction })
@@ -227,6 +259,8 @@ export async function upsertSessionRecord(user, input) {
     ...input,
     robot: input?.robot ? normalizeSessionRobot(input.robot) : existing?.robot,
     memory: normalizeSessionMemory({ ...(existing?.memory || DEFAULT_SESSION_MEMORY), ...(input?.memory || {}) }),
+    memorySchema: normalizeMemorySchema(input?.memorySchema || existing?.memorySchema),
+    structuredMemory: normalizeStructuredMemory(input?.structuredMemory || existing?.structuredMemory || DEFAULT_STRUCTURED_MEMORY),
     messages: existing?.messages || input?.messages || [],
     createdAt: existing?.createdAt || input?.createdAt || now,
     updatedAt: now,
@@ -271,6 +305,7 @@ export async function clearSessionMemoryRecord(user, sessionId) {
       summary: '',
       updatedAt: '',
       sourceMessageCount: 0,
+      prompt: currentMemory.prompt,
     },
     updatedAt: new Date().toISOString(),
   })
@@ -314,6 +349,8 @@ export async function readModelConfigs(user) {
     baseUrl: row.baseUrl,
     apiKey: row.apiKey,
     model: row.model,
+    description: row.description,
+    tags: safeJsonParse(row.tagsJson, []),
     temperature: typeof row.temperature === 'number' ? row.temperature : null,
   }))
   const active = rows.find((row) => row.isActive) || rows[0]
@@ -344,9 +381,16 @@ export async function writeModelConfigs(user, payload) {
 
     for (const config of normalized.configs) {
       await ModelConfig.upsert({
-        ...config,
         id: scopeId(user, config.id),
         userId,
+        name: config.name,
+        provider: config.provider,
+        baseUrl: config.baseUrl,
+        apiKey: config.apiKey,
+        model: config.model,
+        description: config.description,
+        tagsJson: JSON.stringify(config.tags || []),
+        temperature: config.temperature,
         isActive: config.id === normalized.activeModelConfigId,
       }, { transaction })
     }
@@ -385,6 +429,9 @@ export async function readRobots(user) {
     description: row.description,
     avatar: row.avatar,
     systemPrompt: row.systemPrompt,
+    structuredMemoryInterval: row.structuredMemoryInterval,
+    structuredMemoryHistoryLimit: row.structuredMemoryHistoryLimit,
+    memorySchema: safeJsonParse(row.memorySchemaJson, null),
   })))
 }
 
@@ -408,9 +455,15 @@ export async function writeRobots(user, robots) {
 
     for (const robot of normalized) {
       await Robot.upsert({
-        ...robot,
         id: scopeId(user, robot.id),
         userId,
+        name: robot.name,
+        description: robot.description,
+        avatar: robot.avatar,
+        systemPrompt: robot.systemPrompt,
+        structuredMemoryInterval: robot.structuredMemoryInterval,
+        structuredMemoryHistoryLimit: robot.structuredMemoryHistoryLimit,
+        memorySchemaJson: JSON.stringify(robot.memorySchema),
       }, { transaction })
     }
   })

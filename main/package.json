@@ -8,6 +8,9 @@
     "start": "node server.mjs",
     "migrate": "node ./scripts/migrate.mjs"
   },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  },
   "dependencies": {
     "@clerk/express": "^2.0.5",
     "dotenv": "^17.3.1",

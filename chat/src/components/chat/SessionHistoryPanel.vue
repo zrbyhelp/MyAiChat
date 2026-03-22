@@ -21,37 +21,44 @@
     <div class="history-scroll-area">
 
       <div v-if="sessionHistory.length" class="history-list">
-        <div
+        <TCard
           v-for="item in sessionHistory"
           :key="item.id"
           class="history-item"
           :class="{ active: item.id === sessionId }"
+          :title="item.title || '新对话'"
+          hoverShadow
           @click="emit('open-session', item.id)"
         >
-          <div class="history-item-head">
-            <div class="history-item-title">{{ item.title || '新对话' }}</div>
-            <div class="history-item-time">
-              {{ formatSessionTime(item.updatedAt || item.createdAt) }}
+          <template #subtitle>
+            <div class="history-item-subtitle">
+              <div class="history-item-time">
+                {{ formatSessionTime(item.updatedAt || item.createdAt) }}
+              </div>
+              <div class="history-item-usage">
+                <span class="usage-chip">↑ {{ formatUsageToken(item.usage.promptTokens) }}</span>
+                <span class="usage-chip">↓ {{ formatUsageToken(item.usage.completionTokens) }}</span>
+              </div>
             </div>
+          </template>
+          <div class="history-item-preview" :title="item.preview || item.robotName || '暂无消息'">
+            {{ item.preview || item.robotName || '暂无消息' }}
           </div>
-          <div class="history-item-preview">{{ item.preview || item.robotName || '暂无消息' }}</div>
-          <div class="history-item-foot">
-            <div class="history-item-usage">
-              <span class="usage-chip">↑ {{ formatUsageToken(item.usage.promptTokens) }}</span>
-              <span class="usage-chip">↓ {{ formatUsageToken(item.usage.completionTokens) }}</span>
-            </div>
-            <TButton
-              variant="text"
-              size="small"
-              theme="danger"
-              class="history-delete-button"
-              :loading="deletingSessionId === item.id"
-              @click.stop="emit('delete-session', item.id)"
+          <template #actions>
+            <TDropdown
+              trigger="click"
+              placement="bottom-right"
+              :options="historyActionOptions"
+              @click="(data) => handleHistoryAction(item.id, data.value)"
             >
-              删除
-            </TButton>
-          </div>
-        </div>
+              <TButton variant="text" shape="square" size="small" class="history-action-button" @click.stop>
+                <template #icon>
+                  <MoreIcon />
+                </template>
+              </TButton>
+            </TDropdown>
+          </template>
+        </TCard>
       </div>
       <div v-else class="history-empty">暂无历史聊天</div>
     </div>
@@ -60,7 +67,8 @@
 
 <script setup lang="ts">
 import { millify } from 'millify'
-import { Button as TButton } from 'tdesign-vue-next'
+import { MoreIcon } from 'tdesign-icons-vue-next'
+import { Button as TButton, Card as TCard, Dropdown as TDropdown } from 'tdesign-vue-next'
 
 import type { ChatSessionSummary } from '@/types/ai'
 
@@ -78,6 +86,20 @@ const emit = defineEmits<{
   (event: 'open-session', id: string): void
   (event: 'delete-session', id: string): void
 }>()
+
+const historyActionOptions = [
+  {
+    content: '删除',
+    value: 'delete',
+    theme: 'danger',
+  },
+]
+
+function handleHistoryAction(id: string, action?: string | number | Record<string, unknown>) {
+  if (String(action || '') === 'delete') {
+    emit('delete-session', id)
+  }
+}
 
 function formatUsageToken(value: number) {
   if (!Number.isFinite(value)) {
@@ -187,30 +209,29 @@ function formatSessionTime(value: string) {
 }
 
 .history-item {
-  padding: 10px;
-  border-radius: 12px;
-  border: 1px solid #e7ebf3;
-  background: #fff;
   cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
+}
+
+.history-item :deep(.t-card__header),
+.history-item :deep(.t-card__body) {
+  min-width: 0;
+}
+
+.history-item :deep(.t-card__header) {
+  padding-bottom: 14px;
+}
+
+.history-item :deep(.t-card__body) {
+  padding-top: 0;
+  padding-bottom: 26px;
 }
 
 .history-item.active {
   border-color: #aac4fb;
-  background: linear-gradient(135deg, #f5f9ff 0%, #f0f6ff 100%);
 }
 
-.history-item-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.history-item-title {
+.history-item :deep(.t-card__title) {
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: #1e293b;
@@ -219,28 +240,21 @@ function formatSessionTime(value: string) {
   text-overflow: ellipsis;
 }
 
+.history-item-subtitle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .history-item-time {
-  flex: 0 0 auto;
   font-size: 11px;
   color: #7f8aa3;
 }
 
-.history-delete-button {
-  opacity: 0;
-  transition: opacity 0.18s ease;
-}
-
-.history-item:hover .history-delete-button,
-.history-item.active .history-delete-button {
-  opacity: 1;
-}
-
-.history-item-foot {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.history-action-button {
+  color: #6b7280;
 }
 
 .history-item-usage {
@@ -251,12 +265,8 @@ function formatSessionTime(value: string) {
 
 .usage-chip {
   font-size: 11px;
-  line-height: 1;
-  color: #4f5f7e;
-  background: #f1f4f9;
-  border: 1px solid #e0e7f2;
-  border-radius: 999px;
-  padding: 4px 7px;
+  line-height: 1.2;
+  color: #7f8aa3;
 }
 
 .history-item-preview,
@@ -267,7 +277,6 @@ function formatSessionTime(value: string) {
 }
 
 .history-item-preview {
-  margin-top: 4px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

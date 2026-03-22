@@ -1,4 +1,4 @@
-export type ProviderType = 'ollama' | 'openai'
+export type ProviderType = 'openai'
 
 export interface AIModelConfigItem {
   id: string
@@ -7,7 +7,43 @@ export interface AIModelConfigItem {
   baseUrl: string
   apiKey: string
   model: string
+  description: string
+  tags: string[]
   temperature: number | null
+}
+
+export type MemoryFieldType = 'text' | 'number' | 'enum' | 'boolean' | 'object' | 'array'
+export type MemoryArrayItemType = 'text' | 'number' | 'enum' | 'boolean' | 'object'
+export type StructuredMemoryValue = string | number | boolean | null | unknown[] | Record<string, unknown>
+
+export interface MemorySchemaOption {
+  label: string
+  value: string
+}
+
+export interface MemorySchemaField {
+  id: string
+  name: string
+  label: string
+  type: MemoryFieldType
+  required: boolean
+  options?: MemorySchemaOption[]
+  fields?: MemorySchemaField[]
+  itemType?: MemoryArrayItemType
+  itemOptions?: MemorySchemaOption[]
+  itemFields?: MemorySchemaField[]
+}
+
+export interface MemorySchemaCategory {
+  id: string
+  label: string
+  description: string
+  extractionInstructions: string
+  fields: MemorySchemaField[]
+}
+
+export interface MemorySchemaState {
+  categories: MemorySchemaCategory[]
 }
 
 export interface AIRobotCard {
@@ -16,6 +52,9 @@ export interface AIRobotCard {
   description: string
   avatar: string
   systemPrompt: string
+  structuredMemoryInterval: number
+  structuredMemoryHistoryLimit: number
+  memorySchema: MemorySchemaState
 }
 
 export interface ModelOption {
@@ -32,6 +71,8 @@ export interface SessionRobotState {
   name: string
   avatar: string
   systemPrompt: string
+  structuredMemoryInterval: number
+  structuredMemoryHistoryLimit: number
 }
 
 export interface SessionMemoryState {
@@ -40,6 +81,30 @@ export interface SessionMemoryState {
   sourceMessageCount: number
   threshold: number
   recentMessageLimit: number
+  prompt: string
+  structuredMemoryInterval: number
+  structuredMemoryHistoryLimit: number
+}
+
+export interface StructuredMemoryItem {
+  id: string
+  summary: string
+  sourceTurnId?: string
+  updatedAt?: string
+  values: Record<string, StructuredMemoryValue>
+}
+
+export interface StructuredMemoryCategory {
+  categoryId: string
+  label: string
+  description?: string
+  updatedAt?: string
+  items: StructuredMemoryItem[]
+}
+
+export interface StructuredMemoryState {
+  updatedAt: string
+  categories: StructuredMemoryCategory[]
 }
 
 export interface SessionUsageState {
@@ -98,9 +163,12 @@ export interface ChatSessionSummary {
 }
 
 export interface ChatSessionDetail extends ChatSessionSummary {
+  threadId: string
   robot: SessionRobotState
   messages: ChatSessionMessage[]
   memory: SessionMemoryState
+  memorySchema: MemorySchemaState
+  structuredMemory: StructuredMemoryState
 }
 
 export interface ModelConfigsResponse {

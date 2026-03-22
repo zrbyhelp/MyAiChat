@@ -70,11 +70,11 @@ describe('App', () => {
             },
             {
               id: 'cfg-2',
-              name: '本地 Ollama',
-              provider: 'ollama',
-              baseUrl: 'http://127.0.0.1:11434',
-              apiKey: '',
-              model: 'qwen3:latest',
+              name: '兼容网关',
+              provider: 'openai',
+              baseUrl: 'https://api.example.com/v1',
+              apiKey: 'sk-demo-2',
+              model: 'gpt-4.1-mini',
               temperature: 0.7,
             },
           ],
@@ -153,6 +153,14 @@ describe('App', () => {
             usage: {
               promptTokens: 12,
               completionTokens: 34,
+            },
+            threadId: 'thread-1',
+            memorySchema: {
+              categories: [],
+            },
+            structuredMemory: {
+              updatedAt: '',
+              categories: [],
             },
           },
         })
