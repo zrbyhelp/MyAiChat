@@ -44,6 +44,12 @@ type ChatbotInstance = {
   setMessages?: (messages: ChatRenderMessage[], mode?: 'replace' | 'prepend' | 'append') => void
   clearMessages?: () => void
   sendUserMessage?: (params: { prompt?: string }) => Promise<void>
+  chatStatus?: 'idle' | 'pending' | 'streaming' | 'complete' | 'stop' | 'error'
+  chatEngine?: {
+    eventBus?: {
+      on?: (event: string, callback: (payload?: unknown) => void) => (() => void) | void
+    }
+  }
 }
 
 type ChatRenderContent = {
@@ -860,6 +866,10 @@ const mobileOverlayProps = computed(() => ({
   size: '100%',
   footer: false,
 }))
+const chatSenderProps = computed(() => ({
+  loading: isChatResponding.value,
+}))
+let disposeChatbotEventBus: (() => void) | null = null
 
 const suggestionActionHandlers = {
   suggestion: async ({ content }: { content?: SuggestionOption }) => {
@@ -1032,6 +1042,34 @@ watch(
 )
 
 watch(chatbotRef, (instance) => {
+  disposeChatbotEventBus?.()
+  disposeChatbotEventBus = null
+
+  const eventBus = instance?.chatEngine?.eventBus
+  const subscribe = eventBus?.on
+  if (subscribe) {
+    const unsubs = [
+      subscribe('request:start', () => {
+        isChatResponding.value = true
+      }),
+      subscribe('request:complete', () => {
+        isChatResponding.value = false
+      }),
+      subscribe('request:abort', () => {
+        isChatResponding.value = false
+      }),
+      subscribe('request:error', () => {
+        isChatResponding.value = false
+      }),
+    ].filter((unsubscribe): unsubscribe is () => void => typeof unsubscribe === 'function')
+    disposeChatbotEventBus = () => {
+      unsubs.forEach((unsubscribe) => unsubscribe())
+    }
+  } else {
+    isChatResponding.value =
+      instance?.chatStatus === 'pending' || instance?.chatStatus === 'streaming'
+  }
+
   if (!instance?.registerMergeStrategy) {
     return
   }
@@ -2430,6 +2468,19 @@ function createAgentStatusChunk(title: string, text: string): AIMessageContent {
   } as AIMessageContent
 }
 
+function finalizeChatResponse(options?: { refreshSession?: boolean }) {
+  isChatResponding.value = false
+  currentAssistantLoadingText.value = ''
+  currentMemoryStatusText.value = ''
+  pendingAssistantMemoryStatus.value = null
+  flushPendingAssistantStructuredContent()
+  applyChatMessages(chatMessages.value)
+  if (options?.refreshSession) {
+    refreshCurrentSessionState().catch(() => {})
+    refreshSessionHistory().catch(() => {})
+  }
+}
+
 const chatServiceConfig = computed<ChatServiceConfig>(() => ({
   endpoint: '/api/chat/stream',
   stream: true,
@@ -2467,7 +2518,7 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
   onMessage: (chunk: SSEChunkData): AIMessageContent | null => {
     const payload = chunk.data as NormalizedStreamPayload
     if (payload.type === 'error') {
-      isChatResponding.value = false
+      finalizeChatResponse()
       MessagePlugin.error(payload.message || '聊天失败')
       return null
     }
@@ -2537,22 +2588,17 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
       return null
     }
     if (payload.type === 'done') {
-      flushPendingAssistantStructuredContent()
-      currentAssistantLoadingText.value = ''
-      currentMemoryStatusText.value = ''
-      applyChatMessages(chatMessages.value)
       nextTick(() => {
-        isChatResponding.value = false
-        refreshCurrentSessionState().catch(() => {})
-        refreshSessionHistory().catch(() => {})
+        finalizeChatResponse({ refreshSession: true })
       })
     }
     return null
   },
+  onAbort: async () => {
+    finalizeChatResponse()
+  },
   onError: (error) => {
-    isChatResponding.value = false
-    currentAssistantLoadingText.value = ''
-    currentMemoryStatusText.value = ''
+    finalizeChatResponse()
     MessagePlugin.error(error instanceof Error ? error.message : '聊天失败')
   },
 }))
@@ -2606,6 +2652,8 @@ watch(
 )
 
 onUnmounted(() => {
+  disposeChatbotEventBus?.()
+  disposeChatbotEventBus = null
   if (typeof window === 'undefined') {
     return
   }
@@ -2630,6 +2678,7 @@ onUnmounted(() => {
     loadingModels,
     testingConnection,
     chatbotRef,
+    chatSenderProps,
     chatbotRuntimeKey,
     sessionId,
     sessionHistory,

@@ -54,6 +54,7 @@
             ref="chatbotRef"
             layout="both"
             :message-props="chatMessageProps"
+            :sender-props="chatSenderProps"
             :chat-service-config="chatServiceConfig"
             :is-stream-load="effectiveStream"
             :on-message-change="handleChatMessageChange"
@@ -1256,6 +1257,7 @@ const {
   loadingModels,
   testingConnection,
   chatbotRef,
+  chatSenderProps,
   chatbotRuntimeKey,
   sessionId,
   sessionHistory,

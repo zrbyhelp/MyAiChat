@@ -161,35 +161,6 @@ def normalize_ui_payload(input_value) -> dict:
     return {"suggestions": suggestions, "form": form}
 
 
-def parse_json_object_or_text(raw_value) -> dict:
-    if isinstance(raw_value, dict):
-        return raw_value
-    if not isinstance(raw_value, str):
-        return {}
-    return parse_json_object(raw_value, {})
-
-
-def normalize_numeric_schema_value(value):
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, dict):
-        result: dict = {}
-        for key, child in value.items():
-            normalized = normalize_numeric_schema_value(child)
-            if normalized is not None:
-                result[str(key)] = normalized
-        return result or None
-    return None
-
-
-def normalize_numeric_schema(schema_input) -> dict:
-    parsed = parse_json_object_or_text(schema_input)
-    normalized = normalize_numeric_schema_value(parsed)
-    return normalized if isinstance(normalized, dict) else {}
-
-
 def normalize_numeric_items(input_value) -> list[dict]:
     items = input_value if isinstance(input_value, list) else []
     results: list[dict] = []
@@ -270,30 +241,6 @@ def numeric_state_text(state_value) -> str:
     if not payload:
         return "暂无数值状态。"
     return json.dumps(payload, ensure_ascii=False)
-
-
-def collect_numeric_changes(previous_state, next_state, path: str = "") -> list[str]:
-    changes: list[str] = []
-    if isinstance(next_state, dict):
-        previous_dict = previous_state if isinstance(previous_state, dict) else {}
-        for key, value in next_state.items():
-            next_path = f"{path}.{key}" if path else key
-            changes.extend(collect_numeric_changes(previous_dict.get(key), value, next_path))
-        return changes
-
-    previous_value = previous_state if isinstance(previous_state, (int, float)) and not isinstance(previous_state, bool) else None
-    current_value = next_state if isinstance(next_state, (int, float)) and not isinstance(next_state, bool) else None
-    if current_value is None:
-        return changes
-    if previous_value is None:
-        changes.append(f"{path}: 初始化为 {current_value:g}")
-        return changes
-    delta = current_value - float(previous_value)
-    if abs(delta) < 1e-9:
-        return changes
-    sign = "+" if delta > 0 else ""
-    changes.append(f"{path}: {float(previous_value):g} -> {current_value:g} ({sign}{delta:g})")
-    return changes
 
 
 def extract_usage(message) -> dict:
