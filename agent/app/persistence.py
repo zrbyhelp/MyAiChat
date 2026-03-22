@@ -32,6 +32,7 @@ class ThreadStore:
                 Column("messages_json", Text, nullable=False),
                 Column("memory_schema_json", Text, nullable=False),
                 Column("structured_memory_json", Text, nullable=False),
+                Column("numeric_state_json", Text, nullable=False),
             )
             metadata.create_all(self.engine)
             inspector = inspect(self.engine)
@@ -40,6 +41,10 @@ class ThreadStore:
                 with self.engine.begin() as conn:
                     conn.execute(text("ALTER TABLE agent_threads ADD COLUMN memory_schema_json TEXT NOT NULL"))
                     conn.execute(text("UPDATE agent_threads SET memory_schema_json='{\"categories\":[]}' WHERE memory_schema_json IS NULL OR memory_schema_json = ''"))
+            if "numeric_state_json" not in columns:
+                with self.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE agent_threads ADD COLUMN numeric_state_json TEXT NOT NULL"))
+                    conn.execute(text("UPDATE agent_threads SET numeric_state_json='{}' WHERE numeric_state_json IS NULL OR numeric_state_json = ''"))
         else:
             self.file_dir.mkdir(parents=True, exist_ok=True)
 
@@ -53,6 +58,7 @@ class ThreadStore:
                         self.table.c.messages_json,
                         self.table.c.memory_schema_json,
                         self.table.c.structured_memory_json,
+                        self.table.c.numeric_state_json,
                     ).where(self.table.c.thread_id == thread_id)
                 ).mappings().first()
             if not row:
@@ -63,6 +69,7 @@ class ThreadStore:
                     "messages": json.loads(row["messages_json"] or "[]"),
                     "memory_schema": json.loads(row["memory_schema_json"] or "{}"),
                     "structured_memory": json.loads(row["structured_memory_json"] or "{}"),
+                    "numeric_state": json.loads(row["numeric_state_json"] or "{}"),
                 }
             )
 
@@ -80,6 +87,7 @@ class ThreadStore:
                 "messages_json": json.dumps([item.model_dump() for item in state.messages], ensure_ascii=False),
                 "memory_schema_json": json.dumps(state.memory_schema.model_dump(), ensure_ascii=False),
                 "structured_memory_json": json.dumps(state.structured_memory.model_dump(), ensure_ascii=False),
+                "numeric_state_json": json.dumps(state.numeric_state, ensure_ascii=False),
             }
             with self.engine.begin() as conn:
                 existing = conn.execute(

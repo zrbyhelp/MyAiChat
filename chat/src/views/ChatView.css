@@ -329,6 +329,37 @@
   animation-delay: 0.3s;
 }
 
+.numeric-items-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.numeric-items-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.numeric-items-table th,
+.numeric-items-table td {
+  padding: 8px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.numeric-items-table th {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: #f8fafc;
+}
+
+.numeric-items-action-col {
+  width: 72px;
+  white-space: nowrap;
+}
+
 @keyframes chat-loading-bounce {
   0%, 80%, 100% {
     opacity: 0.35;
@@ -706,24 +737,12 @@
 
 .desktop-config-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
 }
 
 .desktop-config-grid .config-card {
   min-width: 0;
-}
-
-@media (max-width: 1280px) {
-  .desktop-config-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1024px) {
-  .desktop-config-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 .dialog-tip {

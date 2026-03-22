@@ -30,6 +30,10 @@ class AgentState(TypedDict):
     structured_memory_interval: int
     structured_memory_history_limit: int
     model_config: dict
+    numeric_computation_enabled: bool
+    numeric_computation_prompt: str
+    numeric_computation_items: list[dict]
+    numeric_state: dict
     moderation: NotRequired[dict]
     research_summary: NotRequired[str]
     tool_events: NotRequired[list[dict]]
@@ -155,6 +159,141 @@ def normalize_ui_payload(input_value) -> dict:
     if not form and not suggestions:
         suggestions = [{"title": "继续", "prompt": "继续"}]
     return {"suggestions": suggestions, "form": form}
+
+
+def parse_json_object_or_text(raw_value) -> dict:
+    if isinstance(raw_value, dict):
+        return raw_value
+    if not isinstance(raw_value, str):
+        return {}
+    return parse_json_object(raw_value, {})
+
+
+def normalize_numeric_schema_value(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict):
+        result: dict = {}
+        for key, child in value.items():
+            normalized = normalize_numeric_schema_value(child)
+            if normalized is not None:
+                result[str(key)] = normalized
+        return result or None
+    return None
+
+
+def normalize_numeric_schema(schema_input) -> dict:
+    parsed = parse_json_object_or_text(schema_input)
+    normalized = normalize_numeric_schema_value(parsed)
+    return normalized if isinstance(normalized, dict) else {}
+
+
+def normalize_numeric_items(input_value) -> list[dict]:
+    items = input_value if isinstance(input_value, list) else []
+    results: list[dict] = []
+    seen_names: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name or name in seen_names:
+            continue
+        try:
+            current_value = float(item.get("current_value") if item.get("current_value") is not None else item.get("currentValue"))
+        except Exception:
+            continue
+        description = str(item.get("description") or "").strip()
+        seen_names.add(name)
+        results.append({
+            "name": name,
+            "current_value": current_value,
+            "description": description,
+        })
+    return results
+
+
+def numeric_items_to_schema(items: list[dict]) -> dict:
+    return {item["name"]: float(item["current_value"]) for item in items if item.get("name")}
+
+
+def numeric_items_description_text(items: list[dict]) -> str:
+    if not items:
+        return "暂无字段说明。"
+    return "\n".join([
+        f"- {item['name']}：默认值 {float(item['current_value']):g}；说明：{item.get('description') or '无'}"
+        for item in items
+    ])
+
+
+def numeric_payload_for_answerer(items: list[dict], numeric_state: dict | None) -> list[dict]:
+    result = numeric_state if isinstance(numeric_state, dict) else {}
+    payload: list[dict] = []
+    for item in items:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        value = result.get(name, item.get("current_value"))
+        try:
+            normalized_value = float(value)
+        except Exception:
+            normalized_value = float(item.get("current_value") or 0)
+        payload.append({
+            "name": name,
+            "currentValue": normalized_value,
+            "description": str(item.get("description") or "").strip(),
+        })
+    return payload
+
+
+def normalize_numeric_state_value(schema_value, current_value, next_value):
+    if isinstance(schema_value, dict):
+        current_dict = current_value if isinstance(current_value, dict) else {}
+        next_dict = next_value if isinstance(next_value, dict) else {}
+        result: dict = {}
+        for key, child_schema in schema_value.items():
+            normalized_child = normalize_numeric_state_value(child_schema, current_dict.get(key), next_dict.get(key))
+            if normalized_child is not None:
+                result[key] = normalized_child
+        return result
+
+    if isinstance(next_value, (int, float)) and not isinstance(next_value, bool):
+        return float(next_value)
+    if isinstance(current_value, (int, float)) and not isinstance(current_value, bool):
+        return float(current_value)
+    return float(schema_value)
+
+
+def numeric_state_text(state_value) -> str:
+    payload = state_value if isinstance(state_value, dict) else {}
+    if not payload:
+        return "暂无数值状态。"
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def collect_numeric_changes(previous_state, next_state, path: str = "") -> list[str]:
+    changes: list[str] = []
+    if isinstance(next_state, dict):
+        previous_dict = previous_state if isinstance(previous_state, dict) else {}
+        for key, value in next_state.items():
+            next_path = f"{path}.{key}" if path else key
+            changes.extend(collect_numeric_changes(previous_dict.get(key), value, next_path))
+        return changes
+
+    previous_value = previous_state if isinstance(previous_state, (int, float)) and not isinstance(previous_state, bool) else None
+    current_value = next_state if isinstance(next_state, (int, float)) and not isinstance(next_state, bool) else None
+    if current_value is None:
+        return changes
+    if previous_value is None:
+        changes.append(f"{path}: 初始化为 {current_value:g}")
+        return changes
+    delta = current_value - float(previous_value)
+    if abs(delta) < 1e-9:
+        return changes
+    sign = "+" if delta > 0 else ""
+    changes.append(f"{path}: {float(previous_value):g} -> {current_value:g} ({sign}{delta:g})")
+    return changes
 
 
 def extract_usage(message) -> dict:
@@ -558,6 +697,7 @@ def build_answerer_messages(
 ) -> list[dict]:
     memory = structured_memory or StructuredMemory.model_validate(state["structured_memory"])
     research_text = research if research is not None else state.get("research_summary") or "无额外联网资料。"
+    numeric_items = normalize_numeric_items(state.get("numeric_computation_items"))
     return [
         {
             "role": "system",
@@ -570,6 +710,8 @@ def build_answerer_messages(
             "role": "user",
             "content": (
                 f"结构化记忆：\n{memory_text(memory)}\n\n"
+                "数值信息说明：每个数值项中的 description 字段表示这个值的名字或含义。你只能读取、引用这里提供的 currentValue，不能以任何形式自行计算、修改、推断、纠正、补全或重写这些数值；如果正文需要提到数值，必须严格以这里给出的 currentValue 为准。\n\n"
+                f"数值信息：\n{json.dumps(numeric_payload_for_answerer(numeric_items, state.get('numeric_state')), ensure_ascii=False)}\n\n"
                 f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
                 f"moderator 说明：{(state.get('moderation') or {}).get('summary', '')}\n\n"
                 f"researcher 输出：\n{research_text}\n\n"
@@ -577,6 +719,76 @@ def build_answerer_messages(
             ),
         },
     ]
+
+
+async def numeric_agent_node(state: AgentState) -> dict:
+    numeric_items = normalize_numeric_items(state.get("numeric_computation_items"))
+    numeric_schema = numeric_items_to_schema(numeric_items)
+    current_numeric_state = normalize_numeric_state_value(numeric_schema, {}, state.get("numeric_state") or {})
+    current_numeric_state = current_numeric_state if isinstance(current_numeric_state, dict) else {}
+
+    if not state.get("numeric_computation_enabled") or not numeric_schema:
+        return {
+            "numeric_state": current_numeric_state,
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+        }
+
+    model = build_model(state["model_config"])
+    structured_memory = StructuredMemory.model_validate(state["structured_memory"])
+    response = await model.ainvoke(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "你是多智能体系统中的数值计算节点，用来在正文回复前根据上下文生成数值 JSON。"
+                    "你只能输出 JSON，不要输出解释。"
+                    "输出格式必须是一个 JSON 对象，字段必须严格遵循给定数值结构体。"
+                    "你必须根据用户传入的数值计算提示词修改当前 JSON 数据并输出。"
+                    "所有叶子字段都必须是 number，不能输出字符串、布尔值、null。"
+                    "不要输出 summary、explanation 或任何额外字段。"
+                    f"\n\n用户配置的数值计算提示词：\n{state.get('numeric_computation_prompt') or '未配置'}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"结构化记忆：\n{memory_text(structured_memory)}\n\n"
+                    f"数值字段定义：\n{numeric_items_description_text(numeric_items)}\n\n"
+                    f"数值结构体：\n{json.dumps(numeric_schema, ensure_ascii=False)}\n\n"
+                    f"当前数值状态：\n{numeric_state_text(current_numeric_state)}\n\n"
+                    f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
+                    f"researcher 输出：\n{state.get('research_summary') or '无额外联网资料。'}\n\n"
+                    f"用户最新输入：{state['prompt']}"
+                ),
+            },
+        ]
+    )
+    usage = extract_usage(response)
+    raw_content = response.content if isinstance(response.content, str) else str(response.content)
+    parsed = parse_json_object(raw_content, numeric_schema)
+    numeric_result = normalize_numeric_state_value(
+        numeric_schema,
+        current_numeric_state,
+        parsed,
+    )
+    numeric_result = numeric_result if isinstance(numeric_result, dict) else numeric_schema
+    print(
+        "[numeric-agent]",
+        json.dumps(
+            {
+                "prompt": state.get("prompt") or "",
+                "raw_output": raw_content,
+                "parsed_output": parsed,
+                "numeric_result": numeric_result,
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+    return {
+        "numeric_state": numeric_result,
+        "usage": usage,
+    }
 
 
 async def ui_agent_node(state: AgentState) -> dict:
@@ -681,6 +893,13 @@ def build_graph():
     async def researcher(state: AgentState) -> dict:
         return await researcher_node(state)
 
+    async def numeric_agent(state: AgentState) -> dict:
+        result = await numeric_agent_node(state)
+        return {
+            "numeric_state": result.get("numeric_state", {}),
+            "usage": add_usage(state.get("usage"), result.get("usage")),
+        }
+
     async def answerer(state: AgentState) -> dict:
         result = await answerer_node(state)
         return {"final_response": result["final_response"], "usage": add_usage(state.get("usage"), result.get("usage"))}
@@ -695,16 +914,18 @@ def build_graph():
 
     graph.add_node("moderator", moderator)
     graph.add_node("researcher", researcher)
+    graph.add_node("numeric_agent", numeric_agent)
     graph.add_node("answerer", answerer)
     graph.add_node("ui_agent", ui_agent)
     graph.add_node("memory", memory)
     graph.add_edge(START, "moderator")
     graph.add_conditional_edges(
         "moderator",
-        lambda state: "researcher" if (state.get("moderation") or {}).get("need_web_search") else "answerer",
-        {"researcher": "researcher", "answerer": "answerer"},
+        lambda state: "researcher" if (state.get("moderation") or {}).get("need_web_search") else "numeric_agent",
+        {"researcher": "researcher", "numeric_agent": "numeric_agent"},
     )
-    graph.add_edge("researcher", "answerer")
+    graph.add_edge("researcher", "numeric_agent")
+    graph.add_edge("numeric_agent", "answerer")
     graph.add_edge("answerer", "ui_agent")
     graph.add_edge("ui_agent", "memory")
     graph.add_edge("memory", END)
@@ -732,6 +953,10 @@ def build_initial_state(
             request.structured_memory_history_limit or request.robot.structured_memory_history_limit,
             DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
         ),
+        "numeric_computation_enabled": bool(request.robot.numeric_computation_enabled),
+        "numeric_computation_prompt": request.robot.numeric_computation_prompt or "",
+        "numeric_computation_items": request.robot.numeric_computation_items or [],
+        "numeric_state": request.numeric_state or {},
         "model_config": request.model_settings.model_dump(),
         "usage": {"prompt_tokens": 0, "completion_tokens": 0},
     }

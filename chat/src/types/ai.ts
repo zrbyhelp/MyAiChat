@@ -46,12 +46,21 @@ export interface MemorySchemaState {
   categories: MemorySchemaCategory[]
 }
 
+export interface NumericComputationItem {
+  name: string
+  currentValue: number
+  description: string
+}
+
 export interface AIRobotCard {
   id: string
   name: string
   description: string
   avatar: string
   systemPrompt: string
+  numericComputationEnabled: boolean
+  numericComputationPrompt: string
+  numericComputationItems: NumericComputationItem[]
   structuredMemoryInterval: number
   structuredMemoryHistoryLimit: number
   memorySchema: MemorySchemaState
@@ -71,6 +80,9 @@ export interface SessionRobotState {
   name: string
   avatar: string
   systemPrompt: string
+  numericComputationEnabled: boolean
+  numericComputationPrompt: string
+  numericComputationItems: NumericComputationItem[]
   structuredMemoryInterval: number
   structuredMemoryHistoryLimit: number
 }
@@ -169,6 +181,7 @@ export interface ChatSessionDetail extends ChatSessionSummary {
   memory: SessionMemoryState
   memorySchema: MemorySchemaState
   structuredMemory: StructuredMemoryState
+  numericState?: Record<string, unknown>
 }
 
 export interface ModelConfigsResponse {

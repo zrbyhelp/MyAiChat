@@ -377,6 +377,41 @@
               placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
             />
           </TFormItem>
+          <TFormItem label="启用数值计算">
+            <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
+          </TFormItem>
+          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值计算提示词">
+            <TTextarea
+              v-model="mobileAgentDraft.numericComputationPrompt"
+              :autosize="{ minRows: 4, maxRows: 8 }"
+              placeholder="例如：根据用户行为和上下文调整好感度、危险度、财富等数值，并说明增减规则。"
+            />
+          </TFormItem>
+          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值结构体">
+            <div class="numeric-items-editor">
+              <table class="numeric-items-table">
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>当前值</th>
+                    <th>说明</th>
+                    <th class="numeric-items-action-col">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, itemIndex) in mobileAgentDraft.numericComputationItems" :key="`mobile-agent-${itemIndex}`">
+                    <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
+                    <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
+                    <td><TInput v-model="item.description" placeholder="例如 好感度，受对话行为影响" /></td>
+                    <td class="numeric-items-action-col">
+                      <TButton variant="text" theme="danger" @click="removeNumericComputationItem(mobileAgentDraft, itemIndex)">删除</TButton>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <TButton variant="outline" @click="addNumericComputationItem(mobileAgentDraft)">新增数值项</TButton>
+            </div>
+          </TFormItem>
         </TForm>
         <TForm v-else label-align="top">
           <div class="form-grid-2">
@@ -522,6 +557,41 @@
               :autosize="{ minRows: 10, maxRows: 14 }"
               placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
             />
+          </TFormItem>
+          <TFormItem label="启用数值计算">
+            <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
+          </TFormItem>
+          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值计算提示词">
+            <TTextarea
+              v-model="mobileAgentDraft.numericComputationPrompt"
+              :autosize="{ minRows: 4, maxRows: 8 }"
+              placeholder="例如：根据用户行为和上下文调整好感度、危险度、财富等数值，并说明增减规则。"
+            />
+          </TFormItem>
+          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值结构体">
+            <div class="numeric-items-editor">
+              <table class="numeric-items-table">
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>当前值</th>
+                    <th>说明</th>
+                    <th class="numeric-items-action-col">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, itemIndex) in mobileAgentDraft.numericComputationItems" :key="`desktop-agent-${itemIndex}`">
+                    <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
+                    <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
+                    <td><TInput v-model="item.description" placeholder="例如 好感度，受对话行为影响" /></td>
+                    <td class="numeric-items-action-col">
+                      <TButton variant="text" theme="danger" @click="removeNumericComputationItem(mobileAgentDraft, itemIndex)">删除</TButton>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <TButton variant="outline" @click="addNumericComputationItem(mobileAgentDraft)">新增数值项</TButton>
+            </div>
           </TFormItem>
         </TForm>
         <TForm v-else label-align="top">
@@ -933,6 +1003,40 @@
                 :autosize="{ minRows: 5, maxRows: 8 }"
               />
             </TFormItem>
+            <TFormItem label="启用数值计算">
+              <TSwitch v-model="sessionRobotDraft.numericComputationEnabled" />
+            </TFormItem>
+            <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值计算提示词">
+              <TTextarea
+                v-model="sessionRobotDraft.numericComputationPrompt"
+                :autosize="{ minRows: 4, maxRows: 7 }"
+              />
+            </TFormItem>
+            <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值结构体">
+              <div class="numeric-items-editor">
+                <table class="numeric-items-table">
+                  <thead>
+                    <tr>
+                      <th>名称</th>
+                      <th>当前值</th>
+                      <th>说明</th>
+                      <th class="numeric-items-action-col">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, itemIndex) in sessionRobotDraft.numericComputationItems" :key="`session-mobile-${itemIndex}`">
+                      <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
+                      <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
+                      <td><TInput v-model="item.description" placeholder="例如 好感度，受对话行为影响" /></td>
+                      <td class="numeric-items-action-col">
+                        <TButton variant="text" theme="danger" @click="removeNumericComputationItem(sessionRobotDraft, itemIndex)">删除</TButton>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <TButton variant="outline" @click="addNumericComputationItem(sessionRobotDraft)">新增数值项</TButton>
+              </div>
+            </TFormItem>
           </TForm>
         </div>
       </div>
@@ -977,6 +1081,40 @@
                 v-model="sessionRobotDraft.systemPrompt"
                 :autosize="{ minRows: 5, maxRows: 8 }"
               />
+            </TFormItem>
+            <TFormItem label="启用数值计算">
+              <TSwitch v-model="sessionRobotDraft.numericComputationEnabled" />
+            </TFormItem>
+            <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值计算提示词">
+              <TTextarea
+                v-model="sessionRobotDraft.numericComputationPrompt"
+                :autosize="{ minRows: 4, maxRows: 7 }"
+              />
+            </TFormItem>
+            <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值结构体">
+              <div class="numeric-items-editor">
+                <table class="numeric-items-table">
+                  <thead>
+                    <tr>
+                      <th>名称</th>
+                      <th>当前值</th>
+                      <th>说明</th>
+                      <th class="numeric-items-action-col">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, itemIndex) in sessionRobotDraft.numericComputationItems" :key="`session-desktop-${itemIndex}`">
+                      <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
+                      <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
+                      <td><TInput v-model="item.description" placeholder="例如 好感度，受对话行为影响" /></td>
+                      <td class="numeric-items-action-col">
+                        <TButton variant="text" theme="danger" @click="removeNumericComputationItem(sessionRobotDraft, itemIndex)">删除</TButton>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <TButton variant="outline" @click="addNumericComputationItem(sessionRobotDraft)">新增数值项</TButton>
+              </div>
             </TFormItem>
           </TForm>
         </div>
@@ -1079,6 +1217,7 @@ import {
   StepItem as TStepItem,
   Statistic as TStatistic,
   Steps as TSteps,
+  Switch as TSwitch,
   Tag as TTag,
   Textarea as TTextarea,
 } from 'tdesign-vue-next'
@@ -1192,6 +1331,8 @@ const {
   nextAgentEditorStep,
   previousAgentEditorStep,
   skipAgentStructureSetup,
+  addNumericComputationItem,
+  removeNumericComputationItem,
   openMobileModelCreateDialog,
   openMobileModelEditDialog,
   openDesktopModelCreateDialog,

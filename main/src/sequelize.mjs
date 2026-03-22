@@ -144,6 +144,35 @@ export function getModels() {
       defaultValue: '',
       field: 'system_prompt',
     },
+    imageFetchEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'image_fetch_enabled',
+    },
+    imageFetchPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'image_fetch_prompt',
+    },
+    numericComputationEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'numeric_computation_enabled',
+    },
+    numericComputationPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'numeric_computation_prompt',
+    },
+    numericComputationSchema: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      field: 'numeric_computation_schema',
+    },
     structuredMemoryInterval: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -216,6 +245,35 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'robot_system_prompt',
+    },
+    robotImageFetchEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'robot_image_fetch_enabled',
+    },
+    robotImageFetchPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_image_fetch_prompt',
+    },
+    robotNumericComputationEnabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'robot_numeric_computation_enabled',
+    },
+    robotNumericComputationPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_numeric_computation_prompt',
+    },
+    robotNumericComputationSchema: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      field: 'robot_numeric_computation_schema',
     },
     robotStructuredMemoryInterval: {
       type: DataTypes.INTEGER,
@@ -310,6 +368,11 @@ export function getModels() {
       defaultValue: '{"updatedAt":"","preferences":[],"facts":[],"tasks":[]}',
       field: 'structured_memory_json',
     },
+    numericStateJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      field: 'numeric_state_json',
+    },
     promptTokens: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -357,13 +420,17 @@ export function getModels() {
     suggestionsJson: {
       type: DataTypes.TEXT('long'),
       allowNull: false,
-      defaultValue: '[]',
       field: 'suggestions_json',
     },
     formJson: {
       type: DataTypes.TEXT('long'),
       allowNull: true,
       field: 'form_json',
+    },
+    imagesJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      field: 'images_json',
     },
     createdAt: {
       type: DataTypes.DATE,

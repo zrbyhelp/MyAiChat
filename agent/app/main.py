@@ -11,6 +11,8 @@ from .graph import (
     build_model,
     build_initial_state,
     chunk_text,
+    numeric_agent_node,
+    numeric_payload_for_answerer,
     extract_usage,
     memory_node,
     moderator_node,
@@ -59,6 +61,24 @@ async def run_stream(request: RunRequest):
     history = thread.messages if thread else request.history
     memory_schema = thread.memory_schema if thread and has_schema_categories(thread.memory_schema) else request.memory_schema
     structured_memory = thread.structured_memory if thread else request.structured_memory
+    if thread:
+        request.numeric_state = thread.numeric_state
+    print(
+        "[numeric-agent:input]",
+        json.dumps(
+            {
+                "thread_id": request.thread_id,
+                "session_id": request.session_id,
+                "numeric_computation_enabled": bool(request.robot.numeric_computation_enabled),
+                "numeric_computation_prompt": request.robot.numeric_computation_prompt or "",
+                "numeric_computation_items": request.robot.numeric_computation_items or [],
+                "request_numeric_state": request.numeric_state or {},
+                "thread_numeric_state": thread.numeric_state if thread else None,
+            },
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
     state = build_initial_state(request, history, memory_schema, structured_memory)
 
     async def event_stream() -> AsyncIterator[str]:
@@ -88,11 +108,28 @@ async def run_stream(request: RunRequest):
                 "message": research_payload.get("research_summary") or "已完成联网检索",
             })
 
-        yield sse({
-            "type": "agent_turn",
-            "agent": "answerer",
-            "message": "正在生成最终答复",
-        })
+        yield sse({"type": "agent_turn", "agent": "numeric_agent", "message": "正在计算数值状态"})
+        numeric_payload = await numeric_agent_node(state)
+        state.update(numeric_payload)
+        usage = numeric_payload.get("usage") or usage
+        yield sse({"type": "numeric_state_updated", "state": state.get("numeric_state") or {}})
+
+        yield sse({"type": "agent_turn", "agent": "answerer", "message": "正在生成最终答复"})
+        print(
+            "[answerer:numeric-input]",
+            json.dumps(
+                {
+                    "thread_id": request.thread_id,
+                    "session_id": request.session_id,
+                    "numeric_state": numeric_payload_for_answerer(
+                        state.get("numeric_computation_items") or [],
+                        state.get("numeric_state") or {},
+                    ),
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
         answer_model = build_model(state["model_config"])
         answer_usage = {"prompt_tokens": 0, "completion_tokens": 0}
         async for chunk in answer_model.astream(
@@ -137,6 +174,7 @@ async def run_stream(request: RunRequest):
                 messages=next_messages,
                 memory_schema=memory_schema,
                 structured_memory=type(structured_memory).model_validate(final_memory),
+                numeric_state=state.get("numeric_state") or {},
             )
         )
         yield sse({"type": "usage", **usage})
@@ -147,6 +185,7 @@ async def run_stream(request: RunRequest):
             "suggestions": final_ui_payload.get("suggestions") or [],
             "form": final_ui_payload.get("form"),
             "memory": final_memory,
+            "numeric_state": state.get("numeric_state") or {},
             "usage": usage,
         })
 

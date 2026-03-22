@@ -25,6 +25,7 @@ import type {
   ChatSessionDetail,
   MemorySchemaState,
   ModelCapabilities,
+  NumericComputationItem,
   ModelOption,
   ProviderType,
   SessionMemoryState,
@@ -228,6 +229,7 @@ type NormalizedStreamPayload = {
     | 'agent_turn'
     | 'tool_status'
     | 'structured_memory'
+    | 'numeric_state_updated'
     | 'ui_loading'
     | 'done'
     | 'error'
@@ -385,6 +387,14 @@ function createModelConfig(provider: ProviderType = 'openai', index = 1): AIMode
   }
 }
 
+function createNumericComputationItem(index = 1): NumericComputationItem {
+  return {
+    name: `value_${index}`,
+    currentValue: 0,
+    description: '',
+  }
+}
+
 function normalizeModelTags(tags?: string[] | string | null) {
   const list = Array.isArray(tags) ? tags : typeof tags === 'string' ? tags.split(/[,\n，]/) : []
   return list
@@ -522,7 +532,6 @@ function normalizeSessionMessages(session: ChatSessionDetail) {
     if (item.form?.fields?.length) {
       content.push(createFormActivityContent(item.form, `activity-form-${session.id}-${index}`))
     }
-
     return {
       id: `${session.id}-assistant-${index}`,
       role: 'assistant',
@@ -748,6 +757,9 @@ const sessionRobot = reactive<SessionRobotState>({
   name: '当前智能体',
   avatar: '',
   systemPrompt: '',
+  numericComputationEnabled: false,
+  numericComputationPrompt: '',
+  numericComputationItems: [],
   structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
   structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
 })
@@ -755,6 +767,9 @@ const sessionRobotDraft = reactive<SessionRobotState>({
   name: '',
   avatar: '',
   systemPrompt: '',
+  numericComputationEnabled: false,
+  numericComputationPrompt: '',
+  numericComputationItems: [],
   structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
   structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
 })
@@ -1181,7 +1196,10 @@ function clearAssistantUiLoading(messages: ChatRenderMessage[]) {
 }
 
 function flushPendingAssistantStructuredContent() {
-  if (!pendingAssistantSuggestions.value?.length && !pendingAssistantForm.value?.fields?.length) {
+  if (
+    !pendingAssistantSuggestions.value?.length &&
+    !pendingAssistantForm.value?.fields?.length
+  ) {
     return
   }
 
@@ -1209,11 +1227,10 @@ function flushPendingAssistantStructuredContent() {
     )
   })
   const insertionIndex = memoryStatusIndex === -1 ? targetMessage.content.length : memoryStatusIndex
-  const structuredContent = pendingAssistantSuggestions.value?.length
-    ? [createSuggestionContent(pendingAssistantSuggestions.value)]
-    : pendingAssistantForm.value?.fields?.length
-      ? [createFormActivityContent(pendingAssistantForm.value)]
-      : []
+  const structuredContent = [
+    ...(pendingAssistantSuggestions.value?.length ? [createSuggestionContent(pendingAssistantSuggestions.value)] : []),
+    ...(pendingAssistantForm.value?.fields?.length ? [createFormActivityContent(pendingAssistantForm.value)] : []),
+  ]
 
   if (structuredContent.length) {
     targetMessage.content.splice(insertionIndex, 0, ...structuredContent)
@@ -1345,10 +1362,52 @@ function createRobotTemplate(): AIRobotCard {
     description: '',
     avatar: '',
     systemPrompt: '',
+    numericComputationEnabled: false,
+    numericComputationPrompt: '',
+    numericComputationItems: [],
     structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
     structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
     memorySchema: normalizeMemorySchema(DEFAULT_MEMORY_SCHEMA),
   }
+}
+
+function cloneNumericComputationItems(items?: NumericComputationItem[] | null) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    name: String(item?.name || '').trim(),
+    currentValue:
+      typeof item?.currentValue === 'number' && Number.isFinite(item.currentValue)
+        ? item.currentValue
+        : 0,
+    description: String(item?.description || ''),
+  }))
+}
+
+function addNumericComputationItem(target: { numericComputationItems: NumericComputationItem[] }) {
+  target.numericComputationItems.push(createNumericComputationItem(target.numericComputationItems.length + 1))
+}
+
+function removeNumericComputationItem(target: { numericComputationItems: NumericComputationItem[] }, index: number) {
+  target.numericComputationItems.splice(index, 1)
+}
+
+function validateNumericComputationItems(items: NumericComputationItem[]) {
+  const normalized = cloneNumericComputationItems(items)
+  const seenNames = new Set<string>()
+
+  for (const item of normalized) {
+    if (!item.name) {
+      return { ok: false as const, message: '数值结构中的名称不能为空' }
+    }
+    if (seenNames.has(item.name)) {
+      return { ok: false as const, message: `数值结构名称重复：${item.name}` }
+    }
+    if (!Number.isFinite(item.currentValue)) {
+      return { ok: false as const, message: `数值结构 ${item.name} 的当前值必须是数值` }
+    }
+    seenNames.add(item.name)
+  }
+
+  return { ok: true as const, normalized }
 }
 
 function syncMobileAgentDraft(source?: Partial<AIRobotCard> | null) {
@@ -1358,6 +1417,9 @@ function syncMobileAgentDraft(source?: Partial<AIRobotCard> | null) {
   mobileAgentDraft.description = String(source?.description || '')
   mobileAgentDraft.avatar = String(source?.avatar || '')
   mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
+  mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
+  mobileAgentDraft.numericComputationPrompt = String(source?.numericComputationPrompt || '')
+  mobileAgentDraft.numericComputationItems = cloneNumericComputationItems(source?.numericComputationItems)
   mobileAgentDraft.structuredMemoryInterval =
     typeof source?.structuredMemoryInterval === 'number' && source.structuredMemoryInterval > 0
       ? Math.round(source.structuredMemoryInterval)
@@ -1410,9 +1472,12 @@ async function persistRobotTemplates(nextTemplates: AIRobotCard[], successMessag
     ? nextTemplates.map((item, index) => ({
         ...item,
         name: item.name.trim() || `智能体 ${index + 1}`,
-        description: item.description.trim(),
-        avatar: item.avatar.trim(),
-        structuredMemoryInterval: Math.max(1, Math.round(item.structuredMemoryInterval || DEFAULT_STRUCTURED_MEMORY_INTERVAL)),
+      description: item.description.trim(),
+      avatar: item.avatar.trim(),
+      numericComputationEnabled: Boolean(item.numericComputationEnabled),
+      numericComputationPrompt: item.numericComputationPrompt.trim(),
+      numericComputationItems: cloneNumericComputationItems(item.numericComputationItems),
+      structuredMemoryInterval: Math.max(1, Math.round(item.structuredMemoryInterval || DEFAULT_STRUCTURED_MEMORY_INTERVAL)),
         structuredMemoryHistoryLimit: Math.max(1, Math.round(item.structuredMemoryHistoryLimit || DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT)),
         memorySchema: normalizeMemorySchema(item.memorySchema),
       }))
@@ -1587,12 +1652,20 @@ function handleAgentCardAction(agentId: string, action?: string | number | Recor
 async function saveMobileAgent() {
   savingMobileAgent.value = true
   try {
+    const itemsValidation = validateNumericComputationItems(mobileAgentDraft.numericComputationItems)
+    if (!itemsValidation.ok && mobileAgentDraft.numericComputationEnabled) {
+      MessagePlugin.error(itemsValidation.message)
+      return
+    }
     const nextAgent: AIRobotCard = {
       ...mobileAgentDraft,
       name: mobileAgentDraft.name.trim(),
       description: mobileAgentDraft.description.trim(),
       avatar: mobileAgentDraft.avatar.trim(),
       systemPrompt: mobileAgentDraft.systemPrompt,
+      numericComputationEnabled: Boolean(mobileAgentDraft.numericComputationEnabled),
+      numericComputationPrompt: mobileAgentDraft.numericComputationPrompt.trim(),
+      numericComputationItems: itemsValidation.ok ? itemsValidation.normalized : [],
       structuredMemoryInterval: Math.max(1, Math.round(mobileAgentDraft.structuredMemoryInterval || DEFAULT_STRUCTURED_MEMORY_INTERVAL)),
       structuredMemoryHistoryLimit: Math.max(1, Math.round(mobileAgentDraft.structuredMemoryHistoryLimit || DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT)),
       memorySchema: normalizeMemorySchema(mobileAgentDraft.memorySchema),
@@ -1818,6 +1891,9 @@ async function syncCurrentSessionMeta() {
       name: sessionRobot.name,
       avatar: sessionRobot.avatar,
       systemPrompt: sessionRobot.systemPrompt,
+      numericComputationEnabled: sessionRobot.numericComputationEnabled,
+      numericComputationPrompt: sessionRobot.numericComputationPrompt,
+      numericComputationItems: cloneNumericComputationItems(sessionRobot.numericComputationItems),
       structuredMemoryInterval: sessionRobot.structuredMemoryInterval,
       structuredMemoryHistoryLimit: sessionRobot.structuredMemoryHistoryLimit,
     },
@@ -1840,6 +1916,9 @@ async function hydrateSession(session: ChatSessionDetail) {
   sessionRobot.name = session.robot.name || '当前智能体'
   sessionRobot.avatar = session.robot.avatar || ''
   sessionRobot.systemPrompt = session.robot.systemPrompt || ''
+  sessionRobot.numericComputationEnabled = Boolean(session.robot.numericComputationEnabled)
+  sessionRobot.numericComputationPrompt = session.robot.numericComputationPrompt || ''
+  sessionRobot.numericComputationItems = cloneNumericComputationItems(session.robot.numericComputationItems)
   sessionRobot.structuredMemoryInterval = session.robot.structuredMemoryInterval || DEFAULT_SESSION_MEMORY.structuredMemoryInterval
   sessionRobot.structuredMemoryHistoryLimit = session.robot.structuredMemoryHistoryLimit || DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit
   applySessionMemory(session.memory)
@@ -1866,6 +1945,9 @@ async function createNewChat(robot?: AIRobotCard | null) {
     sessionRobot.name = robot.name.trim() || '当前智能体'
     sessionRobot.avatar = robot.avatar || ''
     sessionRobot.systemPrompt = robot.systemPrompt
+    sessionRobot.numericComputationEnabled = Boolean(robot.numericComputationEnabled)
+    sessionRobot.numericComputationPrompt = robot.numericComputationPrompt
+    sessionRobot.numericComputationItems = cloneNumericComputationItems(robot.numericComputationItems)
     sessionRobot.structuredMemoryInterval = robot.structuredMemoryInterval || DEFAULT_SESSION_MEMORY.structuredMemoryInterval
     sessionRobot.structuredMemoryHistoryLimit = robot.structuredMemoryHistoryLimit || DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit
     applyMemorySchema(robot.memorySchema)
@@ -1873,6 +1955,9 @@ async function createNewChat(robot?: AIRobotCard | null) {
     sessionRobot.name = '当前智能体'
     sessionRobot.avatar = ''
     sessionRobot.systemPrompt = ''
+    sessionRobot.numericComputationEnabled = false
+    sessionRobot.numericComputationPrompt = ''
+    sessionRobot.numericComputationItems = []
     sessionRobot.structuredMemoryInterval = DEFAULT_SESSION_MEMORY.structuredMemoryInterval
     sessionRobot.structuredMemoryHistoryLimit = DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit
     applyMemorySchema(DEFAULT_MEMORY_SCHEMA)
@@ -1941,15 +2026,26 @@ function openSessionRobotDialog() {
   sessionRobotDraft.name = sessionRobot.name
   sessionRobotDraft.avatar = sessionRobot.avatar
   sessionRobotDraft.systemPrompt = sessionRobot.systemPrompt
+  sessionRobotDraft.numericComputationEnabled = sessionRobot.numericComputationEnabled
+  sessionRobotDraft.numericComputationPrompt = sessionRobot.numericComputationPrompt
+  sessionRobotDraft.numericComputationItems = cloneNumericComputationItems(sessionRobot.numericComputationItems)
   sessionRobotDraft.structuredMemoryInterval = sessionRobot.structuredMemoryInterval
   sessionRobotDraft.structuredMemoryHistoryLimit = sessionRobot.structuredMemoryHistoryLimit
   sessionRobotVisible.value = true
 }
 
 async function applySessionRobot() {
+  const itemsValidation = validateNumericComputationItems(sessionRobotDraft.numericComputationItems)
+  if (!itemsValidation.ok && sessionRobotDraft.numericComputationEnabled) {
+    MessagePlugin.error(itemsValidation.message)
+    return
+  }
   sessionRobot.name = sessionRobotDraft.name.trim() || '当前智能体'
   sessionRobot.avatar = sessionRobotDraft.avatar.trim()
   sessionRobot.systemPrompt = sessionRobotDraft.systemPrompt
+  sessionRobot.numericComputationEnabled = Boolean(sessionRobotDraft.numericComputationEnabled)
+  sessionRobot.numericComputationPrompt = sessionRobotDraft.numericComputationPrompt.trim()
+  sessionRobot.numericComputationItems = itemsValidation.ok ? itemsValidation.normalized : []
   sessionRobot.structuredMemoryInterval = sessionRobotDraft.structuredMemoryInterval
   sessionRobot.structuredMemoryHistoryLimit = sessionRobotDraft.structuredMemoryHistoryLimit
   sessionRobotVisible.value = false
@@ -2355,6 +2451,9 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
           name: sessionRobot.name,
           avatar: sessionRobot.avatar,
           systemPrompt: sessionRobot.systemPrompt,
+          numericComputationEnabled: sessionRobot.numericComputationEnabled,
+          numericComputationPrompt: sessionRobot.numericComputationPrompt,
+          numericComputationItems: cloneNumericComputationItems(sessionRobot.numericComputationItems),
           structuredMemoryInterval: sessionRobot.structuredMemoryInterval,
           structuredMemoryHistoryLimit: sessionRobot.structuredMemoryHistoryLimit,
         },
@@ -2438,13 +2537,15 @@ const chatServiceConfig = computed<ChatServiceConfig>(() => ({
       return null
     }
     if (payload.type === 'done') {
-      isChatResponding.value = false
       flushPendingAssistantStructuredContent()
       currentAssistantLoadingText.value = ''
       currentMemoryStatusText.value = ''
       applyChatMessages(chatMessages.value)
-      refreshCurrentSessionState().catch(() => {})
-      refreshSessionHistory().catch(() => {})
+      nextTick(() => {
+        isChatResponding.value = false
+        refreshCurrentSessionState().catch(() => {})
+        refreshSessionHistory().catch(() => {})
+      })
     }
     return null
   },
@@ -2628,6 +2729,8 @@ onUnmounted(() => {
     nextAgentEditorStep,
     previousAgentEditorStep,
     skipAgentStructureSetup,
+    addNumericComputationItem,
+    removeNumericComputationItem,
     removeMobileAgent,
     saveMobileAgent,
     openSessionRobotDialog,

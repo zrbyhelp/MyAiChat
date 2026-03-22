@@ -135,6 +135,18 @@ class RobotProfile(CompatibleModel):
         default="",
         validation_alias=AliasChoices("system_prompt", "systemPrompt"),
     )
+    numeric_computation_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("numeric_computation_enabled", "numericComputationEnabled", "image_fetch_enabled", "imageFetchEnabled"),
+    )
+    numeric_computation_prompt: str = Field(
+        default="",
+        validation_alias=AliasChoices("numeric_computation_prompt", "numericComputationPrompt", "image_fetch_prompt", "imageFetchPrompt"),
+    )
+    numeric_computation_items: list[dict[str, Any]] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("numeric_computation_items", "numericComputationItems", "numeric_computation_schema", "numericComputationSchema"),
+    )
     structured_memory_interval: int | None = Field(
         default=None,
         validation_alias=AliasChoices("structured_memory_interval", "structuredMemoryInterval"),
@@ -173,6 +185,10 @@ class RunRequest(CompatibleModel):
         default=None,
         validation_alias=AliasChoices("structured_memory_history_limit", "structuredMemoryHistoryLimit"),
     )
+    numeric_state: dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("numeric_state", "numericState"),
+    )
 
 
 class ThreadState(CompatibleModel):
@@ -180,6 +196,10 @@ class ThreadState(CompatibleModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     memory_schema: MemorySchema = Field(default_factory=MemorySchema)
     structured_memory: StructuredMemory = Field(default_factory=StructuredMemory)
+    numeric_state: dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("numeric_state", "numericState"),
+    )
 
 
 MemorySchemaField.model_rebuild()

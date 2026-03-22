@@ -100,6 +100,9 @@ function buildAgentRequest(payload, user, session) {
       name: robot?.name || payload.robotName || '当前智能体',
       avatar: robot?.avatar || '',
       system_prompt: robot?.systemPrompt || payload.systemPrompt || '',
+      numeric_computation_enabled: Boolean(robot?.numericComputationEnabled),
+      numeric_computation_prompt: String(robot?.numericComputationPrompt || ''),
+      numeric_computation_items: Array.isArray(robot?.numericComputationItems) ? robot.numericComputationItems : [],
       structured_memory_interval: normalizePositiveInteger(
         robot?.structuredMemoryInterval,
         DEFAULT_SESSION_ROBOT.structuredMemoryInterval,
@@ -116,6 +119,10 @@ function buildAgentRequest(payload, user, session) {
     })),
     memory_schema: normalizeMemorySchema(session?.memorySchema || payload.robot?.memorySchema),
     structured_memory: normalizeStructuredMemory(session?.structuredMemory),
+    numeric_state:
+      typeof session?.numericState === 'object' && session?.numericState !== null
+        ? session.numericState
+        : {},
     structured_memory_interval: structuredMemoryInterval,
     structured_memory_history_limit: structuredMemoryHistoryLimit,
   }
@@ -157,14 +164,14 @@ async function commitSession(payload, user, result, existingSession) {
     createdAt: now,
   })
   nextMessages.push({
-    id: `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    role: 'assistant',
-    content: String(result.message || ''),
-    reasoning: '',
-    suggestions: normalizeSuggestionItems(result.suggestions),
-    form: normalizeFormSchema(result.form),
-    createdAt: now,
-  })
+      id: `assistant-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      role: 'assistant',
+      content: String(result.message || ''),
+      reasoning: '',
+      suggestions: normalizeSuggestionItems(result.suggestions),
+      form: normalizeFormSchema(result.form),
+      createdAt: now,
+    })
 
   const existingUsage = normalizeSessionUsage(existing?.usage)
   const nextUsage = normalizeUsage(result.usage)
@@ -184,6 +191,10 @@ async function commitSession(payload, user, result, existingSession) {
     memory: existing?.memory,
     memorySchema: normalizeMemorySchema(existing?.memorySchema || payload.robot?.memorySchema),
     structuredMemory: normalizeStructuredMemory(result.memory || existing?.structuredMemory),
+    numericState:
+      typeof result.numericState === 'object' && result.numericState !== null
+        ? result.numericState
+        : existing?.numericState || {},
     usage: {
       promptTokens: existingUsage.promptTokens + nextUsage.promptTokens,
       completionTokens: existingUsage.completionTokens + nextUsage.completionTokens,
@@ -240,6 +251,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
   let finalThreadId = session?.threadId || payload.sessionId
   let finalSuggestions = []
   let finalForm = null
+  let finalNumericState = session?.numericState || {}
 
   while (true) {
     const { value, done } = await reader.read()
@@ -277,12 +289,21 @@ async function runAgentAndCollect(payload, user, onEvent) {
       if (parsed.type === 'usage') {
         finalUsage = normalizeUsage(parsed)
       }
+      if (parsed.type === 'numeric_state_updated' && parsed.state) {
+        finalNumericState = parsed.state
+      }
       if (parsed.type === 'run_completed') {
         finalThreadId = String(parsed.threadId || finalThreadId)
         finalMessage = String(parsed.message || finalMessage)
         finalSuggestions = normalizeSuggestionItems(parsed.suggestions || finalSuggestions)
         finalForm = normalizeFormSchema(parsed.form || finalForm)
         finalMemory = normalizeStructuredMemory(parsed.memory || finalMemory)
+        finalNumericState =
+          typeof parsed.numeric_state === 'object' && parsed.numeric_state !== null
+            ? parsed.numeric_state
+            : typeof parsed.numericState === 'object' && parsed.numericState !== null
+              ? parsed.numericState
+              : finalNumericState
         finalUsage = normalizeUsage(parsed.usage || finalUsage)
       }
 
@@ -295,6 +316,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
     message: finalMessage,
     suggestions: finalSuggestions,
     form: finalForm,
+    numericState: finalNumericState,
     memory: finalMemory,
     usage: finalUsage,
   }, session)
@@ -303,6 +325,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
     message: finalMessage,
     suggestions: finalSuggestions,
     form: finalForm,
+    numericState: finalNumericState,
     memory: finalMemory,
     usage: finalUsage,
     session: savedSession,
@@ -385,6 +408,15 @@ function forwardAgentEvent(res, payload) {
       type: 'memory_status',
       status: 'running',
       message: '正在保存会话到数据库',
+    })
+    return
+  }
+
+  if (payload.type === 'numeric_state_updated') {
+    sendSSE(res, {
+      type: 'numeric_state_updated',
+      state: payload.state,
+      summary: payload.summary || '',
     })
     return
   }

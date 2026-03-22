@@ -75,6 +75,39 @@ export function normalizeModelConfigsPayload(input) {
   }
 }
 
+function normalizeNumericComputationItems(input) {
+  let list = []
+  if (Array.isArray(input)) {
+    list = input
+  } else if (typeof input === 'string' && input.trim()) {
+    try {
+      const parsed = JSON.parse(input)
+      list = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === 'object'
+          ? Object.entries(parsed).map(([name, value]) => ({ name, currentValue: value, description: '' }))
+          : []
+    } catch {
+      list = []
+    }
+  }
+
+  return list
+    .map((item) => ({
+      name: String(item?.name || '').trim(),
+      currentValue:
+        typeof item?.currentValue === 'number' && Number.isFinite(item.currentValue)
+          ? item.currentValue
+          : typeof item?.current_value === 'number' && Number.isFinite(item.current_value)
+            ? item.current_value
+            : typeof item?.value === 'number' && Number.isFinite(item.value)
+              ? item.value
+              : Number(item?.currentValue ?? item?.current_value ?? item?.value ?? Number.NaN),
+      description: String(item?.description || '').trim(),
+    }))
+    .filter((item) => item.name && Number.isFinite(item.currentValue))
+}
+
 export function normalizeRobots(input) {
   const list = Array.isArray(input) ? input : []
   const robots = list.map((robot, index) => ({
@@ -83,6 +116,9 @@ export function normalizeRobots(input) {
     description: String(robot?.description || ''),
     avatar: String(robot?.avatar || '').trim(),
     systemPrompt: String(robot?.systemPrompt || ''),
+    numericComputationEnabled: Boolean(robot?.numericComputationEnabled ?? robot?.imageFetchEnabled),
+    numericComputationPrompt: String((robot?.numericComputationPrompt ?? robot?.imageFetchPrompt) || '').trim(),
+    numericComputationItems: normalizeNumericComputationItems(robot?.numericComputationItems ?? robot?.numericComputationSchema),
     structuredMemoryInterval:
       typeof robot?.structuredMemoryInterval === 'number' && Number.isInteger(robot.structuredMemoryInterval) && robot.structuredMemoryInterval > 0
         ? robot.structuredMemoryInterval
@@ -102,6 +138,9 @@ export function normalizeSessionRobot(input) {
     name: String(input?.name || DEFAULT_SESSION_ROBOT.name),
     avatar: String(input?.avatar || '').trim(),
     systemPrompt: String(input?.systemPrompt || ''),
+    numericComputationEnabled: Boolean(input?.numericComputationEnabled ?? input?.imageFetchEnabled),
+    numericComputationPrompt: String((input?.numericComputationPrompt ?? input?.imageFetchPrompt) || '').trim(),
+    numericComputationItems: normalizeNumericComputationItems(input?.numericComputationItems ?? input?.numericComputationSchema),
     structuredMemoryInterval:
       typeof input?.structuredMemoryInterval === 'number' && Number.isInteger(input.structuredMemoryInterval) && input.structuredMemoryInterval > 0
         ? input.structuredMemoryInterval
@@ -312,7 +351,6 @@ export function normalizeSessionMessage(input, index = 0) {
   const createdAt = typeof input?.createdAt === 'string' && input.createdAt ? input.createdAt : new Date().toISOString()
   const suggestions = role === 'assistant' ? normalizeSuggestionItems(input?.suggestions) : []
   const form = role === 'assistant' ? normalizeFormSchema(input?.form) : null
-
   return {
     id: String(input?.id || `message-${index + 1}`),
     role,
@@ -345,6 +383,12 @@ export function normalizeSession(input, index = 0) {
     memory: normalizeSessionMemory(input?.memory || DEFAULT_SESSION_MEMORY),
     memorySchema: normalizeMemorySchema(input?.memorySchema || input?.memory_schema || input?.robot?.memorySchema || DEFAULT_MEMORY_SCHEMA),
     structuredMemory: normalizeStructuredMemory(input?.structuredMemory || input?.structured_memory || DEFAULT_STRUCTURED_MEMORY),
+    numericState:
+      typeof input?.numericState === 'object' && input?.numericState !== null
+        ? input.numericState
+        : typeof input?.numeric_state === 'object' && input?.numeric_state !== null
+          ? input.numeric_state
+          : {},
     usage: normalizeSessionUsage(input?.usage),
   }
 }
