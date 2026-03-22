@@ -91,7 +91,6 @@ const historyActionOptions = [
   {
     content: '删除',
     value: 'delete',
-    theme: 'danger',
   },
 ]
 
