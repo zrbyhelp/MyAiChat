@@ -1,0 +1,17 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "useGitignore": true,
+  "ignorePaths": [
+    "node_modules",
+    "package-lock.json"
+  ],
+  "files": [
+    "**/*.{js,mjs,cjs,ts,tsx,json,md,sql}"
+  ],
+  "words": [
+    "myaichat",
+    "umzug",
+    "Umzug"
+  ]
+}

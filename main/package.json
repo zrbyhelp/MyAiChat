@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
-    "migrate": "node ./scripts/migrate.mjs"
+    "migrate": "node ./scripts/migrate.mjs",
+    "spell:check": "cspell --config cspell.json --no-progress"
   },
   "devDependencies": {
+    "cspell": "^9.7.0",
     "nodemon": "^3.1.10"
   },
   "dependencies": {
