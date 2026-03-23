@@ -1,0 +1,12 @@
+{
+  "name": "myaichat-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "launcher": "node ./tools/launcher/launcher.mjs",
+    "launcher:open": "node ./tools/launcher/launcher.mjs open all",
+    "launcher:status": "node ./tools/launcher/launcher.mjs status",
+    "launcher:close": "node ./tools/launcher/launcher.mjs close all",
+    "launcher:restart": "node ./tools/launcher/launcher.mjs restart all"
+  }
+}

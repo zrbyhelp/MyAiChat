@@ -31,10 +31,44 @@ export function useChatSession(options: UseChatSessionOptions) {
   const sessionId = ref(createSessionId())
   const sessionHistory = ref<ChatSessionSummary[]>([])
   const deletingSessionId = ref('')
+  const batchDeletingSessionIds = ref<string[]>([])
+  const historySelectionMode = ref(false)
+  const selectedSessionIds = ref<string[]>([])
 
   async function refreshSessionHistory() {
     const response = await getSessions()
     sessionHistory.value = response.sessions
+    if (!historySelectionMode.value) {
+      selectedSessionIds.value = []
+      return
+    }
+    const existingIds = new Set(response.sessions.map((item) => item.id))
+    selectedSessionIds.value = selectedSessionIds.value.filter((id) => existingIds.has(id))
+  }
+
+  function exitHistorySelectionMode() {
+    historySelectionMode.value = false
+    selectedSessionIds.value = []
+  }
+
+  function toggleHistorySelectionMode() {
+    historySelectionMode.value = !historySelectionMode.value
+    if (!historySelectionMode.value) {
+      selectedSessionIds.value = []
+    }
+  }
+
+  function toggleSessionSelection(targetSessionId: string) {
+    if (!targetSessionId) {
+      return
+    }
+    const current = new Set(selectedSessionIds.value)
+    if (current.has(targetSessionId)) {
+      current.delete(targetSessionId)
+    } else {
+      current.add(targetSessionId)
+    }
+    selectedSessionIds.value = Array.from(current)
   }
 
   async function openHistorySession(targetSessionId: string) {
@@ -53,7 +87,11 @@ export function useChatSession(options: UseChatSessionOptions) {
   }
 
   async function handleDeleteSession(targetSessionId: string) {
-    if (!targetSessionId || deletingSessionId.value) {
+    if (
+      !targetSessionId ||
+      deletingSessionId.value ||
+      batchDeletingSessionIds.value.length
+    ) {
       return false
     }
     if (typeof window !== 'undefined' && !window.confirm('确认删除这个会话吗？')) {
@@ -86,16 +124,69 @@ export function useChatSession(options: UseChatSessionOptions) {
     }
   }
 
+  async function handleBatchDeleteSessions() {
+    if (
+      !historySelectionMode.value ||
+      !selectedSessionIds.value.length ||
+      deletingSessionId.value ||
+      batchDeletingSessionIds.value.length
+    ) {
+      return false
+    }
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(`确认批量删除选中的 ${selectedSessionIds.value.length} 个会话吗？`)
+    ) {
+      return false
+    }
+
+    const targetIds = [...selectedSessionIds.value]
+    const targetIdSet = new Set(targetIds)
+    batchDeletingSessionIds.value = targetIds
+
+    try {
+      for (const targetSessionId of targetIds) {
+        await deleteSession(targetSessionId)
+      }
+
+      await refreshSessionHistory()
+
+      if (targetIdSet.has(sessionId.value)) {
+        const nextSessionId = sessionHistory.value.find((item) => !targetIdSet.has(item.id))?.id || ''
+        if (nextSessionId) {
+          const response = await getSession(nextSessionId)
+          await options.onHydrateSession(response.session)
+        } else {
+          await options.onCreateNewChat()
+        }
+      }
+
+      exitHistorySelectionMode()
+      return true
+    } catch (error) {
+      MessagePlugin.error(error instanceof Error ? error.message : '批量删除会话失败')
+      return false
+    } finally {
+      batchDeletingSessionIds.value = []
+    }
+  }
+
   return {
     sessionId,
     sessionHistory,
     deletingSessionId,
+    batchDeletingSessionIds,
+    historySelectionMode,
+    selectedSessionIds,
     createSessionId,
     getStoredActiveSessionId,
     storeActiveSessionId,
     refreshSessionHistory,
+    exitHistorySelectionMode,
+    toggleHistorySelectionMode,
+    toggleSessionSelection,
     openHistorySession,
     handleDeleteSession,
+    handleBatchDeleteSessions,
   }
 }
-

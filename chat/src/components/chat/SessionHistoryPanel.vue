@@ -15,20 +15,62 @@
         <div class="side-meta">当前智能体：{{ currentRobotLabel }}</div>
         <div class="side-meta">当前模型：{{ currentModelLabel }}</div>
       </div>
-      <div class="history-title">历史聊天列表</div>
+      <div class="history-title-row">
+        <div class="history-title">历史聊天列表</div>
+        <div class="history-title-actions">
+          <TButton
+            v-if="!historySelectionMode"
+            shape="circle"
+            variant="text"
+            :theme="historySelectionMode ? 'primary' : 'default'"
+            class="history-mode-button"
+            @click="emit('toggle-history-selection-mode')"
+          >
+            <template #icon>
+              <DeleteIcon />
+            </template>
+          </TButton>
+          <span v-if="historySelectionMode" class="history-selection-summary">
+            {{ selectedSessionIds.length }}项
+          </span>
+          <TButton
+            v-if="historySelectionMode"
+            variant="text"
+            size="small"
+            :disabled="!selectedSessionIds.length || isDeleting"
+            :loading="isBatchDeleting"
+            class="history-delete-button"
+            @click="emit('batch-delete-sessions')"
+          >
+            删除
+          </TButton>
+          <TButton
+            v-if="historySelectionMode"
+            variant="text"
+            size="small"
+            class="history-cancel-button"
+            @click="emit('toggle-history-selection-mode')"
+          >
+            取消
+          </TButton>
+        </div>
+      </div>
     </div>
 
     <div class="history-scroll-area">
-
       <div v-if="sessionHistory.length" class="history-list">
         <TCard
           v-for="item in sessionHistory"
           :key="item.id"
           class="history-item"
-          :class="{ active: item.id === sessionId }"
+          :class="{
+            active: !historySelectionMode && item.id === sessionId,
+            selecting: historySelectionMode,
+            selected: historySelectionMode && isSelected(item.id),
+          }"
           :title="item.title || '新对话'"
           hoverShadow
-          @click="emit('open-session', item.id)"
+          @click="handleCardClick(item.id)"
         >
           <template #subtitle>
             <div class="history-item-subtitle">
@@ -45,7 +87,14 @@
             {{ item.preview || item.robotName || '暂无消息' }}
           </div>
           <template #actions>
+            <div v-if="historySelectionMode" class="history-card-checkbox" @click.stop>
+              <TCheckbox
+                :model-value="isSelected(item.id)"
+                @update:model-value="() => emit('toggle-session-selection', item.id)"
+              />
+            </div>
             <TDropdown
+              v-else
               trigger="click"
               placement="bottom-right"
               :options="historyActionOptions"
@@ -67,17 +116,26 @@
 
 <script setup lang="ts">
 import { millify } from 'millify'
-import { MoreIcon } from 'tdesign-icons-vue-next'
-import { Button as TButton, Card as TCard, Dropdown as TDropdown } from 'tdesign-vue-next'
+import { computed } from 'vue'
+import { DeleteIcon, MoreIcon } from 'tdesign-icons-vue-next'
+import {
+  Button as TButton,
+  Card as TCard,
+  Checkbox as TCheckbox,
+  Dropdown as TDropdown,
+} from 'tdesign-vue-next'
 
 import type { ChatSessionSummary } from '@/types/ai'
 
-defineProps<{
+const props = defineProps<{
   currentRobotLabel: string
   currentModelLabel: string
   sessionHistory: ChatSessionSummary[]
   sessionId: string
   deletingSessionId: string
+  batchDeletingSessionIds: string[]
+  historySelectionMode: boolean
+  selectedSessionIds: string[]
 }>()
 
 const emit = defineEmits<{
@@ -85,6 +143,9 @@ const emit = defineEmits<{
   (event: 'go-robots'): void
   (event: 'open-session', id: string): void
   (event: 'delete-session', id: string): void
+  (event: 'toggle-history-selection-mode'): void
+  (event: 'toggle-session-selection', id: string): void
+  (event: 'batch-delete-sessions'): void
 }>()
 
 const historyActionOptions = [
@@ -93,6 +154,23 @@ const historyActionOptions = [
     value: 'delete',
   },
 ]
+
+const isBatchDeleting = computed(() => props.batchDeletingSessionIds.length > 0)
+const isDeleting = computed(
+  () => Boolean(props.deletingSessionId) || props.batchDeletingSessionIds.length > 0,
+)
+
+function isSelected(id: string) {
+  return props.selectedSessionIds.includes(id)
+}
+
+function handleCardClick(id: string) {
+  if (props.historySelectionMode) {
+    emit('toggle-session-selection', id)
+    return
+  }
+  emit('open-session', id)
+}
 
 function handleHistoryAction(id: string, action?: string | number | Record<string, unknown>) {
   if (String(action || '') === 'delete') {
@@ -180,11 +258,44 @@ function formatSessionTime(value: string) {
   font-size: 12px;
 }
 
-.history-title {
+.history-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 12px 4px 0;
+}
+
+.history-title {
   font-size: 13px;
   font-weight: 600;
   color: #4b5568;
+}
+
+.history-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-mode-button {
+  color: #6b7280;
+}
+
+.history-selection-summary {
+  font-size: 12px;
+  color: #516074;
+  margin-right: 8px;
+}
+
+.history-cancel-button {
+  color: #516074;
+  font-size: 12px;
+}
+
+.history-delete-button {
+  color: var(--td-error-color, #d54941);
+  font-size: 12px;
 }
 
 .history-scroll-area {
@@ -209,6 +320,7 @@ function formatSessionTime(value: string) {
 
 .history-item {
   cursor: pointer;
+  position: relative;
 }
 
 .history-item :deep(.t-card__header),
@@ -227,6 +339,15 @@ function formatSessionTime(value: string) {
 
 .history-item.active {
   border-color: #aac4fb;
+}
+
+.history-item.selecting {
+  border-color: #dbe4f0;
+}
+
+.history-item.selected {
+  border-color: #7ea6ff;
+  background: linear-gradient(180deg, #f8fbff 0%, #f4f8ff 100%);
 }
 
 .history-item :deep(.t-card__title) {
@@ -254,6 +375,14 @@ function formatSessionTime(value: string) {
 
 .history-action-button {
   color: #6b7280;
+}
+
+.history-card-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
 }
 
 .history-item-usage {

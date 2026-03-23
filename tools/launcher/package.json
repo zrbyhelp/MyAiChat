@@ -1,0 +1,14 @@
+{
+  "name": "myaichat-launcher",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node launcher.mjs",
+    "open": "node launcher.mjs open all",
+    "status": "node launcher.mjs status"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}
