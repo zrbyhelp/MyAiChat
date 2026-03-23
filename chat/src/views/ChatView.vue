@@ -18,7 +18,6 @@
 
       <div class="chat-container">
         <div class="chatbot-header">
-
           <TSpace align="center" size="small">
             <TButton
               class="mobile-sidebar-trigger"
@@ -46,7 +45,6 @@
               </template>
             </TButton>
           </TSpace>
-
         </div>
         <div class="chatbot">
           <t-chatbot
@@ -172,7 +170,9 @@
                   <template #icon>
                     <SettingIcon />
                   </template>
-                  <span class="footer-button-label footer-model-label">{{ currentModelLabel }}</span>
+                  <span class="footer-button-label footer-model-label">{{
+                    currentModelLabel
+                  }}</span>
                 </TButton>
               </TSpace>
             </template>
@@ -203,1168 +203,463 @@
     />
   </TDrawer>
 
-  <TDrawer
-    v-if="isMobile"
-    v-model:visible="newChatVisible"
-    :header="false"
-    placement="right"
-    size="100%"
-    :footer="false"
-  >
-    <div class="mobile-overlay-body">
-      <div class="mobile-overlay-topbar">
-        <div class="mobile-overlay-title">选择智能体</div>
-        <TButton variant="text" @click="newChatVisible = false">关闭</TButton>
-      </div>
-      <div v-if="robotTemplates.length" class="robot-picker-grid">
-        <TCard
-          v-for="item in robotTemplates"
-          :key="item.id"
-          class="config-card robot-picker-card"
-          hoverShadow
-          @click="selectedNewChatRobotId = item.id; confirmStartNewChat()"
-        >
-          <template #header>
-            <div class="robot-picker-card-head">
-              <div class="robot-picker-avatar">
-                <img v-if="item.avatar" :src="item.avatar" alt="" />
-                <span v-else>{{ (item.name || '智').slice(0, 1) }}</span>
-              </div>
-              <span class="config-card-name ellipsis-1">{{ item.name || '未命名智能体' }}</span>
-            </div>
-          </template>
-          <div class="config-card-meta ellipsis-2">{{ item.description || '暂无简介' }}</div>
-          <div class="config-card-meta config-card-meta-secondary ellipsis-2">
-            {{ item.systemPrompt || '未填写主要故事设定' }}
-          </div>
-        </TCard>
-      </div>
-      <div v-else class="history-empty">暂无智能体卡片，请先去“设置智能体”里维护</div>
-    </div>
-  </TDrawer>
-  <TDialog
-    v-else
-    v-model:visible="newChatVisible"
-    header="选择智能体"
-    width="960px"
-    :footer="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
-  >
-    <div class="mobile-overlay-body">
-      <div v-if="robotTemplates.length" class="robot-picker-grid robot-picker-grid-desktop">
-        <TCard
-          v-for="item in robotTemplates"
-          :key="item.id"
-          class="config-card robot-picker-card"
-          hoverShadow
-          @click="selectedNewChatRobotId = item.id; confirmStartNewChat()"
-        >
-          <template #header>
-            <div class="robot-picker-card-head">
-              <div class="robot-picker-avatar">
-                <img v-if="item.avatar" :src="item.avatar" alt="" />
-                <span v-else>{{ (item.name || '智').slice(0, 1) }}</span>
-              </div>
-              <span class="config-card-name ellipsis-1">{{ item.name || '未命名智能体' }}</span>
-            </div>
-          </template>
-          <div class="config-card-meta ellipsis-2">{{ item.description || '暂无简介' }}</div>
-          <div class="config-card-meta config-card-meta-secondary ellipsis-2">
-            {{ item.systemPrompt || '未填写主要故事设定' }}
-          </div>
-        </TCard>
-      </div>
-      <div v-else class="history-empty">暂无智能体卡片，请先去“设置智能体”里维护</div>
-    </div>
-  </TDialog>
+  <ChatAgentPanels
+    :is-mobile="isMobile"
+    v-model:new-chat-visible="newChatVisible"
+    v-model:agent-manage-visible="agentManageVisible"
+    v-model:mobile-agent-editor-visible="mobileAgentEditorVisible"
+    v-model:selected-new-chat-robot-id="selectedNewChatRobotId"
+    :robot-templates="robotTemplates"
+    :is-editing-agent-draft="isEditingAgentDraft"
+    :agent-editor-step="agentEditorStep"
+    :mobile-agent-draft="mobileAgentDraft"
+    :saving-mobile-agent="savingMobileAgent"
+    :agent-card-action-options="agentCardActionOptions"
+    @confirm-start-new-chat="confirmStartNewChat"
+    @open-mobile-agent-edit-dialog="openMobileAgentEditDialog"
+    @handle-agent-card-action="handleAgentCardAction"
+    @open-mobile-agent-create-dialog="openMobileAgentCreateDialog"
+    @add-agent-template="addAgentTemplate"
+    @next-agent-editor-step="nextAgentEditorStep"
+    @previous-agent-editor-step="previousAgentEditorStep"
+    @skip-agent-structure-setup="skipAgentStructureSetup"
+    @save-mobile-agent="saveMobileAgent"
+    @remove-numeric-computation-item="removeNumericComputationItem"
+    @add-numeric-computation-item="addNumericComputationItem"
+  />
 
-  <TDrawer
-    v-if="isMobile"
-    v-model:visible="agentManageVisible"
-    placement="right"
-    :footer="false"
-  >
-    <template #header>
-      设置智能体
-    </template>
-    <div class="mobile-overlay-body">
-      <div class="agent-manage-panel">
-        <div v-if="robotTemplates.length" class="config-list-body">
-          <TCard
-            v-for="(item, index) in robotTemplates"
-            :key="item.id"
-            class="config-card"
-            hoverShadow
-            @click="openMobileAgentEditDialog(item.id)"
-          >
-            <template #header>
-              <div class="config-card-head">
-                <span class="config-card-name ellipsis-1" :title="item.name || `智能体 ${index + 1}`">
-                  {{ item.name || `智能体 ${index + 1}` }}
-                </span>
-              </div>
-            </template>
-            <template #actions>
-              <TDropdown
-                trigger="click"
-                placement="bottom-right"
-                :options="agentCardActionOptions"
-                @click="(data) => handleAgentCardAction(item.id, data.value)"
-              >
-                <TButton variant="text" size="small" @click.stop>操作</TButton>
-              </TDropdown>
-            </template>
-            <div class="config-card-meta ellipsis-2" :title="item.description || '暂无简介'">
-              {{ item.description || '暂无简介' }}
-            </div>
-            <div class="config-card-meta config-card-meta-secondary ellipsis-2" :title="item.systemPrompt || '未填写主要故事设定'">
-              {{ item.systemPrompt || '未填写主要故事设定' }}
-            </div>
-          </TCard>
-          <TCard class="config-card config-card-add" hoverShadow @click="openMobileAgentCreateDialog">
-            <div class="config-card-add-media" aria-label="新增智能体">
-              <svg viewBox="0 0 64 64" aria-hidden="true">
-                <path d="M32 14v36M14 32h36" />
-              </svg>
-            </div>
-          </TCard>
-        </div>
-        <TCard v-else class="config-card config-card-add" hoverShadow @click="openMobileAgentCreateDialog">
-          <div class="config-card-add-media" aria-label="新增智能体">
-            <svg viewBox="0 0 64 64" aria-hidden="true">
-              <path d="M32 14v36M14 32h36" />
-            </svg>
-          </div>
-        </TCard>
-      </div>
-    </div>
-  </TDrawer>
-  <TDrawer
-    v-if="isMobile"
-    v-model:visible="mobileAgentEditorVisible"
-    placement="bottom"
-    size="80%"
-    :footer="false"
-  >
-    <template #header>
-      {{ isEditingAgentDraft ? '修改智能体' : '新增智能体' }}
-    </template>
-    <div class="mobile-overlay-body agent-editor-shell">
-      <TSteps class="agent-editor-steps" :current="agentEditorStep - 1" readonly>
-        <TStepItem title="基础信息" />
-        <TStepItem title="故事设定" />
-        <TStepItem title="记忆设置" />
-      </TSteps>
-      <div class="session-robot-form-card agent-editor-content">
-        <TForm v-if="agentEditorStep === 1" label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="名称">
-              <TInput v-model="mobileAgentDraft.name" placeholder="例如：销售顾问 / 数据分析师" />
-            </TFormItem>
-            <TFormItem label="简介">
-              <TInput v-model="mobileAgentDraft.description" placeholder="用于卡片展示的说明" />
-            </TFormItem>
-            <TFormItem class="form-grid-span-2" label="头像">
-              <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
-            </TFormItem>
-          </div>
-        </TForm>
-        <TForm v-else-if="agentEditorStep === 2" label-align="top">
-          <TFormItem label="主要故事设定">
-            <TTextarea
-              v-model="mobileAgentDraft.systemPrompt"
-              :autosize="{ minRows: 8, maxRows: 12 }"
-              placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
-            />
-          </TFormItem>
-          <TFormItem label="启用数值计算">
-            <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
-          </TFormItem>
-          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值计算提示词">
-            <TTextarea
-              v-model="mobileAgentDraft.numericComputationPrompt"
-              :autosize="{ minRows: 4, maxRows: 8 }"
-              placeholder="例如：根据用户行为和上下文调整好感度、危险度、财富等数值，并说明增减规则。"
-            />
-          </TFormItem>
-          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值结构体">
-            <div class="numeric-items-editor">
-              <table class="numeric-items-table">
-                <thead>
-                  <tr>
-                    <th>名称</th>
-                    <th>当前值</th>
-                    <th>说明</th>
-                    <th class="numeric-items-action-col">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(item, itemIndex) in mobileAgentDraft.numericComputationItems" :key="`mobile-agent-${itemIndex}`">
-                    <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
-                    <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
-                    <td><TInput v-model="item.description" placeholder="例如 好感度，受对话行为影响" /></td>
-                    <td class="numeric-items-action-col">
-                      <TButton variant="text" theme="danger" @click="removeNumericComputationItem(mobileAgentDraft, itemIndex)">删除</TButton>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              <TButton variant="outline" @click="addNumericComputationItem(mobileAgentDraft)">新增数值项</TButton>
-            </div>
-          </TFormItem>
-        </TForm>
-        <TForm v-else label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="记忆间隔">
-              <TInputNumber v-model="mobileAgentDraft.structuredMemoryInterval" :min="1" placeholder="3" />
-            </TFormItem>
-            <TFormItem label="历史消息条数">
-              <TInputNumber v-model="mobileAgentDraft.structuredMemoryHistoryLimit" :min="1" placeholder="12" />
-            </TFormItem>
-          </div>
-          <div class="agent-schema-card">
-            <MemorySchemaEditor :schema="mobileAgentDraft.memorySchema" />
-          </div>
-        </TForm>
-      </div>
-      <div class="mobile-overlay-actions drawer-actions">
-        <template v-if="agentEditorStep === 1">
-          <TButton theme="primary" @click="nextAgentEditorStep">下一步</TButton>
-        </template>
-        <template v-else-if="agentEditorStep === 2">
-          <div class="agent-editor-actions agent-editor-actions-split">
-            <div class="agent-editor-actions-left">
-              <TButton theme="default" variant="base" @click="previousAgentEditorStep">上一步</TButton>
-            </div>
-            <div class="agent-editor-actions-right">
-              <TButton theme="primary" :loading="savingMobileAgent" @click="skipAgentStructureSetup">
-                跳过结构体设置
-              </TButton>
-              <TButton variant="outline" @click="nextAgentEditorStep">下一步</TButton>
-            </div>
-          </div>
-        </template>
-        <template v-else>
-          <div class="agent-editor-actions agent-editor-actions-split">
-            <div class="agent-editor-actions-left">
-              <TButton theme="default" variant="base" @click="previousAgentEditorStep">上一步</TButton>
-            </div>
-            <div class="agent-editor-actions-right">
-              <TButton theme="primary" :loading="savingMobileAgent" @click="saveMobileAgent">确定</TButton>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
-  </TDrawer>
-  <TDialog
-    v-if="!isMobile"
-    v-model:visible="agentManageVisible"
-    header="设置智能体"
-    width="1160px"
-    :footer="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
-  >
-    <div class="mobile-overlay-body agent-manage-shell">
-      <div class="agent-manage-panel">
-        <div class="config-list-header">
-          <span class="config-title">已配置智能体</span>
-        </div>
-        <div v-if="robotTemplates.length" class="desktop-config-grid">
-          <TCard
-            v-for="(item, index) in robotTemplates"
-            :key="item.id"
-            class="config-card"
-            hoverShadow
-            @click="openMobileAgentEditDialog(item.id)"
-          >
-            <template #header>
-              <div class="config-card-head">
-                <span class="config-card-name ellipsis-1" :title="item.name || `智能体 ${index + 1}`">
-                  {{ item.name || `智能体 ${index + 1}` }}
-                </span>
-              </div>
-            </template>
-            <template #actions>
-              <TDropdown
-                trigger="click"
-                placement="bottom-right"
-                :options="agentCardActionOptions"
-                @click="(data) => handleAgentCardAction(item.id, data.value)"
-              >
-                <TButton variant="text" size="small" @click.stop>操作</TButton>
-              </TDropdown>
-            </template>
-            <div class="config-card-meta ellipsis-2" :title="item.description || '暂无简介'">
-              {{ item.description || '暂无简介' }}
-            </div>
-            <div class="config-card-meta config-card-meta-secondary ellipsis-2" :title="item.systemPrompt || '未填写主要故事设定'">
-              {{ item.systemPrompt || '未填写主要故事设定' }}
-            </div>
-          </TCard>
-          <TCard class="config-card config-card-add" hoverShadow @click="addAgentTemplate">
-            <div class="config-card-add-media" aria-label="新增智能体">
-              <svg viewBox="0 0 64 64" aria-hidden="true">
-                <path d="M32 14v36M14 32h36" />
-              </svg>
-            </div>
-          </TCard>
-        </div>
-        <TCard v-else class="config-card config-card-add" hoverShadow @click="addAgentTemplate">
-          <div class="config-card-add-media" aria-label="新增智能体">
-            <svg viewBox="0 0 64 64" aria-hidden="true">
-              <path d="M32 14v36M14 32h36" />
-            </svg>
-          </div>
-        </TCard>
-      </div>
-    </div>
-  </TDialog>
-  <TDialog
-    v-if="!isMobile"
-    v-model:visible="mobileAgentEditorVisible"
-    :header="isEditingAgentDraft ? '修改智能体' : '新增智能体'"
-    width="760px"
-    :footer="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
-  >
-    <div class="mobile-overlay-body agent-editor-shell">
-      <TSteps class="agent-editor-steps" :current="agentEditorStep - 1" readonly>
-        <TStepItem title="基础信息" />
-        <TStepItem title="故事设定" />
-        <TStepItem title="记忆设置" />
-      </TSteps>
-      <div class="session-robot-form-card agent-editor-card agent-editor-content">
-        <TForm v-if="agentEditorStep === 1" label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="名称">
-              <TInput v-model="mobileAgentDraft.name" placeholder="例如：销售顾问 / 数据分析师" />
-            </TFormItem>
-            <TFormItem label="简介">
-              <TInput v-model="mobileAgentDraft.description" placeholder="用于卡片展示的说明" />
-            </TFormItem>
-            <TFormItem class="form-grid-span-2" label="头像">
-              <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
-            </TFormItem>
-          </div>
-        </TForm>
-        <TForm v-else-if="agentEditorStep === 2" label-align="top">
-          <TFormItem label="主要故事设定">
-            <TTextarea
-              v-model="mobileAgentDraft.systemPrompt"
-              :autosize="{ minRows: 10, maxRows: 14 }"
-              placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
-            />
-          </TFormItem>
-          <TFormItem label="启用数值计算">
-            <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
-          </TFormItem>
-          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值计算提示词">
-            <TTextarea
-              v-model="mobileAgentDraft.numericComputationPrompt"
-              :autosize="{ minRows: 4, maxRows: 8 }"
-              placeholder="例如：根据用户行为和上下文调整好感度、危险度、财富等数值，并说明增减规则。"
-            />
-          </TFormItem>
-          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值结构体">
-            <div class="numeric-items-editor">
-              <table class="numeric-items-table">
-                <thead>
-                  <tr>
-                    <th>名称</th>
-                    <th>当前值</th>
-                    <th>说明</th>
-                    <th class="numeric-items-action-col">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(item, itemIndex) in mobileAgentDraft.numericComputationItems" :key="`desktop-agent-${itemIndex}`">
-                    <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
-                    <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
-                    <td><TInput v-model="item.description" placeholder="例如 好感度，受对话行为影响" /></td>
-                    <td class="numeric-items-action-col">
-                      <TButton variant="text" theme="danger" @click="removeNumericComputationItem(mobileAgentDraft, itemIndex)">删除</TButton>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              <TButton variant="outline" @click="addNumericComputationItem(mobileAgentDraft)">新增数值项</TButton>
-            </div>
-          </TFormItem>
-        </TForm>
-        <TForm v-else label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="记忆间隔">
-              <TInputNumber v-model="mobileAgentDraft.structuredMemoryInterval" :min="1" placeholder="3" />
-            </TFormItem>
-            <TFormItem label="历史消息条数">
-              <TInputNumber v-model="mobileAgentDraft.structuredMemoryHistoryLimit" :min="1" placeholder="12" />
-            </TFormItem>
-          </div>
-          <div class="agent-schema-card">
-            <MemorySchemaEditor :schema="mobileAgentDraft.memorySchema" />
-          </div>
-        </TForm>
-      </div>
-      <div class="mobile-overlay-actions drawer-actions">
-        <template v-if="agentEditorStep === 1">
-          <TButton theme="primary" @click="nextAgentEditorStep">下一步</TButton>
-        </template>
-        <template v-else-if="agentEditorStep === 2">
-          <div class="agent-editor-actions agent-editor-actions-split">
-            <div class="agent-editor-actions-left">
-              <TButton theme="default" variant="base" @click="previousAgentEditorStep">上一步</TButton>
-            </div>
-            <div class="agent-editor-actions-right">
-              <TButton theme="primary" :loading="savingMobileAgent" @click="skipAgentStructureSetup">
-                跳过结构体设置
-              </TButton>
-              <TButton variant="outline" @click="nextAgentEditorStep">下一步</TButton>
-            </div>
-          </div>
-        </template>
-        <template v-else>
-          <div class="agent-editor-actions agent-editor-actions-split">
-            <div class="agent-editor-actions-left">
-              <TButton theme="default" variant="base" @click="previousAgentEditorStep">上一步</TButton>
-            </div>
-            <div class="agent-editor-actions-right">
-              <TButton theme="primary" :loading="savingMobileAgent" @click="saveMobileAgent">确定</TButton>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
-  </TDialog>
+  <ChatModelDomain
+    :is-mobile="isMobile"
+    v-model:config-visible="configVisible"
+    v-model:mobile-model-editor-visible="mobileModelEditorVisible"
+    v-model:desktop-model-editor-visible="desktopModelEditorVisible"
+    :mobile-model-editor-mode="mobileModelEditorMode"
+    :desktop-model-editor-mode="desktopModelEditorMode"
+    :model-configs="modelConfigs"
+    :active-model-config-id="activeModelConfigId"
+    :model-card-action-options="modelCardActionOptions"
+    :mobile-model-draft="mobileModelDraft"
+    :desktop-model-draft="desktopModelDraft"
+    :provider-options="providerOptions"
+    :model-options-map="modelOptionsMap"
+    :mobile-model-temperature-value="mobileModelTemperatureValue"
+    :desktop-model-temperature-value="desktopModelTemperatureValue"
+    :mobile-model-tags-input="mobileModelTagsInput"
+    :desktop-model-tags-input="desktopModelTagsInput"
+    :saving-mobile-model="savingMobileModel"
+    :saving-desktop-model="savingDesktopModel"
+    :loading-models="loadingModels"
+    @update:mobile-model-tags-input="(value) => (mobileModelTagsInput = value)"
+    @update:desktop-model-tags-input="(value) => (desktopModelTagsInput = value)"
+    @update:mobile-model-temperature-value="(value) => (mobileModelTemperatureValue = value)"
+    @update:desktop-model-temperature-value="(value) => (desktopModelTemperatureValue = value)"
+    @set-active-model-and-close="setActiveModelAndClose"
+    @open-mobile-model-create-dialog="openMobileModelCreateDialog"
+    @open-desktop-model-create-dialog="openDesktopModelCreateDialog"
+    @handle-mobile-model-provider-change="handleMobileModelProviderChange"
+    @handle-desktop-model-provider-change="handleDesktopModelProviderChange"
+    @refresh-mobile-model-options="refreshMobileModelOptions"
+    @refresh-desktop-model-options="refreshDesktopModelOptions"
+    @handle-mobile-model-card-action="handleMobileModelCardAction"
+    @handle-desktop-model-card-action="handleDesktopModelCardAction"
+    @save-mobile-model="saveMobileModel"
+    @save-desktop-model="saveDesktopModel"
+  />
 
-  <TDrawer
-    v-if="isMobile"
-    v-model:visible="configVisible"
-    placement="right"
-    :footer="false"
-  >
-
-      <template #header>
-        模型配置
-      </template>
-    <div class="mobile-overlay-body">
-      <div class="config-layout" :class="{ mobile: isMobile }">
-        <div class="config-list">
-          <div v-if="modelConfigs.length" class="config-list-body">
-            <TCard
-              v-for="item in modelConfigs"
-              :key="item.id"
-              class="config-card"
-              :class="{ active: item.id === activeModelConfigId }"
-              hoverShadow
-              @click="setActiveModelAndClose(item.id)"
-            >
-              <template #title>
-                <span class="config-card-name ellipsis-1" :title="item.name || '未命名配置'">{{ item.name || '未命名配置' }}</span>
-              </template>
-              <template #subtitle>
-                <span class="config-card-meta ellipsis-1" :title="`${item.provider} / ${item.model || '未选择模型'}`">
-                  {{ item.provider }} / {{ item.model || '未选择模型' }}
-                </span>
-              </template>
-              <template #actions>
-                <TDropdown
-                  trigger="click"
-                  placement="bottom-right"
-                  :options="modelCardActionOptions"
-                  @click="(data) => handleMobileModelCardAction(item.id, data.value)"
-                >
-                  <TButton variant="text" shape="square" size="small" @click.stop>
-                    <template #icon>
-                      <MoreIcon />
-                    </template>
-                  </TButton>
-                </TDropdown>
-              </template>
-              <div class="config-card-meta config-card-meta-secondary ellipsis-2" :title="item.baseUrl || '未填写地址'">
-                {{ item.baseUrl || '未填写地址' }}
-              </div>
-              <div class="config-card-tag-list">
-                <TTag v-if="item.description" theme="default" variant="light" class="config-card-tag">
-                  {{ item.description }}
-                </TTag>
-                <TTag v-for="tag in item.tags" :key="tag" theme="default" variant="light" class="config-card-tag">
-                  {{ tag }}
-                </TTag>
-              </div>
-            </TCard>
-            <TCard class="config-card config-card-add" hoverShadow @click="openMobileModelCreateDialog">
-              <div class="config-card-add-media" aria-label="新增模型">
-                <svg viewBox="0 0 64 64" aria-hidden="true">
-                  <path d="M32 14v36M14 32h36" />
-                </svg>
-              </div>
-            </TCard>
-          </div>
-          <TCard v-else class="config-card config-card-add" hoverShadow @click="openMobileModelCreateDialog">
-            <div class="config-card-add-media" aria-label="新增模型">
-              <svg viewBox="0 0 64 64" aria-hidden="true">
-                <path d="M32 14v36M14 32h36" />
-              </svg>
-            </div>
-          </TCard>
-        </div>
-      </div>
-    </div>
-  </TDrawer>
-  <TDrawer
-    v-if="isMobile"
-    v-model:visible="mobileModelEditorVisible"
-    placement="bottom"
-    size="80%"
-    :footer="false"
-  >
-    <template #header>
-      {{ mobileModelEditorMode === 'edit' ? '编辑模型配置' : '新增模型配置' }}
-    </template>
-    <div class="mobile-overlay-body">
-      <TForm label-align="top">
-        <div class="form-grid-2">
-          <TFormItem label="配置名称">
-            <TInput
-              v-model="mobileModelDraft.name"
-              placeholder="例如：DeepSeek 生产环境 / 本地 Ollama"
-            />
-          </TFormItem>
-          <TFormItem label="接入方式">
-            <TSelect
-              v-model="mobileModelDraft.provider"
-              :options="providerOptions"
-              @change="handleMobileModelProviderChange"
-            />
-          </TFormItem>
-          <TFormItem class="form-grid-span-2" label="Base URL">
-            <TInput v-model="mobileModelDraft.baseUrl" placeholder="请输入 AI 服务地址" />
-          </TFormItem>
-          <TFormItem v-if="mobileModelDraft.provider === 'openai'" label="API Key">
-            <TInput
-              v-model="mobileModelDraft.apiKey"
-              type="password"
-              placeholder="请输入 OpenAI API Key"
-            />
-          </TFormItem>
-          <TFormItem label="模型">
-            <div class="mobile-model-picker">
-              <TButton variant="outline" @click="refreshMobileModelOptions">刷新模型</TButton>
-              <div v-if="modelOptionsMap[mobileModelDraft.id]?.length" class="mobile-model-button-list">
-                <TButton
-                  v-for="item in modelOptionsMap[mobileModelDraft.id] || []"
-                  :key="item.id"
-                  :theme="mobileModelDraft.model === item.id ? 'primary' : 'default'"
-                  variant="outline"
-                  @click="mobileModelDraft.model = item.id"
-                >
-                  {{ item.label }}
-                </TButton>
-              </div>
-              <div v-else class="config-empty">暂无模型候选，请先刷新模型</div>
-            </div>
-          </TFormItem>
-          <TFormItem>
-            <template #label>
-              <span class="form-label-with-tip">
-                温度
-                <TPopup content="范围 0 到 2。越低越稳定保守，越高越随机灵活；常用值一般在 0.7 左右。" placement="top">
-                  <InfoCircleIcon class="form-label-tip-icon" />
-                </TPopup>
-              </span>
-            </template>
-            <TInputNumber
-              v-model="mobileModelTemperatureValue"
-              :decimal-places="1"
-              :step="0.1"
-              :min="0"
-              :max="2"
-            />
-          </TFormItem>
-          <TFormItem label="标签配置">
-            <TInput
-              v-model="mobileModelTagsInput"
-              placeholder="多个标签用逗号分隔"
-            />
-          </TFormItem>
-        </div>
-      </TForm>
-      <div class="mobile-overlay-actions drawer-actions">
-        <TButton block theme="primary" :loading="savingMobileModel" @click="saveMobileModel">
-          {{ mobileModelEditorMode === 'edit' ? '保存修改' : '新增模型配置' }}
-        </TButton>
-      </div>
-    </div>
-  </TDrawer>
-  <TDialog
-    v-else
-    v-model:visible="configVisible"
-    header="模型配置"
-    width="900px"
-    :footer="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
-  >
-    <div class="mobile-overlay-body">
-      <div class="desktop-config-grid-shell">
-        <div class="desktop-config-toolbar">
-          <div class="config-list-header">
-            <span class="config-title">已配置模型</span>
-          </div>
-        </div>
-        <div v-if="modelConfigs.length" class="desktop-config-grid">
-          <TCard
-            v-for="item in modelConfigs"
-            :key="item.id"
-            class="config-card"
-            :class="{ active: item.id === activeModelConfigId }"
-            hoverShadow
-            @click="setActiveModelAndClose(item.id)"
-          >
-            <template #title>
-              <span class="config-card-name ellipsis-1" :title="item.name || '未命名配置'">{{ item.name || '未命名配置' }}</span>
-            </template>
-            <template #subtitle>
-              <span class="config-card-meta ellipsis-1" :title="`${item.provider} / ${item.model || '未选择模型'}`">
-                {{ item.provider }} / {{ item.model || '未选择模型' }}
-              </span>
-            </template>
-            <template #actions>
-              <TDropdown
-                trigger="click"
-                placement="bottom-right"
-                :options="modelCardActionOptions"
-                @click="(data) => handleDesktopModelCardAction(item.id, data.value)"
-              >
-                <TButton variant="text" shape="square" size="small" @click.stop>
-                  <template #icon>
-                    <MoreIcon />
-                  </template>
-                </TButton>
-              </TDropdown>
-            </template>
-            <div class="config-card-meta config-card-meta-secondary ellipsis-2" :title="item.baseUrl || '未填写地址'">
-              {{ item.baseUrl || '未填写地址' }}
-            </div>
-            <div class="config-card-tag-list">
-              <TTag v-if="item.description" theme="default" variant="light" class="config-card-tag">
-                {{ item.description }}
-              </TTag>
-              <TTag v-for="tag in item.tags" :key="tag" theme="default" variant="light" class="config-card-tag">
-                {{ tag }}
-              </TTag>
-            </div>
-          </TCard>
-          <TCard class="config-card config-card-add" hoverShadow @click="openDesktopModelCreateDialog">
-            <div class="config-card-add-media" aria-label="新增模型">
-              <svg viewBox="0 0 64 64" aria-hidden="true">
-                <path d="M32 14v36M14 32h36" />
-              </svg>
-            </div>
-          </TCard>
-        </div>
-        <TCard v-else class="config-card config-card-add" hoverShadow @click="openDesktopModelCreateDialog">
-          <div class="config-card-add-media" aria-label="新增模型">
-            <svg viewBox="0 0 64 64" aria-hidden="true">
-              <path d="M32 14v36M14 32h36" />
-            </svg>
-          </div>
-        </TCard>
-      </div>
-    </div>
-  </TDialog>
-  <TDialog
-    v-if="!isMobile"
-    v-model:visible="desktopModelEditorVisible"
-    :header="desktopModelEditorMode === 'edit' ? '编辑模型配置' : '新增模型配置'"
-    width="760px"
-    :footer="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
-  >
-    <div class="mobile-overlay-body">
-      <TForm label-align="top">
-        <div class="form-grid-2">
-          <TFormItem label="配置名称">
-            <TInput
-              v-model="desktopModelDraft.name"
-              placeholder="例如：DeepSeek 生产环境 / 本地 Ollama"
-            />
-          </TFormItem>
-          <TFormItem label="接入方式">
-            <TSelect
-              v-model="desktopModelDraft.provider"
-              :options="providerOptions"
-              @change="handleDesktopModelProviderChange"
-            />
-          </TFormItem>
-          <TFormItem class="form-grid-span-2" label="Base URL">
-            <TInput v-model="desktopModelDraft.baseUrl" placeholder="请输入 AI 服务地址" />
-          </TFormItem>
-          <TFormItem v-if="desktopModelDraft.provider === 'openai'" label="API Key">
-            <TInput
-              v-model="desktopModelDraft.apiKey"
-              type="password"
-              placeholder="请输入 OpenAI API Key"
-            />
-          </TFormItem>
-          <TFormItem label="模型">
-            <TSpace align="center" class="config-model-row">
-              <TSelect
-                v-model="desktopModelDraft.model"
-                class="config-model-select"
-                :loading="loadingModels"
-                :options="
-                  (modelOptionsMap[desktopModelDraft.id] || []).map((item) => ({
-                    label: item.label,
-                    value: item.id,
-                  }))
-                "
-                placeholder="请选择模型"
-              />
-              <TButton variant="outline" @click="refreshDesktopModelOptions">刷新模型</TButton>
-            </TSpace>
-          </TFormItem>
-        </div>
-        <div class="form-grid-2">
-          <TFormItem>
-            <template #label>
-              <span class="form-label-with-tip">
-                温度
-                <TPopup content="范围 0 到 2。越低越稳定保守，越高越随机灵活；常用值一般在 0.7 左右。" placement="top">
-                  <InfoCircleIcon class="form-label-tip-icon" />
-                </TPopup>
-              </span>
-            </template>
-            <TInputNumber
-              v-model="desktopModelTemperatureValue"
-              :decimal-places="1"
-              :step="0.1"
-              :min="0"
-              :max="2"
-            />
-          </TFormItem>
-          <TFormItem class="form-grid-span-2" label="标签配置">
-            <TInput
-              v-model="desktopModelTagsInput"
-              placeholder="多个标签用逗号分隔"
-            />
-          </TFormItem>
-        </div>
-      </TForm>
-      <div class="mobile-overlay-actions drawer-actions">
-        <TButton block theme="primary" :loading="savingDesktopModel" @click="saveDesktopModel">
-          {{ desktopModelEditorMode === 'edit' ? '保存修改' : '新增模型配置' }}
-        </TButton>
-      </div>
-    </div>
-  </TDialog>
-
-  <TDrawer
-    v-if="isMobile"
-    v-model:visible="sessionRobotVisible"
-    :header="false"
-    placement="right"
-    size="100%"
-    :footer="false"
-  >
-    <div class="mobile-overlay-body">
-      <div class="mobile-overlay-topbar">
-        <div class="mobile-overlay-title">编辑当前智能体</div>
-        <TButton variant="text" @click="sessionRobotVisible = false">关闭</TButton>
-      </div>
-      <div class="session-robot-shell">
-        <div class="session-robot-hero">
-          <div class="session-robot-avatar">
-            <img v-if="sessionRobotDraft.avatar" :src="sessionRobotDraft.avatar" alt="" />
-            <span v-else>{{ (sessionRobotDraft.name || '智').slice(0, 1) }}</span>
-          </div>
-          <div class="session-robot-hero-text">
-            <div class="session-robot-hero-title">{{ sessionRobotDraft.name || '当前智能体' }}</div>
-            <div class="session-robot-hero-subtitle">修改后仅作用于当前会话上下文</div>
-          </div>
-        </div>
-        <div class="session-robot-form-card">
-          <TForm label-align="top">
-            <div class="form-grid-2">
-              <TFormItem label="名称">
-                <TInput v-model="sessionRobotDraft.name" placeholder="例如：销售顾问 / 数据分析师" />
-              </TFormItem>
-              <TFormItem label="头像">
-                <TInput v-model="sessionRobotDraft.avatar" placeholder="请输入头像图片 URL" />
-              </TFormItem>
-            </div>
-            <TFormItem label="System Prompt">
-              <TTextarea
-                v-model="sessionRobotDraft.systemPrompt"
-                :autosize="{ minRows: 5, maxRows: 8 }"
-              />
-            </TFormItem>
-            <TFormItem label="启用数值计算">
-              <TSwitch v-model="sessionRobotDraft.numericComputationEnabled" />
-            </TFormItem>
-            <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值计算提示词">
-              <TTextarea
-                v-model="sessionRobotDraft.numericComputationPrompt"
-                :autosize="{ minRows: 4, maxRows: 7 }"
-              />
-            </TFormItem>
-            <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值结构体">
-              <div class="numeric-items-editor">
-                <table class="numeric-items-table">
-                  <thead>
-                    <tr>
-                      <th>名称</th>
-                      <th>当前值</th>
-                      <th>说明</th>
-                      <th class="numeric-items-action-col">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(item, itemIndex) in sessionRobotDraft.numericComputationItems" :key="`session-mobile-${itemIndex}`">
-                      <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
-                      <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
-                      <td><TInput v-model="item.description" placeholder="例如 好感度，受对话行为影响" /></td>
-                      <td class="numeric-items-action-col">
-                        <TButton variant="text" theme="danger" @click="removeNumericComputationItem(sessionRobotDraft, itemIndex)">删除</TButton>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <TButton variant="outline" @click="addNumericComputationItem(sessionRobotDraft)">新增数值项</TButton>
-              </div>
-            </TFormItem>
-          </TForm>
-        </div>
-      </div>
-      <div class="mobile-overlay-actions drawer-actions">
-        <TButton block theme="primary" @click="applySessionRobot">应用到当前上下文</TButton>
-      </div>
-    </div>
-  </TDrawer>
-  <TDialog
-    v-else
-    v-model:visible="sessionRobotVisible"
-    header="编辑当前智能体"
-    width="560px"
-    :footer="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
-  >
-    <div class="mobile-overlay-body">
-      <div class="session-robot-shell">
-        <div class="session-robot-hero">
-          <div class="session-robot-avatar">
-            <img v-if="sessionRobotDraft.avatar" :src="sessionRobotDraft.avatar" alt="" />
-            <span v-else>{{ (sessionRobotDraft.name || '智').slice(0, 1) }}</span>
-          </div>
-          <div class="session-robot-hero-text">
-            <div class="session-robot-hero-title">{{ sessionRobotDraft.name || '当前智能体' }}</div>
-            <div class="session-robot-hero-subtitle">修改后仅作用于当前会话上下文</div>
-          </div>
-        </div>
-        <div class="session-robot-form-card">
-          <TForm label-align="top">
-            <div class="form-grid-2">
-              <TFormItem label="名称">
-                <TInput v-model="sessionRobotDraft.name" placeholder="例如：销售顾问 / 数据分析师" />
-              </TFormItem>
-              <TFormItem label="头像">
-                <TInput v-model="sessionRobotDraft.avatar" placeholder="请输入头像图片 URL" />
-              </TFormItem>
-            </div>
-            <TFormItem label="System Prompt">
-              <TTextarea
-                v-model="sessionRobotDraft.systemPrompt"
-                :autosize="{ minRows: 5, maxRows: 8 }"
-              />
-            </TFormItem>
-            <TFormItem label="启用数值计算">
-              <TSwitch v-model="sessionRobotDraft.numericComputationEnabled" />
-            </TFormItem>
-            <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值计算提示词">
-              <TTextarea
-                v-model="sessionRobotDraft.numericComputationPrompt"
-                :autosize="{ minRows: 4, maxRows: 7 }"
-              />
-            </TFormItem>
-            <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值结构体">
-              <div class="numeric-items-editor">
-                <table class="numeric-items-table">
-                  <thead>
-                    <tr>
-                      <th>名称</th>
-                      <th>当前值</th>
-                      <th>说明</th>
-                      <th class="numeric-items-action-col">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(item, itemIndex) in sessionRobotDraft.numericComputationItems" :key="`session-desktop-${itemIndex}`">
-                      <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
-                      <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
-                      <td><TInput v-model="item.description" placeholder="例如 好感度，受对话行为影响" /></td>
-                      <td class="numeric-items-action-col">
-                        <TButton variant="text" theme="danger" @click="removeNumericComputationItem(sessionRobotDraft, itemIndex)">删除</TButton>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <TButton variant="outline" @click="addNumericComputationItem(sessionRobotDraft)">新增数值项</TButton>
-              </div>
-            </TFormItem>
-          </TForm>
-        </div>
-      </div>
-      <div class="mobile-overlay-actions drawer-actions">
-        <TButton block theme="primary" @click="applySessionRobot">应用到当前上下文</TButton>
-      </div>
-    </div>
-  </TDialog>
-
-  <TDrawer
-    v-if="isMobile"
-    v-model:visible="memoryVisible"
-    :header="false"
-    placement="right"
-    size="100%"
-    :footer="false"
-  >
-    <div class="mobile-overlay-body">
-      <div class="mobile-overlay-topbar">
-        <div class="mobile-overlay-title">结构化记忆</div>
-        <TButton variant="text" @click="memoryVisible = false">关闭</TButton>
-      </div>
-      <div class="memory-meta">
-        <div>最近更新时间：{{ memoryUpdatedLabel }}</div>
-        <div>分类：{{ currentMemorySchema.categories.length }}</div>
-        <div>记录：{{ structuredMemoryRecordCount }}</div>
-      </div>
-      <div class="session-robot-form-card">
-        <TForm label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="结构化记忆处理间隔">
-              <TInputNumber v-model="sessionMemoryDraft.structuredMemoryInterval" :min="1" placeholder="3" />
-            </TFormItem>
-            <TFormItem label="提示词历史消息条数">
-              <TInputNumber v-model="sessionMemoryDraft.structuredMemoryHistoryLimit" :min="1" placeholder="12" />
-            </TFormItem>
-          </div>
-        </TForm>
-      </div>
-      <MemoryTreeView :categories="memoryDisplayCategories" />
-      <div class="mobile-overlay-actions drawer-actions">
-        <TButton block theme="primary" @click="applySessionMemorySettings">保存记忆设置</TButton>
-      </div>
-    </div>
-  </TDrawer>
-  <TDialog
-    v-else
-    v-model:visible="memoryVisible"
-    header="结构化记忆"
-    width="640px"
-    :footer="false"
-    :confirm-btn="null"
-    :cancel-btn="null"
-  >
-    <div class="mobile-overlay-body">
-      <div class="memory-meta">
-        <div>最近更新时间：{{ memoryUpdatedLabel }}</div>
-        <div>分类：{{ currentMemorySchema.categories.length }}</div>
-        <div>记录：{{ structuredMemoryRecordCount }}</div>
-      </div>
-      <div class="session-robot-form-card">
-        <TForm label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="结构化记忆处理间隔">
-              <TInputNumber v-model="sessionMemoryDraft.structuredMemoryInterval" :min="1" placeholder="3" />
-            </TFormItem>
-            <TFormItem label="提示词历史消息条数">
-              <TInputNumber v-model="sessionMemoryDraft.structuredMemoryHistoryLimit" :min="1" placeholder="12" />
-            </TFormItem>
-          </div>
-        </TForm>
-      </div>
-      <MemoryTreeView :categories="memoryDisplayCategories" />
-      <div class="mobile-overlay-actions drawer-actions">
-        <TButton block theme="primary" @click="applySessionMemorySettings">保存记忆设置</TButton>
-      </div>
-    </div>
-  </TDialog>
+  <ChatSessionDomain
+    :is-mobile="isMobile"
+    v-model:session-robot-visible="sessionRobotVisible"
+    v-model:memory-visible="memoryVisible"
+    :session-robot-draft="sessionRobotDraft"
+    :session-memory-draft="sessionMemoryDraft"
+    :memory-updated-label="memoryUpdatedLabel"
+    :current-memory-schema="currentMemorySchema"
+    :structured-memory-record-count="structuredMemoryRecordCount"
+    :memory-display-categories="memoryDisplayCategories"
+    @apply-session-robot="applySessionRobot"
+    @apply-session-memory-settings="applySessionMemorySettings"
+    @remove-numeric-computation-item="removeNumericComputationItem"
+    @add-numeric-computation-item="addNumericComputationItem"
+  />
 </template>
 
 <script setup lang="ts">
 import {
   Button as TButton,
-  Card as TCard,
   Checkbox as TCheckbox,
   CheckboxGroup as TCheckboxGroup,
-  Dialog as TDialog,
-  Dropdown as TDropdown,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  InputNumber as TInputNumber,
-  Popup as TPopup,
   Radio as TRadio,
   RadioGroup as TRadioGroup,
   Select as TSelect,
   Space as TSpace,
-  StepItem as TStepItem,
-  Statistic as TStatistic,
-  Steps as TSteps,
-  Switch as TSwitch,
-  Tag as TTag,
-  Textarea as TTextarea,
 } from 'tdesign-vue-next'
 import {
-  AiEducationIcon,
   LightbulbIcon,
-  InfoCircleIcon,
   MenuIcon,
-  MoreIcon,
   OrderIcon,
   SettingIcon,
 } from 'tdesign-icons-vue-next'
 
+import ChatAgentPanels from '@/components/chat/ChatAgentPanels.vue'
+import ChatModelDomain from '@/components/chat/ChatModelDomain.vue'
+import ChatSessionDomain from '@/components/chat/ChatSessionDomain.vue'
 import PlaceholderPane from '@/components/chat/PlaceholderPane.vue'
 import PrimaryNav from '@/components/chat/PrimaryNav.vue'
-import MemorySchemaEditor from '@/components/chat/MemorySchemaEditor.vue'
-import MemoryTreeView from '@/components/chat/MemoryTreeView.vue'
 import SessionHistoryPanel from '@/components/chat/SessionHistoryPanel.vue'
-import { useChatView } from '@/hooks/useChatView'
+import { useAuth } from '@clerk/vue'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
+import { useChatbotRuntime } from '@/hooks/chat-view/useChatbotRuntime'
+import { useChatViewBootstrap } from '@/hooks/chat-view/useChatViewBootstrap'
+import { useChatMessagePipeline } from '@/hooks/chat-view/useChatMessagePipeline'
+import { useChatInitializer } from '@/hooks/chat-view/useChatInitializer'
+import { useChatModelManager } from '@/hooks/chat-view/useChatModelManager'
+import {
+  createModelConfig,
+  createNumericComputationItem,
+  DEFAULT_MODEL_CONFIGS,
+  normalizeModelTags,
+  PROVIDER_OPTIONS,
+} from '@/hooks/chat-view/useChatViewModelUtils'
+import { useChatViewPresentation } from '@/hooks/chat-view/useChatViewPresentation'
+import { useChatRobotManager } from '@/hooks/chat-view/useChatRobotManager'
+import { useChatSessionLifecycle } from '@/hooks/chat-view/useChatSessionLifecycle'
+import { useChatSessionLifecycleDelegate } from '@/hooks/chat-view/useChatSessionLifecycleDelegate'
+import { useChatStreaming } from '@/hooks/chat-view/useChatStreaming'
+import { useChatViewUiController } from '@/hooks/chat-view/useChatViewUiController'
+import {
+  DEFAULT_SESSION_MEMORY,
+  DEFAULT_SESSION_USAGE,
+  DEFAULT_STRUCTURED_MEMORY,
+  DEFAULT_MEMORY_SCHEMA,
+  DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+  DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+  normalizeMemorySchema,
+  normalizeSessionMessages,
+  useChatSessionStateManager,
+} from '@/hooks/chat-view/useChatSessionStateManager'
+import type { ChatbotInstance } from '@/hooks/chat-view/useChatView.types'
+import { useChatSession } from '@/hooks/useChatSession'
+import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
+
+const router = useRouter()
+const route = useRoute()
+const MOBILE_BREAKPOINT = 768
+
+const providerOptions = PROVIDER_OPTIONS
 const {
-  activePrimaryTab,
-  sidebarDrawerVisible,
-  newChatVisible,
+  bindLifecycle,
+  refreshCurrentSessionState,
+  syncCurrentSessionMeta,
+  hydrateSession,
+  createNewChat,
+} = useChatSessionLifecycleDelegate()
+
+const activePrimaryTab = computed<'agent' | 'discover' | 'mine'>({
+  get: () => {
+    if (route.name === 'agent' || route.name === 'mine') {
+      return route.name
+    }
+    return 'discover'
+  },
+  set: (value) => {
+    if (route.name === value) {
+      return
+    }
+    void router.push({ name: value })
+  },
+})
+const chatbotRef = ref<ChatbotInstance | null>(null)
+const chatInstanceKey = ref(0)
+const isChatResponding = ref(false)
+const {
+  pendingChatMessages,
+  pendingAssistantSuggestions,
+  pendingAssistantForm,
+  pendingAssistantMemoryStatus,
+  currentAssistantLoadingText,
+  currentMemoryStatusText,
+  chatMessages,
+  submittedForms,
+  formActivitySlots,
+  loadingActivitySlots,
+  applyChatMessages,
+  flushPendingAssistantMemoryStatus,
+  flushPendingAssistantStructuredContent,
+  handleChatMessageChange,
+  getFormDraft,
+  submitChatForm,
+} = useChatMessagePipeline({
+  chatbotRef,
+  isChatResponding,
+})
+const {
   configVisible,
-  agentManageVisible,
-  mobileAgentEditorVisible,
   mobileModelEditorVisible,
   desktopModelEditorVisible,
-  sessionRobotVisible,
-  memoryVisible,
-  savingConfig,
-  savingMobileAgent,
   savingMobileModel,
   savingDesktopModel,
   loadingModels,
-  testingConnection,
-  chatbotRef,
-  chatSenderProps,
-  chatbotRuntimeKey,
-  sessionId,
-  sessionHistory,
-  deletingSessionId,
-  robotTemplates,
-  selectedNewChatRobotId,
-  editingAgentId,
-  agentEditorStep,
-  mobileAgentEditorMode,
+  mobileModelEditorMode,
   desktopModelEditorMode,
-  isEditingAgentDraft,
-  submittedForms,
-  isChatResponding,
-  modelConfigs,
-  editingConfigId,
   activeModelConfigId,
-  editingConfig,
+  streamEnabled,
+  thinkingEnabled,
+  modelConfigs,
   modelOptionsMap,
-  sessionRobotDraft,
-  sessionMemoryDraft,
-  mobileAgentDraft,
   mobileModelDraft,
   desktopModelDraft,
   mobileModelTagsInput,
   desktopModelTagsInput,
-  currentRobotLabel,
+  activeModelConfig,
   currentModelLabel,
-  sessionPromptTokens,
-  sessionCompletionTokens,
-  promptTokenAnimation,
-  promptTokenAnimationStart,
-  completionTokenAnimation,
-  completionTokenAnimationStart,
-  effectiveStream,
-  effectiveThinking,
   showStreamToggle,
   showThinkingToggle,
-  formActivitySlots,
-  loadingActivitySlots,
-  editingModelOptions,
-  temperatureValue,
+  effectiveStream,
+  effectiveThinking,
   mobileModelTemperatureValue,
   desktopModelTemperatureValue,
-  agentCardActionOptions,
-  modelCardActionOptions,
-  mobileModelEditorMode,
-  memoryUpdatedLabel,
-  memoryDisplayCategories,
-  structuredMemoryRecordCount,
-  currentMemorySchema,
-  currentStructuredMemory,
-  providerOptions,
-  chatMessageProps,
-  chatServiceConfig,
-  handleChatMessageChange,
-  getFormDraft,
-  submitChatForm,
-  switchStream,
-  switchThinking,
-  refreshEditingModels,
-  handleTestConnection,
-  handleProviderChange,
-  saveAllModelConfigs,
+  applyModelConfigs,
+  loadCapabilities,
   openConfigDialog,
-  selectEditingConfig,
-  setActiveModel,
+  openMobileModelCreateDialog,
+  openDesktopModelCreateDialog,
+  handleMobileModelProviderChange,
+  handleDesktopModelProviderChange,
+  refreshMobileModelOptions,
+  refreshDesktopModelOptions,
+  handleMobileModelCardAction,
+  handleDesktopModelCardAction,
+  saveMobileModel,
+  saveDesktopModel,
   setActiveModelAndClose,
-  removeModelConfig,
-  addModelConfig,
+} = useChatModelManager({
+  createModelConfig,
+  normalizeModelTags,
+  defaultModelConfigs: DEFAULT_MODEL_CONFIGS,
+  onSyncCurrentSessionMeta: syncCurrentSessionMeta,
+})
+const {
+  agentManageVisible,
+  mobileAgentEditorVisible,
+  savingMobileAgent,
+  robotTemplates,
+  selectedNewChatRobotId,
+  agentEditorStep,
+  mobileAgentDraft,
+  selectedNewChatRobot,
+  isEditingAgentDraft,
+  cloneNumericComputationItems,
+  addNumericComputationItem,
+  removeNumericComputationItem,
+  validateNumericComputationItems,
+  loadRobotTemplates,
+  openAgentManageDialog,
   addAgentTemplate,
   openMobileAgentCreateDialog,
   openMobileAgentEditDialog,
   nextAgentEditorStep,
   previousAgentEditorStep,
-  skipAgentStructureSetup,
-  addNumericComputationItem,
-  removeNumericComputationItem,
-  openMobileModelCreateDialog,
-  openMobileModelEditDialog,
-  openDesktopModelCreateDialog,
-  openDesktopModelEditDialog,
-  handleDesktopModelProviderChange,
-  refreshDesktopModelOptions,
-  handleDesktopModelTestConnection,
-  handleMobileModelProviderChange,
-  refreshMobileModelOptions,
-  handleMobileModelTestConnection,
   handleAgentCardAction,
-  handleMobileModelCardAction,
-  handleDesktopModelCardAction,
-  removeMobileAgent,
-  removeMobileModel,
-  removeDesktopModel,
   saveMobileAgent,
-  saveMobileModel,
-  saveDesktopModel,
+  skipAgentStructureSetup,
+} = useChatRobotManager({
+  defaultStructuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+  defaultStructuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+  defaultMemorySchema: DEFAULT_MEMORY_SCHEMA,
+  normalizeMemorySchema,
+  createNumericComputationItem,
+})
+const {
+  sessionId,
+  sessionHistory,
+  deletingSessionId,
+  createSessionId,
+  getStoredActiveSessionId,
+  storeActiveSessionId,
+  refreshSessionHistory,
+  openHistorySession: openHistorySessionRecord,
+  handleDeleteSession: handleDeleteSessionRecord,
+} = useChatSession({
+  onHydrateSession: hydrateSession,
+  onCreateNewChat: () => createNewChat(),
+})
+const {
+  sessionRobotVisible,
+  memoryVisible,
+  currentSessionMemory,
+  currentMemorySchema,
+  sessionRobot,
+  sessionRobotDraft,
+  sessionMemoryDraft,
+  currentRobotLabel,
+  memoryUpdatedLabel,
+  memoryDisplayCategories,
+  structuredMemoryRecordCount,
+  sessionPromptTokens,
+  sessionCompletionTokens,
+  applySessionMemory,
+  applyStructuredMemory,
+  applyMemorySchema,
+  applySessionUsage,
+  openMemoryDialog,
   openSessionRobotDialog,
   applySessionRobot,
-  openMemoryDialog,
   applySessionMemorySettings,
+} = useChatSessionStateManager({
+  cloneNumericComputationItems,
+  validateNumericComputationItems,
+  onSyncCurrentSessionMeta: syncCurrentSessionMeta,
+})
+const {
+  refreshCurrentSessionState: refreshCurrentSessionStateFromLifecycle,
+  syncCurrentSessionMeta: syncCurrentSessionMetaFromLifecycle,
+  hydrateSession: hydrateSessionFromLifecycle,
+  createNewChat: createNewChatFromLifecycle,
+} = useChatSessionLifecycle({
+  sessionId,
+  createSessionId,
+  storeActiveSessionId,
+  refreshSessionHistory,
+  sessionRobot,
+  currentSessionMemory,
+  currentMemorySchema,
+  activeModelConfig,
+  currentModelLabel,
+  activeModelConfigId,
+  modelConfigs,
+  cloneNumericComputationItems,
+  applySessionMemory,
+  applyMemorySchema,
+  applyStructuredMemory,
+  applySessionUsage,
+  applyChatMessages,
+  loadCapabilities,
+  normalizeSessionMessages,
+  defaultStructuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+  defaultStructuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+  defaultMemorySchema: DEFAULT_MEMORY_SCHEMA,
+  defaultSessionMemory: DEFAULT_SESSION_MEMORY,
+  defaultStructuredMemory: DEFAULT_STRUCTURED_MEMORY,
+  defaultSessionUsage: DEFAULT_SESSION_USAGE,
+})
+bindLifecycle({
+  refreshCurrentSessionState: refreshCurrentSessionStateFromLifecycle,
+  syncCurrentSessionMeta: syncCurrentSessionMetaFromLifecycle,
+  hydrateSession: hydrateSessionFromLifecycle,
+  createNewChat: createNewChatFromLifecycle,
+})
+const {
+  isMobile,
+  sidebarDrawerVisible,
+  newChatVisible,
   confirmStartNewChat,
   handleNewChatEntry,
   handleGoToRobotPage,
+  switchStream,
+  switchThinking,
   openHistorySession,
   handleDeleteSession,
-  isMobile,
-} = useChatView()
+  syncViewportMode,
+} = useChatViewUiController({
+  mobileBreakpoint: MOBILE_BREAKPOINT,
+  robotTemplates,
+  selectedNewChatRobotId,
+  selectedNewChatRobot,
+  showStreamToggle,
+  showThinkingToggle,
+  streamEnabled,
+  thinkingEnabled,
+  onCreateNewChat: createNewChat,
+  onOpenAgentManageDialog: openAgentManageDialog,
+  onOpenHistorySession: openHistorySessionRecord,
+  onDeleteSession: handleDeleteSessionRecord,
+})
+const { isLoaded: isAuthLoaded, isSignedIn } = useAuth()
+
+function initDebug(message: string, extra?: Record<string, unknown>) {
+  console.debug('[chat-init]', message, extra || {})
+}
+const { hasInitializedAgent, ensureAgentInitialized } = useChatInitializer({
+  routeName: () => String(route.name || ''),
+  isAuthLoaded,
+  isSignedIn,
+  sessionHistory,
+  getStoredActiveSessionId,
+  initDebug,
+  applyModelConfigs,
+  loadCapabilities,
+  loadRobotTemplates,
+  refreshSessionHistory,
+  hydrateSession,
+  createNewChat: () => createNewChat(),
+})
+useTokenStatisticAnimation(sessionPromptTokens, sessionCompletionTokens)
+const chatSenderProps = computed(() => ({
+  loading: isChatResponding.value,
+}))
+useChatbotRuntime({
+  chatbotRef,
+  isChatResponding,
+  pendingChatMessages,
+  applyChatMessages,
+})
+const chatbotRuntimeKey = computed(() => `${chatInstanceKey.value}`)
+const { chatMessageProps, agentCardActionOptions, modelCardActionOptions } =
+  useChatViewPresentation({
+    chatbotRef,
+    isChatResponding,
+    assistantAvatar: computed(() => sessionRobot.avatar),
+  })
+
+function finalizeChatResponse(options?: { refreshSession?: boolean }) {
+  isChatResponding.value = false
+  currentAssistantLoadingText.value = ''
+  currentMemoryStatusText.value = ''
+  pendingAssistantMemoryStatus.value = null
+  flushPendingAssistantStructuredContent()
+  applyChatMessages(chatMessages.value)
+  if (options?.refreshSession) {
+    refreshCurrentSessionState().catch(() => {})
+    refreshSessionHistory().catch(() => {})
+  }
+}
+const { chatServiceConfig } = useChatStreaming({
+  sessionId,
+  activeModelConfig,
+  currentModelLabel,
+  sessionRobot,
+  effectiveStream,
+  effectiveThinking,
+  cloneNumericComputationItems,
+  applySessionUsage,
+  applyStructuredMemory,
+  finalizeChatResponse,
+  currentAssistantLoadingText,
+  currentMemoryStatusText,
+  pendingAssistantSuggestions,
+  pendingAssistantForm,
+  pendingAssistantMemoryStatus,
+  chatMessages,
+  applyChatMessages,
+  flushPendingAssistantStructuredContent,
+  flushPendingAssistantMemoryStatus,
+})
+useChatViewBootstrap({
+  activePrimaryTab,
+  isAuthLoaded,
+  isSignedIn,
+  hasInitializedAgent,
+  ensureAgentInitialized,
+  syncViewportMode,
+  initDebug,
+  routeName: () => String(route.name || ''),
+})
 </script>
 
 <style src="./ChatView.css"></style>

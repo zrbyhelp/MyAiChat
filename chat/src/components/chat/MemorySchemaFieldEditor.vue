@@ -104,7 +104,7 @@ import {
   Select as TSelect,
 } from 'tdesign-vue-next'
 
-import type { MemoryFieldType, MemorySchemaField, MemorySchemaOption } from '@/types/ai'
+import type { MemorySchemaField, MemorySchemaOption } from '@/types/ai'
 
 defineOptions({ name: 'MemorySchemaFieldEditor' })
 
@@ -157,21 +157,6 @@ function buildChildren(field: MemorySchemaField): FieldTreeRow[] | undefined {
   }
 
   return undefined
-}
-
-function createField(type: MemoryFieldType = 'text'): MemorySchemaField {
-  return {
-    id: `field-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    name: '',
-    label: '',
-    type,
-    required: false,
-    options: [],
-    fields: [],
-    itemType: 'text',
-    itemOptions: [],
-    itemFields: [],
-  }
 }
 
 function removeFieldById(fieldId: string) {
