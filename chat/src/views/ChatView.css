@@ -1,5 +1,4 @@
 .main {
-  height: 100vh;
   background-color: #f5f5f5;
   display: flex;
   flex-direction: row;
@@ -361,7 +360,9 @@
 }
 
 @keyframes chat-loading-bounce {
-  0%, 80%, 100% {
+  0%,
+  80%,
+  100% {
     opacity: 0.35;
     transform: translateY(0) scale(0.9);
   }
@@ -554,7 +555,6 @@
   color: #9ca3af;
   cursor: pointer;
 }
-
 
 .agent-manage-layout {
   grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
@@ -862,8 +862,6 @@
   .chat-container {
     padding: 0 12px calc(68px + env(safe-area-inset-bottom));
   }
-
-
 
   .chatbot {
     max-width: none;

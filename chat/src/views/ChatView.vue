@@ -1,5 +1,5 @@
 <template>
-  <div class="main">
+  <div class="main" :style="mainStyle">
     <PrimaryNav v-model="activePrimaryTab" />
     <template v-if="activePrimaryTab === 'agent'">
       <div class="mess-list">
@@ -333,10 +333,16 @@ import {
 import type { ChatbotInstance } from '@/hooks/chat-view/useChatView.types'
 import { useChatSession } from '@/hooks/useChatSession'
 import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
+import { useWindowSize } from '@/hooks/useWindowSize'
 
 const router = useRouter()
 const route = useRoute()
 const MOBILE_BREAKPOINT = 768
+const { width: windowWidth, height: windowHeight } = useWindowSize()
+const mainStyle = computed(() => ({
+  width: windowWidth.value > 0 ? `${windowWidth.value}px` : '100vw',
+  height: windowHeight.value > 0 ? `${windowHeight.value}px` : '100vh',
+}))
 
 const providerOptions = PROVIDER_OPTIONS
 const {
@@ -553,7 +559,6 @@ const {
   switchThinking,
   openHistorySession,
   handleDeleteSession,
-  syncViewportMode,
 } = useChatViewUiController({
   mobileBreakpoint: MOBILE_BREAKPOINT,
   robotTemplates,
@@ -642,7 +647,6 @@ useChatViewBootstrap({
   isSignedIn,
   hasInitializedAgent,
   ensureAgentInitialized,
-  syncViewportMode,
   initDebug,
   routeName: () => String(route.name || ''),
 })
