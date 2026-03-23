@@ -1,44 +1,28 @@
 <p align="right">
-  <a href="./README.md">English</a> |
-  <a href="./README.zh-CN.md">中文</a>
+  <a href="./README.zh-CN.md">中文</a> |
+  <a href="./README.en.md">English</a>
 </p>
 
-[English README](./README.md) | [中文 README](./README.zh-CN.md)
+<p align="center">
+  <img src="./image/myaichatlogo.png" alt="myaichat" width="480" />
+</p>
 
-# myaichat
+# MyAiChat
 
-`myaichat` 是一个基于 `Vue 3 + Node.js + Python LangGraph` 的 AI 聊天项目。
+`MyAiChat` 是一个面向聊天产品场景的三服务 AI 对话系统，技术栈为：
 
-当前版本采用三服务架构：
+- 前端：Vue 3 + Vite + TDesign Chat
+- 业务网关：Node.js + Express
+- 智能体：Python FastAPI + LangGraph
 
-- `chat/`：Vue 3 + Vite 前端
-- `main/`：Node.js + Express 业务网关，负责 Clerk 鉴权、会话/模型配置/智能体管理、SSE 收口
-- `agent/`：Python + FastAPI + LangGraph 智能体服务，负责多智能体编排、结构化记忆、工具调用、OpenAI-compatible 模型接入
+当前版本重点能力：
 
-## 当前能力
-
-- Clerk 登录鉴权
-- 会话、模型配置、智能体按用户隔离
+- Clerk 登录鉴权与用户级数据隔离
 - OpenAI-compatible 模型接入
-- LangGraph 多智能体执行链路
-- 动态结构化记忆 schema
-- 会话级结构化记忆参数控制
-- 模型配置描述与标签
-- Web 工具：搜索与 URL 抓取
-- `file` / `mysql` 两种持久化模式
-
-## 当前进展
-
-结合 [TASK_CHECKLIST.md](./TASK_CHECKLIST.md) 与当前代码，近期已落地的重点如下：
-
-- 已完成用户登录后的数据隔离
-- 前端页面已完成一轮重构，覆盖聊天页、会话列表、模型配置、智能体配置、结构化记忆展示
-- “机器人”命名已统一调整为“智能体”
-- 已支持 Clerk 登录鉴权与受保护业务接口
-- 已支持结构化记忆 schema 编辑、树状查看与会话级记忆配置
-- 已支持模型配置的描述、标签、温度与当前模型切换
-
-## 目前进度
+- SSE 流式聊天
+- 多智能体协作（moderator / researcher / numeric / answerer / ui / memory）
+- 动态结构化记忆（Schema 可配置）
+- `file` / `mysql` 双存储驱动
 
 ### 桌面端
 
@@ -94,28 +78,78 @@
   </table>
 </div>
 
-## 项目结构
+## 目录
 
-- `chat/`：Vue 3 + Vite 前端
-- `main/`：Node.js + Express 后端网关
-- `agent/`：Python FastAPI + LangGraph 智能体服务
-- `docker-compose.yml`：完整 Docker 启动配置
-- `DATABASE_DOCKER_SETUP.zh-CN.md`：MySQL Docker 说明
-- `TASK_CHECKLIST*.md`：任务清单与路线图
+- [1. 架构总览](#1-架构总览)
+- [2. 项目结构](#2-项目结构)
+- [3. 运行要求](#3-运行要求)
+- [4. 本地开发（推荐）](#4-本地开发推荐)
+- [5. Docker 启动](#5-docker-启动)
+- [6. 配置项说明](#6-配置项说明)
+- [7. API 清单（main）](#7-api-清单main)
+- [8. 流式事件协议（SSE）](#8-流式事件协议sse)
+- [9. 数据存储与迁移](#9-数据存储与迁移)
+- [10. 开发脚本](#10-开发脚本)
+- [11. 调试建议](#11-调试建议)
+- [12. 常见问题](#12-常见问题)
+- [13. 相关文档](#13-相关文档)
 
-## 环境要求
+## 1. 架构总览
 
-- Node.js `20.19.0+` 或 `22.12.0+`
-- pnpm
-- Python `3.12+`
-- Docker Desktop 或 Docker Engine
-- 一个已配置好 `GitHub / Google / Email` 登录方式的 Clerk 应用
+系统由 3 个服务组成：
 
-## 快速开始
+1. `chat/`：前端 UI 与会话交互
+2. `main/`：鉴权、数据读写、模型管理、SSE 汇聚
+3. `agent/`：LangGraph 智能体执行与状态持久化
 
-### 1. 根目录环境变量
+请求主链路（流式聊天）：
 
-根据根目录 `.env.example` 创建 `.env`：
+1. 前端请求 `POST /api/chat/stream`
+2. `main` 转发到 `agent` 的 `POST /runs/stream`
+3. `agent` 返回事件流
+4. `main` 做事件归一化后，通过 SSE 回推给前端
+5. 前端按事件更新消息、工具状态、结构化内容和统计
+
+## 2. 项目结构
+
+```text
+.
+├─ chat/                            # Vue 3 前端
+│  ├─ src/views/ChatView.vue
+│  ├─ src/hooks/chat-view/
+│  └─ package.json
+├─ main/                            # Express 网关
+│  ├─ src/app.mjs                   # API 路由入口
+│  ├─ src/chat-service.mjs          # 聊天与流式事件桥接
+│  ├─ src/storage*.mjs              # file/mysql 存储实现
+│  ├─ src/migrations/               # MySQL 迁移脚本
+│  └─ package.json
+├─ agent/                           # FastAPI + LangGraph
+│  ├─ app/main.py                   # /health, /runs/stream
+│  ├─ app/graph.py                  # 多智能体图
+│  ├─ app/persistence.py            # file/mysql 持久化
+│  └─ requirements.txt
+├─ docker-compose.yml
+├─ .env.example
+├─ README.en.md
+├─ README.zh-CN.md
+└─ TASK_CHECKLIST*.md
+```
+
+## 3. 运行要求
+
+- Node.js：`^20.19.0` 或 `>=22.12.0`
+- 前端包管理：`pnpm`
+- 后端包管理：`npm`
+- Python：`3.12+`
+- Docker（可选）
+- Clerk 应用（必须）
+
+## 4. 本地开发（推荐）
+
+### 4.1 准备环境变量
+
+#### 根目录 `.env`（参考 `.env.example`）
 
 ```env
 MYSQL_ROOT_PASSWORD=rootpassword
@@ -132,15 +166,15 @@ CHAT_PORT=8080
 AGENT_SERVICE_URL=http://agent:8000
 ```
 
-### 2. 子项目环境变量
+#### `main/.env`（参考 `main/.env.example`）
 
-`main/.env`：
+本地直连 agent 时建议：
 
 ```env
 PORT=3000
 STORAGE_DRIVER=file
-CLERK_SECRET_KEY=sk_test_your_clerk_secret_key
-CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+CLERK_SECRET_KEY=sk_test_...
+CLERK_PUBLISHABLE_KEY=pk_test_...
 AGENT_SERVICE_URL=http://127.0.0.1:8000
 
 DB_HOST=127.0.0.1
@@ -151,266 +185,277 @@ DB_PASSWORD=myaichat
 DB_LOGGING=false
 ```
 
-`chat/.env`：
+#### `chat/.env`（参考 `chat/.env.example`）
 
 ```env
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
 ```
 
-## 本地开发启动
+### 4.2 安装依赖
 
-### 模式一：本地文件存储
-
-这是当前最省事的开发方式，不依赖 MySQL。
-
-先安装依赖：
-
-```powershell
-cd main
-npm install
-
-cd ..\chat
-pnpm install
-
-cd ..\agent
-python -m pip install -r requirements.txt --user
+```bash
+cd main && npm install
+cd ../chat && pnpm install
+cd ../agent && python -m pip install -r requirements.txt
 ```
 
-然后分别开 3 个终端：
+### 4.3 启动方式（file 存储）
 
-终端 1，启动 `agent`：
+终端 A（agent）：
 
-```powershell
+```bash
 cd agent
-$env:AGENT_STORAGE_DRIVER="file"
-$env:AGENT_FILE_STORE_DIR="$PWD\.state"
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+AGENT_STORAGE_DRIVER=file AGENT_FILE_STORE_DIR="$PWD/.state" uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-终端 2，启动 `main`：
+终端 B（main）：
 
-```powershell
+```bash
 cd main
 npm run dev
 ```
 
-终端 3，启动 `chat`：
+终端 C（chat）：
 
-```powershell
+```bash
 cd chat
 pnpm dev
 ```
 
-默认访问地址：
+访问：
 
-- 前端：`http://localhost:5173`
-- 主后端：`http://127.0.0.1:3000`
-- Agent：`http://127.0.0.1:8000`
+- chat：`http://localhost:5173`
+- main：`http://127.0.0.1:3000`
+- agent：`http://127.0.0.1:8000`
 
-本地开发建议让 `agent` 使用 `--reload` 热加载；如果是 Docker 容器开发模式，可额外设置：
+### 4.4 启动方式（mysql 存储）
 
-```env
-AGENT_RELOAD=true
+1. 先确保 MySQL 可连通
+2. `main/.env` 设置 `STORAGE_DRIVER=mysql`
+3. agent 启动时设置 `AGENT_STORAGE_DRIVER=mysql`
+
+```bash
+cd agent
+AGENT_STORAGE_DRIVER=mysql DB_HOST=127.0.0.1 DB_PORT=3306 DB_NAME=myaichat DB_USER=myaichat DB_PASSWORD=myaichat uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-文件模式下：
+## 5. Docker 启动
 
-- `main` 数据写入 `main/data/*.json`
-- `agent` thread/checkpoint 写入 `agent/.state/`
-
-### 模式二：本地 MySQL 存储
-
-如果希望本地联调时使用 MySQL：
-
-1. 启动 MySQL
-2. 把 `main/.env` 中 `STORAGE_DRIVER` 改为 `mysql`
-3. 启动 `agent` 时设置：
-
-```powershell
-$env:AGENT_STORAGE_DRIVER="mysql"
-$env:DB_HOST="127.0.0.1"
-$env:DB_PORT="3306"
-$env:DB_NAME="myaichat"
-$env:DB_USER="myaichat"
-$env:DB_PASSWORD="myaichat"
-```
-
-4. 再按三终端方式启动 `agent`、`main`、`chat`
-
-在这个模式下：
-
-- `main` 使用 Sequelize 管理业务表与迁移
-- `agent` 使用 MySQL 保存线程状态和结构化记忆
-
-## Docker 启动
-
-Docker Compose 默认使用 MySQL。
-
-```powershell
+```bash
 docker compose up --build
 ```
 
-默认地址：
+默认端口：
 
-- 前端：`http://127.0.0.1:8080`
-- 主后端：`http://127.0.0.1:3000`
-- Agent：容器内 `http://agent:8000`
-- MySQL：`127.0.0.1:3306`
+- chat：`http://127.0.0.1:8080`
+- main：`http://127.0.0.1:3000`
+- mysql：`127.0.0.1:3306`
 
-`docker-compose.yml` 当前包含：
+Compose 中默认行为：
 
-- `mysql`
-- `agent`
-- `main`
-- `chat`
+- `main`：`STORAGE_DRIVER=mysql`
+- `agent`：`AGENT_STORAGE_DRIVER=mysql`
+- `chat`：构建时注入 `VITE_CLERK_PUBLISHABLE_KEY`
 
-## 模型配置
+## 6. 配置项说明
 
-当前仅支持 `OpenAI-compatible` 配置语义，不再区分 `provider`。
+### 6.1 通用配置
 
-需要配置的字段：
+- `PORT`：main 监听端口
+- `CHAT_PORT`：chat 对外端口（Docker）
+- `AGENT_SERVICE_URL`：main -> agent 地址
 
-- `baseUrl`
-- `apiKey`
-- `model`
-- `temperature`
-- `description`
-- `tags`
+### 6.2 main 配置
 
-例如：
+- `STORAGE_DRIVER`：`file` / `mysql`
+- `DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD`
+- `DB_LOGGING=true` 可打开 Sequelize SQL 日志
 
-- `baseUrl`: `https://api.deepseek.com/v1`
-- `model`: `deepseek-chat`
+### 6.3 agent 配置
 
-模型配置通过应用内“模型配置”功能保存；`agent` 在运行时从 `main` 转发的配置中读取这些参数。
+- `AGENT_STORAGE_DRIVER`：`file` / `mysql`
+- `AGENT_FILE_STORE_DIR`：file 模式路径（默认 `/tmp/myaichat-agent`）
+- `AGENT_RELOAD=true`：容器内热加载
 
-## 结构化记忆
+### 6.4 Clerk 配置
 
-`agent` 不再使用摘要式长期记忆，当前采用“智能体可配置的动态 schema”。
+- `CLERK_SECRET_KEY`：服务端校验
+- `CLERK_PUBLISHABLE_KEY`：服务端透传/兼容
+- `VITE_CLERK_PUBLISHABLE_KEY`：前端登录 SDK 使用
 
-当前行为：
+## 7. API 清单（main）
 
-- 每个智能体模板都可以定义自己的 `memorySchema`
-- 新会话会复制当前智能体的 schema 作为会话快照
-- 会话可单独配置结构化记忆处理间隔与历史消息条数
-- `agent` 会按 `structuredMemoryInterval` 在指定用户轮次触发结构化记忆整理
-- `structuredMemoryHistoryLimit` 用于限制结构化记忆与回答阶段看到的历史消息窗口
-- 后端会按当前 schema 做字段过滤、类型归一化和保底合并
-- 前端当前以树状结构只读展示最终记忆
+来源：`main/src/app.mjs`
 
-默认模板仍然内置了这些示例分类：
+### 7.1 模型配置
 
-- `preferences`：用户偏好、风格、长期约束
-- `facts`：稳定事实、背景信息、环境上下文
-- `tasks`：目标、进展、待办、阻塞项
+- `GET /api/model-configs`
+- `POST /api/model-configs`
+- `POST /api/model-configs/test`
 
-但这些只是默认值，不再是唯一支持的结构。
+兼容旧接口：
 
-### 当前多智能体
+- `GET /api/model-config`
+- `POST /api/model-config`
+- `POST /api/model-config/test`
 
-当前固定角色如下：
+### 7.2 会话
 
-- `moderator`：判断是否需要联网，并产出搜索词与简短说明
-- `researcher`：执行 Web 搜索与 URL 抓取
-- `answerer`：综合结构化记忆和历史消息生成最终中文内容
-- `memory`：在回复后整理并合并结构化记忆
+- `GET /api/sessions`
+- `POST /api/sessions`
+- `GET /api/sessions/:id`
+- `DELETE /api/sessions/:id`
+- `POST /api/sessions/:id/delete`（兼容）
 
-当前 `answerer` 固定追加提示词为：
+### 7.3 智能体
 
-```text
-你是多智能体系统中面向用户输出的 answerer。
-请综合结构化记忆、历史消息，直接给出中文内容。
+- `GET /api/robots`
+- `POST /api/robots`
+
+### 7.4 模型能力
+
+- `GET /api/models`
+- `GET /api/capabilities`
+
+### 7.5 聊天
+
+- `POST /api/chat`（非流式）
+- `POST /api/chat/stream`（SSE 流式）
+
+## 8. 流式事件协议（SSE）
+
+`main/src/chat-service.mjs` 会把 agent 事件归一化为前端消费事件。
+
+### 8.1 主要事件类型
+
+- `text`：回复文本增量
+- `ui_loading`：正在生成结构化 UI（建议/表单）
+- `suggestion`：建议项列表
+- `form`：结构化表单
+- `memory_status`：记忆阶段状态
+- `structured_memory`：结构化记忆更新
+- `tool_status`：工具调用/工具结果状态
+- `numeric_state_updated`：数值状态更新
+- `usage`：token 使用量
+- `done`：流式完成
+- `error`：流式异常
+
+### 8.2 前端处理位置
+
+- `chat/src/hooks/chat-view/useChatStreaming.ts`
+- `chat/src/hooks/chat-view/useChatbotRuntime.ts`
+- `chat/src/hooks/chat-view/useChatMessagePipeline.ts`
+
+## 9. 数据存储与迁移
+
+### 9.1 main 存储驱动
+
+- `file`：基于文件存储
+- `mysql`：Sequelize + MySQL
+
+驱动选择逻辑：`main/src/database-config.mjs`
+
+### 9.2 main 迁移
+
+迁移脚本位于：`main/src/migrations/`
+
+执行命令：
+
+```bash
+cd main
+npm run migrate
 ```
 
-`researcher` 当前是工具执行节点，不是单独的 LLM 提示词角色。
+### 9.3 agent 持久化
 
-### Memory Agent 日志
+- `file`：按线程 ID 存为 JSON 文件
+- `mysql`：表 `agent_threads`
 
-开发排查时，`memory_agent` 会在 `agent` 控制台输出这些日志：
+实现位置：`agent/app/persistence.py`
 
-- `[memory-agent:raw]`：模型原始返回
-- `[memory-agent:parsed]`：解析后的 JSON
-- `[memory-agent:normalized]`：按 schema 归一化后的完整结构化记忆
-- `[memory-agent:merged]`：和旧记忆合并后的最终结果
+## 10. 开发脚本
 
-默认开启；如需关闭：
+### 10.1 chat
 
-```env
-MEMORY_AGENT_LOGGING=false
+```bash
+cd chat
+pnpm dev
+pnpm type-check
+pnpm test:unit --run
+pnpm test:e2e
+pnpm build
+pnpm lint
+pnpm spell:check
 ```
 
-## 健康检查
+### 10.2 main
 
-本地启动后可以用这些命令确认服务状态：
-
-```powershell
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:3000/api/capabilities
-curl http://127.0.0.1:5173
+```bash
+cd main
+npm run dev
+npm run start
+npm run migrate
+npm run spell:check
 ```
 
-也可以直接看端口：
+## 11. 调试建议
 
-- `8000`：agent
-- `3000`：main
-- `5173`：chat
+### 11.1 先测链路，再测业务
 
-## Windows 常见问题
+1. 访问 `GET agent /health`
+2. 访问 `GET main /api/...`（带登录）
+3. 最后验证前端流式页面
 
-### 1. `python` 或 `py` 不可用
+### 11.2 观察点
 
-如果系统装了 Windows Store 别名但没装正式 Python，常见现象是：
+- main 控制台：上游连接失败、接口错误
+- agent 控制台：智能体链路日志、数值状态输入输出
+- 浏览器网络面板：`/api/chat/stream` 的 SSE 事件序列
 
-- `python` 无法启动
-- `py` 无法启动
-- `venv` 或 `pip` 行为异常
+### 11.3 常用定位手段
 
-建议直接安装官方 `Python 3.12+`，并确认以下命令可用：
+- main 打开 `DB_LOGGING=true` 看 SQL
+- 本地先用 `file` 模式排除数据库因素
+- 仅启动 `agent + main`，用接口工具复现
 
-```powershell
-python --version
-py --version
-```
+## 12. 常见问题
 
-### 2. `npm run dev` 报 `spawn EPERM`
+### 12.1 前端 401 / 登录状态异常
 
-当前仓库里 `main` 的开发脚本已经改为直接运行：
+检查：
 
-```json
-"dev": "node server.mjs"
-```
+- `VITE_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- Clerk 应用的登录方式是否启用
 
-不要再依赖 `nodemon`。
+### 12.2 main 连不上 agent
 
-### 3. `pnpm dev` 报 `spawn EPERM`
+检查：
 
-Windows 下部分环境中，Vite 在解析网络驱动器时会触发 `net use` 调用并报错。当前仓库已经为此加了开发包装脚本：
+- `AGENT_SERVICE_URL` 是否指向正确端口
+- agent 是否已启动
+- 本地是否存在代理/防火墙拦截
 
-```json
-"dev": "node ./scripts/dev-vite.mjs --config vite.config.mjs --configLoader runner"
-```
+### 12.3 mysql 模式失败
 
-如果你修改了 `chat/package.json`，请保留这个入口。
+检查：
 
-### 4. `agent` 启动后无法真正对话
+- `DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD`
+- `main` 与 `agent` 是否都设置为 mysql 驱动
+- 是否执行了 `npm run migrate`
 
-这通常不是 Python 服务本身挂了，而是模型配置无效。至少需要一组可用的：
+### 12.4 Docker 启动后前端白屏
 
-- `baseUrl`
-- `apiKey`
-- `model`
+检查：
 
-## 相关说明
+- `VITE_CLERK_PUBLISHABLE_KEY` 是否在构建时传入
+- 浏览器控制台是否报 Clerk 初始化错误
 
-- `main/package.json` 提供了 `npm run migrate`
-- `node_modules/`、构建产物、日志和本地运行数据都已加入 Git 忽略
-- `main/data/` 是 `file` 模式的数据目录
-- `agent/.state/` 是本地 `file` 模式的 agent 状态目录
+## 13. 相关文档
 
-## 路线图
-
-详细任务清单请查看：
-
+- [README.md](./README.md)
+- [README.en.md](./README.en.md)
+- [DATABASE_DOCKER_SETUP.zh-CN.md](./DATABASE_DOCKER_SETUP.zh-CN.md)
 - [TASK_CHECKLIST.md](./TASK_CHECKLIST.md)
 - [TASK_CHECKLIST.en.md](./TASK_CHECKLIST.en.md)
 - [TASK_CHECKLIST.zh-CN.md](./TASK_CHECKLIST.zh-CN.md)
