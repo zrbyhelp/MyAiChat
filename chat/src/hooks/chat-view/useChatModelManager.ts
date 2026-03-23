@@ -2,12 +2,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, reactive, ref, watch } from 'vue'
 
 import { getCapabilities, saveModelConfigs, testModelConnection } from '@/lib/api'
-import type {
-  AIModelConfigItem,
-  ModelCapabilities,
-  ModelOption,
-  ProviderType,
-} from '@/types/ai'
+import type { AIModelConfigItem, ModelCapabilities, ModelOption, ProviderType } from '@/types/ai'
 
 interface UseChatModelManagerOptions {
   createModelConfig: (provider?: ProviderType, index?: number) => AIModelConfigItem
@@ -34,6 +29,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   const activeModelConfigId = ref('')
 
   const streamEnabled = ref(true)
+  const streamEnabledByModelId = ref<Record<string, boolean>>({})
   const thinkingEnabled = ref(false)
   const capabilities = ref<ModelCapabilities>({
     supportsStreaming: true,
@@ -85,13 +81,16 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
       desktopModelDraft.temperature = typeof value === 'number' ? value : null
     },
   })
+  const mobileDraftStreamEnabled = computed(
+    () => streamEnabledByModelId.value[mobileModelDraft.id] ?? true,
+  )
+  const desktopDraftStreamEnabled = computed(
+    () => streamEnabledByModelId.value[desktopModelDraft.id] ?? true,
+  )
 
   watch(
     capabilities,
     (value) => {
-      if (!value.supportsStreaming) {
-        streamEnabled.value = false
-      }
       if (!value.supportsReasoning) {
         thinkingEnabled.value = false
       }
@@ -125,13 +124,19 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   }
 
   function applyModelConfigs(configs: AIModelConfigItem[], activeId: string) {
-    const normalized = (configs.length ? configs : [options.createModelConfig()]).map((item, index) => ({
-      ...item,
-      name: String(item.name || `模型配置 ${index + 1}`),
-      description: String(item.description || '').trim(),
-      tags: options.normalizeModelTags(item.tags),
-    }))
+    const normalized = (configs.length ? configs : [options.createModelConfig()]).map(
+      (item, index) => ({
+        ...item,
+        name: String(item.name || `模型配置 ${index + 1}`),
+        description: String(item.description || '').trim(),
+        tags: options.normalizeModelTags(item.tags),
+      }),
+    )
     modelConfigs.value = normalized
+    streamEnabledByModelId.value = normalized.reduce<Record<string, boolean>>((acc, item) => {
+      acc[item.id] = streamEnabledByModelId.value[item.id] ?? true
+      return acc
+    }, {})
     activeModelConfigId.value = normalized.some((item) => item.id === activeId)
       ? activeId
       : normalized[0]!.id
@@ -140,6 +145,28 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     editingConfigId.value = editingTarget.id
     syncEditingConfig(editingTarget)
   }
+
+  watch(
+    activeModelConfigId,
+    (value) => {
+      if (!value) {
+        return
+      }
+      streamEnabled.value = streamEnabledByModelId.value[value] ?? true
+    },
+    { immediate: true },
+  )
+
+  watch(streamEnabled, (value) => {
+    const currentId = activeModelConfigId.value
+    if (!currentId) {
+      return
+    }
+    streamEnabledByModelId.value = {
+      ...streamEnabledByModelId.value,
+      [currentId]: value,
+    }
+  })
 
   async function loadCapabilities() {
     const current = activeModelConfig.value
@@ -293,6 +320,29 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     configVisible.value = false
   }
 
+  function setModelStreamEnabled(modelId: string, value: boolean) {
+    if (!modelId) {
+      return
+    }
+    streamEnabledByModelId.value = {
+      ...streamEnabledByModelId.value,
+      [modelId]: value,
+    }
+    if (activeModelConfigId.value === modelId) {
+      streamEnabled.value = value
+    }
+  }
+
+  function toggleMobileDraftStreamEnabled() {
+    const modelId = mobileModelDraft.id
+    setModelStreamEnabled(modelId, !mobileDraftStreamEnabled.value)
+  }
+
+  function toggleDesktopDraftStreamEnabled() {
+    const modelId = desktopModelDraft.id
+    setModelStreamEnabled(modelId, !desktopDraftStreamEnabled.value)
+  }
+
   function openConfigDialog() {
     if (!modelConfigs.value.length) {
       addModelConfig()
@@ -339,7 +389,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     }
   }
 
-  function handleProviderChange(_value: unknown) {
+  function handleProviderChange() {
     const nextProvider: ProviderType = 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     editingConfig.provider = nextProvider
@@ -402,7 +452,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     }
   }
 
-  function handleMobileModelProviderChange(_value: unknown) {
+  function handleMobileModelProviderChange() {
     const nextProvider: ProviderType = 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     mobileModelDraft.provider = nextProvider
@@ -416,7 +466,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     }
   }
 
-  function handleDesktopModelProviderChange(_value: unknown) {
+  function handleDesktopModelProviderChange() {
     const nextProvider: ProviderType = 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     desktopModelDraft.provider = nextProvider
@@ -527,7 +577,9 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
       }
       const nextConfigs =
         mobileModelEditorMode.value === 'edit'
-          ? modelConfigs.value.map((item) => (item.id === editingMobileModelId.value ? nextConfig : item))
+          ? modelConfigs.value.map((item) =>
+              item.id === editingMobileModelId.value ? nextConfig : item,
+            )
           : [...modelConfigs.value, nextConfig]
 
       await persistModelConfigs(
@@ -548,7 +600,9 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     try {
       const nextConfigs = modelConfigs.value.filter((item) => item.id !== configId)
       const nextActiveModelId =
-        activeModelConfigId.value === configId ? nextConfigs[0]?.id || options.createModelConfig().id : activeModelConfigId.value
+        activeModelConfigId.value === configId
+          ? nextConfigs[0]?.id || options.createModelConfig().id
+          : activeModelConfigId.value
       await persistModelConfigs(nextConfigs, nextActiveModelId, '模型配置已删除')
     } catch (error) {
       MessagePlugin.error(error instanceof Error ? error.message : '删除模型配置失败')
@@ -664,6 +718,10 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     showThinkingToggle,
     effectiveStream,
     effectiveThinking,
+    mobileDraftStreamEnabled,
+    desktopDraftStreamEnabled,
+    toggleMobileDraftStreamEnabled,
+    toggleDesktopDraftStreamEnabled,
     editingModelOptions,
     temperatureValue,
     mobileModelTemperatureValue,

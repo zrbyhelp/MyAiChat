@@ -143,18 +143,6 @@
             <template #sender-footer-prefix>
               <TSpace align="center" size="small" class="sender-footer-actions">
                 <TButton
-                  v-if="showStreamToggle"
-                  shape="round"
-                  variant="outline"
-                  :theme="effectiveStream ? 'primary' : 'default'"
-                  @click="switchStream"
-                >
-                  <template #icon>
-                    <OrderIcon />
-                  </template>
-                  <span class="footer-button-label">流式传输</span>
-                </TButton>
-                <TButton
                   v-if="showThinkingToggle"
                   shape="round"
                   variant="outline"
@@ -249,6 +237,8 @@
     :saving-mobile-model="savingMobileModel"
     :saving-desktop-model="savingDesktopModel"
     :loading-models="loadingModels"
+    :mobile-draft-stream-enabled="mobileDraftStreamEnabled"
+    :desktop-draft-stream-enabled="desktopDraftStreamEnabled"
     @update:mobile-model-tags-input="(value) => (mobileModelTagsInput = value)"
     @update:desktop-model-tags-input="(value) => (desktopModelTagsInput = value)"
     @update:mobile-model-temperature-value="(value) => (mobileModelTemperatureValue = value)"
@@ -264,6 +254,8 @@
     @handle-desktop-model-card-action="handleDesktopModelCardAction"
     @save-mobile-model="saveMobileModel"
     @save-desktop-model="saveDesktopModel"
+    @toggle-mobile-model-stream="toggleMobileDraftStreamEnabled"
+    @toggle-desktop-model-stream="toggleDesktopDraftStreamEnabled"
   />
 
   <ChatSessionDomain
@@ -297,12 +289,7 @@ import {
   Select as TSelect,
   Space as TSpace,
 } from 'tdesign-vue-next'
-import {
-  LightbulbIcon,
-  MenuIcon,
-  OrderIcon,
-  SettingIcon,
-} from 'tdesign-icons-vue-next'
+import { LightbulbIcon, MenuIcon, SettingIcon } from 'tdesign-icons-vue-next'
 
 import ChatAgentPanels from '@/components/chat/ChatAgentPanels.vue'
 import ChatModelDomain from '@/components/chat/ChatModelDomain.vue'
@@ -408,7 +395,6 @@ const {
   mobileModelEditorMode,
   desktopModelEditorMode,
   activeModelConfigId,
-  streamEnabled,
   thinkingEnabled,
   modelConfigs,
   modelOptionsMap,
@@ -418,10 +404,13 @@ const {
   desktopModelTagsInput,
   activeModelConfig,
   currentModelLabel,
-  showStreamToggle,
   showThinkingToggle,
   effectiveStream,
   effectiveThinking,
+  mobileDraftStreamEnabled,
+  desktopDraftStreamEnabled,
+  toggleMobileDraftStreamEnabled,
+  toggleDesktopDraftStreamEnabled,
   mobileModelTemperatureValue,
   desktopModelTemperatureValue,
   applyModelConfigs,
@@ -561,7 +550,6 @@ const {
   confirmStartNewChat,
   handleNewChatEntry,
   handleGoToRobotPage,
-  switchStream,
   switchThinking,
   openHistorySession,
   handleDeleteSession,
@@ -571,9 +559,7 @@ const {
   robotTemplates,
   selectedNewChatRobotId,
   selectedNewChatRobot,
-  showStreamToggle,
   showThinkingToggle,
-  streamEnabled,
   thinkingEnabled,
   onCreateNewChat: createNewChat,
   onOpenAgentManageDialog: openAgentManageDialog,
