@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted, watch, type Ref } from 'vue'
+import { onMounted, watch, type Ref } from 'vue'
 
 interface UseChatViewBootstrapOptions {
   activePrimaryTab: Ref<'agent' | 'discover' | 'mine'>
@@ -6,15 +6,12 @@ interface UseChatViewBootstrapOptions {
   isSignedIn: Ref<boolean | undefined>
   hasInitializedAgent: Ref<boolean>
   ensureAgentInitialized: () => Promise<void>
-  syncViewportMode: () => void
   initDebug: (message: string, extra?: Record<string, unknown>) => void
   routeName: () => string
 }
 
 export function useChatViewBootstrap(options: UseChatViewBootstrapOptions) {
   onMounted(async () => {
-    options.syncViewportMode()
-    window.addEventListener('resize', options.syncViewportMode)
     options.initDebug('onMounted')
     await options.ensureAgentInitialized()
   })
@@ -61,10 +58,4 @@ export function useChatViewBootstrap(options: UseChatViewBootstrapOptions) {
     { immediate: true },
   )
 
-  onUnmounted(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-    window.removeEventListener('resize', options.syncViewportMode)
-  })
 }

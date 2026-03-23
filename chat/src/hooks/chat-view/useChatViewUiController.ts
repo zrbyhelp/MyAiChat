@@ -1,7 +1,8 @@
 import { MessagePlugin } from 'tdesign-vue-next'
-import { ref, type ComputedRef, type Ref } from 'vue'
+import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 import type { AIRobotCard } from '@/types/ai'
+import { useWindowSize } from '@/hooks/useWindowSize'
 
 interface UseChatViewUiControllerOptions {
   mobileBreakpoint: number
@@ -17,7 +18,8 @@ interface UseChatViewUiControllerOptions {
 }
 
 export function useChatViewUiController(options: UseChatViewUiControllerOptions) {
-  const isMobile = ref(false)
+  const { width } = useWindowSize()
+  const isMobile = computed(() => width.value <= options.mobileBreakpoint)
   const sidebarDrawerVisible = ref(false)
   const newChatVisible = ref(false)
 
@@ -68,13 +70,6 @@ export function useChatViewUiController(options: UseChatViewUiControllerOptions)
     await options.onDeleteSession(targetSessionId)
   }
 
-  function syncViewportMode() {
-    if (typeof window === 'undefined') {
-      return
-    }
-    isMobile.value = window.innerWidth <= options.mobileBreakpoint
-  }
-
   return {
     isMobile,
     sidebarDrawerVisible,
@@ -86,6 +81,5 @@ export function useChatViewUiController(options: UseChatViewUiControllerOptions)
     switchThinking,
     openHistorySession,
     handleDeleteSession,
-    syncViewportMode,
   }
 }
