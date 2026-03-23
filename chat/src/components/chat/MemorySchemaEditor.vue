@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-mutating-props -->
 <template>
   <div class="memory-schema-editor">
     <div v-if="schema.categories.length" class="memory-schema-category-list">
@@ -120,6 +121,7 @@
 </template>
 
 <script setup lang="ts">
+/* eslint-disable vue/no-mutating-props */
 import {
   Button as TButton,
   Card as TCard,
@@ -128,7 +130,6 @@ import {
   Form as TForm,
   FormItem as TFormItem,
   Input as TInput,
-  Space as TSpace,
   Tag as TTag,
   Textarea as TTextarea,
 } from 'tdesign-vue-next'
