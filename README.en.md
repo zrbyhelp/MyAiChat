@@ -1,5 +1,5 @@
 <p align="right">
-  <a href="./README.md">中文</a> |
+  <a href="./README.zh-CN.md">中文</a> |
   <a href="./README.en.md">English</a>
 </p>
 
@@ -7,305 +7,455 @@
   <img src="./image/myaichatlogo.png" alt="myaichat" width="480" />
 </p>
 
-`myaichat` is an AI conversation project centered on delivering a real messaging-style chat experience.
+# MyAiChat
 
-It is not just a question-and-answer window. The goal is to make it feel closer to a real social chat application: users can keep chatting with agents, receive proactive messages from agents, observe interactions between multiple agents, and eventually extend the system toward group chat, character relationships, scene setup, and story progression.
+`MyAiChat` is a three-service AI conversation system designed for chat-product scenarios, built with:
 
-The project is aimed at becoming a highly customizable character-and-scenario chat system with support for character setup, memory, proactive messaging, multi-character collaboration, group chat interaction, and future extensions such as vector memory, graph relationships, and visual presentation.
+- Frontend: Vue 3 + Vite + TDesign Chat
+- Gateway: Node.js + Express
+- Agent service: Python FastAPI + LangGraph
 
-The server currently supports two persistence drivers:
+Key capabilities in the current version:
 
-- `file`: stores runtime data in `main/data/*.json`
-- `mysql`: stores runtime data in MySQL through Sequelize
+- Clerk authentication with user-level data isolation
+- OpenAI-compatible model integration
+- SSE streaming chat
+- Multi-agent collaboration (moderator / researcher / numeric / answerer / ui / memory)
+- Dynamic structured memory (configurable schema)
+- Dual storage drivers: `file` / `mysql`
 
-The current version also integrates `Clerk` as the unified authentication layer:
+### Desktop Version
 
-- Supports `GitHub` sign-in
-- Supports `Google` sign-in
-- Supports `Email` sign-in
-- All business APIs require authentication
-- Sessions, character cards, model configs, and memory are isolated per user
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/z1.png" alt="一期展示 1" width="96%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/z2.png" alt="一期展示 2" width="96%" />
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/z3.png" alt="一期展示 3" width="96%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/z4.png" alt="一期展示 4" width="96%" />
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/z5.png" alt="一期展示 5" width="96%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/z6.png" alt="一期展示 6" width="96%" />
+      </td>
+    </tr>
+  </table>
+</div>
 
-## Project Introduction
+### Mobile Version
 
-The current version focuses on evolving these capabilities:
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/p1.png" alt="移动端展示 1" width="88%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/p2.png" alt="移动端展示 2" width="88%" />
+      </td>
+    </tr>
+    <tr>
+      <td align="center" width="50%">
+        <img src="./image/p3.png" alt="移动端展示 3" width="88%" />
+      </td>
+      <td align="center" width="50%">
+        <img src="./image/p4.png" alt="移动端展示 4" width="88%" />
+      </td>
+    </tr>
+  </table>
+</div>
 
-- A chat window experience closer to real messaging apps
-- Agents can send proactive messages instead of only passive replies
-- Support for multi-character interaction and future group chat expansion
-- Highly customizable characters, relationships, scenarios, and world settings
-- Session memory, model management, and switching between local and cloud models
-- Reserved extensibility for multi-agent collaboration, vector databases, graph databases, dynamic functions, and visual presentation
+## Table of Contents
 
-## Project Positioning
+- [1. Architecture Overview](#1-architecture-overview)
+- [2. Project Structure](#2-project-structure)
+- [3. Requirements](#3-requirements)
+- [4. Local Development (Recommended)](#4-local-development-recommended)
+- [5. Docker Startup](#5-docker-startup)
+- [6. Configuration](#6-configuration)
+- [7. API List (main)](#7-api-list-main)
+- [8. Streaming Event Protocol (SSE)](#8-streaming-event-protocol-sse)
+- [9. Storage and Migrations](#9-storage-and-migrations)
+- [10. Development Scripts](#10-development-scripts)
+- [11. Debugging Guide](#11-debugging-guide)
+- [12. FAQ](#12-faq)
+- [13. Related Documents](#13-related-documents)
 
-This project is better understood as:
+## 1. Architecture Overview
 
-- An AI chat simulator
-- A character chat system
-- A multi-agent interactive chat system
-- An extensible platform for story, scenario, and character-driven conversations
+The system has 3 services:
 
-## GitHub About
+1. `chat/`: frontend UI and chat interaction
+2. `main/`: auth, data read/write, model management, SSE aggregation
+3. `agent/`: LangGraph execution and state persistence
 
-Suggested About text:
+Primary request flow (streaming chat):
 
-`An AI conversation system focused on real messaging-style chat, with proactive messages, group chat, multi-agent interaction, and highly customizable characters and scenarios.`
+1. Frontend sends `POST /api/chat/stream`
+2. `main` forwards to `agent` via `POST /runs/stream`
+3. `agent` returns event stream
+4. `main` normalizes events and pushes them to frontend via SSE
+5. Frontend updates messages, tool status, structured content, and usage stats
 
-Suggested keywords:
+## 2. Project Structure
 
-`ai-chat`
-`character-chat`
-`roleplay`
-`multi-agent`
-`group-chat`
-`interactive-fiction`
-`vue`
-`nodejs`
-`express`
-`sequelize`
-`mysql`
-`ollama`
-`openai`
-
-## Project Structure
-
-- `chat/`: Vue 3 + Vite front end
-- `main/`: Node.js + Express back end
-- `docker-compose.yml`: full Docker startup configuration for MySQL mode
-- `TASK_CHECKLIST.md`: project task checklist in Chinese
-- `TASK_CHECKLIST.en.md`: project task checklist in English
-
-## Requirements
-
-- Node.js `20.19.0+` or `22.12.0+`
-- pnpm
-- Docker Desktop or Docker Engine
-- A Clerk application with `GitHub / Google / Email` sign-in configured
-
-## Docker Startup
-
-Docker mode uses MySQL by default.
-
-1. Create the root environment file from `.env.example`
-2. Start the full service stack:
-
-```powershell
-docker compose up --build
+```text
+.
+├─ chat/                            # Vue 3 frontend
+│  ├─ src/views/ChatView.vue
+│  ├─ src/hooks/chat-view/
+│  └─ package.json
+├─ main/                            # Express gateway
+│  ├─ src/app.mjs                   # API routes
+│  ├─ src/chat-service.mjs          # chat and streaming bridge
+│  ├─ src/storage*.mjs              # file/mysql storage implementations
+│  ├─ src/migrations/               # MySQL migrations
+│  └─ package.json
+├─ agent/                           # FastAPI + LangGraph
+│  ├─ app/main.py                   # /health, /runs/stream
+│  ├─ app/graph.py                  # multi-agent graph
+│  ├─ app/persistence.py            # file/mysql persistence
+│  └─ requirements.txt
+├─ docker-compose.yml
+├─ .env.example
+├─ README.en.md
+├─ README.zh-CN.md
+└─ TASK_CHECKLIST*.md
 ```
 
-Default access addresses:
+## 3. Requirements
 
-- Front end: `http://127.0.0.1:8080`
-- Back end: `http://127.0.0.1:3000`
-- MySQL: `127.0.0.1:3306`
+- Node.js: `^20.19.0` or `>=22.12.0`
+- Frontend package manager: `pnpm`
+- Backend package manager: `npm`
+- Python: `3.12+`
+- Docker (optional)
+- Clerk app (required)
 
-In Docker mode:
+## 4. Local Development (Recommended)
 
-- `chat` is served by Nginx
-- `/api` is reverse-proxied to the `main` container
-- The server uses `STORAGE_DRIVER=mysql`
-- The front end reads `VITE_CLERK_PUBLISHABLE_KEY` at build time
-- The back end validates authentication state with `CLERK_SECRET_KEY`
-- The back end also reads `CLERK_PUBLISHABLE_KEY` for Clerk middleware configuration
-- Runtime data is stored in MySQL instead of JSON files
+### 4.1 Prepare environment variables
 
-## npm/pnpm Startup
-
-### Mode 1: Local File Storage
-
-This is the default local development mode.
-
-Front end:
-
-```powershell
-cd chat
-pnpm install
-Copy-Item .env.example .env
-pnpm dev
-```
-
-Back end:
-
-```powershell
-cd main
-npm install
-Copy-Item .env.example .env
-npm run dev
-```
-
-In this mode:
-
-- MySQL is not required
-- `STORAGE_DRIVER` defaults to `file`
-- Data is written into `main/data/model-configs.json`
-- Data is written into `main/data/robots.json`
-- Data is written into `main/data/sessions.json`
-
-### Mode 2: Local MySQL Storage
-
-If you want local development to use MySQL instead of JSON files, use this mode.
-
-1. Create `main/.env` from `main/.env.example`
-2. Set:
+#### Root `.env` (based on `.env.example`)
 
 ```env
-STORAGE_DRIVER=mysql
+MYSQL_ROOT_PASSWORD=rootpassword
+DB_HOST=mysql
+DB_PORT=3306
+DB_NAME=myaichat
+DB_USER=myaichat
+DB_PASSWORD=myaichat
 CLERK_SECRET_KEY=sk_test_your_clerk_secret_key
 CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+PORT=3000
+CHAT_PORT=8080
+AGENT_SERVICE_URL=http://agent:8000
+```
+
+#### `main/.env` (based on `main/.env.example`)
+
+Recommended for local direct agent access:
+
+```env
+PORT=3000
+STORAGE_DRIVER=file
+CLERK_SECRET_KEY=sk_test_...
+CLERK_PUBLISHABLE_KEY=pk_test_...
+AGENT_SERVICE_URL=http://127.0.0.1:8000
+
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=myaichat
 DB_USER=myaichat
 DB_PASSWORD=myaichat
+DB_LOGGING=false
 ```
 
-3. Create `chat/.env` from `chat/.env.example`
+#### `chat/.env` (based on `chat/.env.example`)
 
 ```env
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_clerk_publishable_key
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
 ```
 
-4. Start the back end:
+### 4.2 Install dependencies
 
-```powershell
+```bash
+cd main && npm install
+cd ../chat && pnpm install
+cd ../agent && python -m pip install -r requirements.txt
+```
+
+### 4.3 Start services (`file` storage)
+
+Terminal A (`agent`):
+
+```bash
+cd agent
+AGENT_STORAGE_DRIVER=file AGENT_FILE_STORE_DIR="$PWD/.state" uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Terminal B (`main`):
+
+```bash
 cd main
-npm install
 npm run dev
 ```
 
-5. Start the front end:
+Terminal C (`chat`):
 
-```powershell
+```bash
 cd chat
-pnpm install
 pnpm dev
 ```
 
-In this mode:
+Access URLs:
 
-- The back end connects to MySQL through Sequelize
-- Database migrations run during startup
-- JSON files under `main/data/` are not used as the active data source
+- chat: `http://localhost:5173`
+- main: `http://127.0.0.1:3000`
+- agent: `http://127.0.0.1:8000`
 
-## Environment Variables
+### 4.4 Start services (`mysql` storage)
 
-Back-end environment variables:
+1. Ensure MySQL is reachable
+2. Set `STORAGE_DRIVER=mysql` in `main/.env`
+3. Set `AGENT_STORAGE_DRIVER=mysql` when starting agent
 
-- `STORAGE_DRIVER=file|mysql`
-- `PORT`
-- `CLERK_SECRET_KEY`
-- `CLERK_PUBLISHABLE_KEY`
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_LOGGING=true|false`
+```bash
+cd agent
+AGENT_STORAGE_DRIVER=mysql DB_HOST=127.0.0.1 DB_PORT=3306 DB_NAME=myaichat DB_USER=myaichat DB_PASSWORD=myaichat uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
 
-Front-end environment variables:
+## 5. Docker Startup
+
+```bash
+docker compose up --build
+```
+
+Default ports:
+
+- chat: `http://127.0.0.1:8080`
+- main: `http://127.0.0.1:3000`
+- mysql: `127.0.0.1:3306`
+
+Default behavior in Compose:
+
+- `main`: `STORAGE_DRIVER=mysql`
+- `agent`: `AGENT_STORAGE_DRIVER=mysql`
+- `chat`: `VITE_CLERK_PUBLISHABLE_KEY` injected at build time
+
+## 6. Configuration
+
+### 6.1 Common settings
+
+- `PORT`: main listening port
+- `CHAT_PORT`: chat public port (Docker)
+- `AGENT_SERVICE_URL`: main -> agent address
+
+### 6.2 main settings
+
+- `STORAGE_DRIVER`: `file` / `mysql`
+- `DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD`
+- `DB_LOGGING=true` to enable Sequelize SQL logs
+
+### 6.3 agent settings
+
+- `AGENT_STORAGE_DRIVER`: `file` / `mysql`
+- `AGENT_FILE_STORE_DIR`: file-mode directory (default `/tmp/myaichat-agent`)
+- `AGENT_RELOAD=true`: hot reload in container
+
+### 6.4 Clerk settings
+
+- `CLERK_SECRET_KEY`: server-side validation
+- `CLERK_PUBLISHABLE_KEY`: server-side Clerk middleware config
+- `VITE_CLERK_PUBLISHABLE_KEY`: frontend SDK key
+
+## 7. API List (main)
+
+Source: `main/src/app.mjs`
+
+### 7.1 Model config
+
+- `GET /api/model-configs`
+- `POST /api/model-configs`
+- `POST /api/model-configs/test`
+
+Legacy-compatible endpoints:
+
+- `GET /api/model-config`
+- `POST /api/model-config`
+- `POST /api/model-config/test`
+
+### 7.2 Sessions
+
+- `GET /api/sessions`
+- `POST /api/sessions`
+- `GET /api/sessions/:id`
+- `DELETE /api/sessions/:id`
+- `POST /api/sessions/:id/delete` (compat)
+
+### 7.3 Agents
+
+- `GET /api/robots`
+- `POST /api/robots`
+
+### 7.4 Model capabilities
+
+- `GET /api/models`
+- `GET /api/capabilities`
+
+### 7.5 Chat
+
+- `POST /api/chat` (non-stream)
+- `POST /api/chat/stream` (SSE stream)
+
+## 8. Streaming Event Protocol (SSE)
+
+`main/src/chat-service.mjs` normalizes agent events into frontend-facing events.
+
+### 8.1 Main event types
+
+- `text`: incremental answer text
+- `ui_loading`: generating structured UI (suggestions/form)
+- `suggestion`: suggestion list
+- `form`: structured form
+- `memory_status`: memory-stage status
+- `structured_memory`: structured memory updates
+- `tool_status`: tool call/tool result status
+- `numeric_state_updated`: numeric state updates
+- `usage`: token usage
+- `done`: stream completed
+- `error`: stream failed
+
+### 8.2 Frontend handling locations
+
+- `chat/src/hooks/chat-view/useChatStreaming.ts`
+- `chat/src/hooks/chat-view/useChatbotRuntime.ts`
+- `chat/src/hooks/chat-view/useChatMessagePipeline.ts`
+
+## 9. Storage and Migrations
+
+### 9.1 main storage drivers
+
+- `file`: file-based storage
+- `mysql`: Sequelize + MySQL
+
+Driver selection logic: `main/src/database-config.mjs`
+
+### 9.2 main migrations
+
+Migration scripts: `main/src/migrations/`
+
+Run command:
+
+```bash
+cd main
+npm run migrate
+```
+
+### 9.3 agent persistence
+
+- `file`: per-thread JSON files
+- `mysql`: `agent_threads` table
+
+Implementation: `agent/app/persistence.py`
+
+## 10. Development Scripts
+
+### 10.1 chat
+
+```bash
+cd chat
+pnpm dev
+pnpm type-check
+pnpm test:unit --run
+pnpm test:e2e
+pnpm build
+pnpm lint
+pnpm spell:check
+```
+
+### 10.2 main
+
+```bash
+cd main
+npm run dev
+npm run start
+npm run migrate
+npm run spell:check
+```
+
+## 11. Debugging Guide
+
+### 11.1 Validate the chain first
+
+1. Check `GET agent /health`
+2. Check `GET main /api/...` (with auth)
+3. Verify frontend streaming page
+
+### 11.2 What to observe
+
+- main logs: upstream connection and API failures
+- agent logs: graph execution and numeric state I/O
+- browser network: SSE event sequence from `/api/chat/stream`
+
+### 11.3 Useful troubleshooting tactics
+
+- Enable `DB_LOGGING=true` in main
+- Start with `file` mode to exclude DB issues
+- Reproduce using only `agent + main` first
+
+## 12. FAQ
+
+### 12.1 Frontend 401 / auth issues
+
+Check:
 
 - `VITE_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- Login methods enabled in Clerk
 
-Default behavior:
+### 12.2 main cannot connect to agent
 
-- Local `npm run dev`: `file`
-- Docker Compose: `mysql`
+Check:
 
-## Roadmap
+- `AGENT_SERVICE_URL` target host/port
+- agent process is running
+- local proxy/firewall interference
 
-Detailed task checklists:
+### 12.3 mysql mode failed
 
+Check:
+
+- `DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD`
+- both `main` and `agent` are in mysql mode
+- `npm run migrate` executed
+
+### 12.4 White screen after Docker startup
+
+Check:
+
+- `VITE_CLERK_PUBLISHABLE_KEY` injected at build
+- browser console for Clerk initialization errors
+
+## 13. Related Documents
+
+- [README.md](./README.md)
+- [README.zh-CN.md](./README.zh-CN.md)
+- [DATABASE_DOCKER_SETUP.zh-CN.md](./DATABASE_DOCKER_SETUP.zh-CN.md)
 - [TASK_CHECKLIST.md](./TASK_CHECKLIST.md)
 - [TASK_CHECKLIST.en.md](./TASK_CHECKLIST.en.md)
-
-### Libraries and Tools
-
-- [ ] MinIO
-- [ ] Redis
-
-### Phase 1 Tasks (Near Term)
-
-- [x] Implement per-user isolated login data
-- [x] Front-end page improvements
-  - [x] Improve token number display formatting
-  - [ ] Optimize settings page layout
-  - [x] Rename "Robot" to "Agent"
-  - [ ] Mobile UI adjustments
-
-### Phase 2 Tasks (Depending on Priorities)
-
-- [ ] Project localization
-- [ ] Support plans for local models
-- [ ] Allow configuring the model used for current session memory generation
-- [ ] Deepen agent capabilities
-- [ ] Project platformization
-  - [ ] Build an admin dashboard
-  - [ ] Add agent sharing
-  - [ ] Add forum features
-  - [ ] Store personal agents locally
-  - [ ] Require backend review and storage for paid shared agents
-  - [ ] Add agent import/export
-- [ ] Session MOD features
-  - [ ] MOD import/export
-  - [ ] Local storage for personal MODs
-  - [ ] Require backend review and storage for paid shared MODs
-- [ ] Deepen model management features
-  - [ ] Paid models
-  - [ ] Free models
-  - [ ] Personal models
-- [ ] Deepen token calculation capabilities
-- [ ] Online token purchase features
-- [ ] Deepen agent capabilities
-
-### Phase 3 Tasks (Need Teammates)
-
-- [ ] Organize the codebase
-- [ ] Implement vector database capabilities
-  - [ ] Agent database
-  - [ ] Session database
-- [ ] Implement graph database capabilities
-  - [ ] Create story characters
-  - [ ] Link character lines
-  - [ ] Link character events
-- [ ] Share user preferences across multiple agents
-- [ ] Implement dynamic AI function registration
-  - [ ] Agent integration
-  - [ ] Session integration
-- [ ] Implement a session timer that autonomously generates messages
-
-### Phase 4 Tasks (Someday)
-
-- [ ] Connect to the Love2D engine for visual agent presentation
-- [ ] Implement collaborative multi-agent group chat
-
-### Phase 5 Tasks (Multimodal)
-
-- [ ] Implement image, voice, and video input
-- [ ] Implement video and voice capabilities
-
-## Notes
-
-- `node_modules/`, build artifacts, logs, and local runtime data are ignored by Git.
-- `main/data/` is treated as a local runtime data directory and is not committed to the repository.
-- `main/data/` remains available for file mode and can be disabled after switching to `STORAGE_DRIVER=mysql`.
-- `main/package.json` provides `npm run migrate` for manually running database migrations.
-- Unauthenticated users cannot call `/api/*` business endpoints.
-- If a user sends a message while signed out, the chat page opens the Clerk sign-in dialog directly.
-
-## Collaboration
-
-If you want to collaborate on this project, please apply through GitHub Issues.
-
-- You can use Issues to submit ideas, bugs, feature suggestions, or collaboration intent
-- If needed, please include your goals, expected contribution, and contact information
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=zrbyhelp%2FMyAiChat&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=zrbyhelp/MyAiChat&type=date&legend=top-left" />
- </picture>
-</a>
+- [TASK_CHECKLIST.zh-CN.md](./TASK_CHECKLIST.zh-CN.md)
