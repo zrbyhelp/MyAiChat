@@ -843,6 +843,10 @@
 @media (max-width: 900px) {
   .sender-footer-actions {
     width: 100%;
+    flex-wrap: nowrap;
+    flex-direction: row;
+    overflow-x: auto;
+    white-space: nowrap;
   }
 }
 
@@ -939,8 +943,12 @@
   }
 
   .sender-footer-actions {
+    flex-wrap: nowrap;
+    flex-direction: row;
     align-items: stretch;
     justify-content: flex-start;
+    overflow-x: auto;
+    white-space: nowrap;
   }
 
   .sender-footer-actions .t-button {

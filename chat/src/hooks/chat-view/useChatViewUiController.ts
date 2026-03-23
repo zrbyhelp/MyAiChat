@@ -8,9 +8,7 @@ interface UseChatViewUiControllerOptions {
   robotTemplates: Ref<AIRobotCard[]>
   selectedNewChatRobotId: Ref<string>
   selectedNewChatRobot: ComputedRef<AIRobotCard | null>
-  showStreamToggle: ComputedRef<boolean>
   showThinkingToggle: ComputedRef<boolean>
-  streamEnabled: Ref<boolean>
   thinkingEnabled: Ref<boolean>
   onCreateNewChat: (robot?: AIRobotCard | null) => Promise<void>
   onOpenAgentManageDialog: () => void
@@ -53,12 +51,6 @@ export function useChatViewUiController(options: UseChatViewUiControllerOptions)
     options.onOpenAgentManageDialog()
   }
 
-  function switchStream() {
-    if (options.showStreamToggle.value) {
-      options.streamEnabled.value = !options.streamEnabled.value
-    }
-  }
-
   function switchThinking() {
     if (options.showThinkingToggle.value) {
       options.thinkingEnabled.value = !options.thinkingEnabled.value
@@ -91,7 +83,6 @@ export function useChatViewUiController(options: UseChatViewUiControllerOptions)
     confirmStartNewChat,
     handleNewChatEntry,
     handleGoToRobotPage,
-    switchStream,
     switchThinking,
     openHistorySession,
     handleDeleteSession,
