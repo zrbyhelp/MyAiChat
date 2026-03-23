@@ -1,0 +1,32 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "useGitignore": true,
+  "ignorePaths": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "pnpm-lock.yaml"
+  ],
+  "files": [
+    "src/**/*.{ts,tsx,js,jsx,vue,css,scss,md}",
+    "scripts/**/*.{js,mjs,ts}",
+    "*.{ts,js,mjs,json,md}"
+  ],
+  "words": [
+    "Oxlint",
+    "oxlint",
+    "oxlintrc",
+    "tdesign",
+    "millify",
+    "viewports",
+    "Vetur",
+    "deepseek",
+    "favorability",
+    "Ollama",
+    "unsubs",
+    "Datetimes",
+    "myaichat",
+    "topbar"
+  ]
+}
