@@ -71,7 +71,6 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-
   chat:
     build:
       context: ./chat
