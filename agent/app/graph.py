@@ -705,11 +705,10 @@ async def ui_agent_node(state: AgentState) -> dict:
                     (
                         "你负责为当前 assistant 回复生成聊天气泡里的交互 UI。"
                         "只输出 JSON，顶层结构固定为 {\"suggestions\":[{\"title\":\"按钮文字\",\"prompt\":\"点击后发送文本\"}],\"form\":null} 或 {\"suggestions\":[],\"form\":{\"title\":\"标题\",\"description\":\"说明\",\"submitText\":\"提交\",\"fields\":[{\"name\":\"字段名\",\"label\":\"字段标签\",\"type\":\"input|radio|checkbox|select\",\"placeholder\":\"占位\",\"required\":true,\"inputType\":\"text|number\",\"multiple\":false,\"options\":[{\"label\":\"选项\",\"value\":\"值\"}],\"defaultValue\":\"默认值\"}]}}。"
-                        "只要当前回复要求用户输入，补充、填写任何输入内容，必须优先生成 form，不要生成 suggestions。"
-                        "只有在不需要用户输入、只是给出后续动作或方向选择时，才生成 suggestions。"
-                        "当回复存在明确下一步选择时，生成 suggestions。"
+                        "只有要求用户输入，填写内容时生成 form，其余都生成 suggestions。"
+                        "如果既没有要求输入也没有明确选项则返回一个 suggestions，内容只能有一个继续。"
+                        "当回复存在明确下一步选择时生成 suggestions。"
                         "form 和 suggestions 不能同时出现。"
-                        "如果没有明显交互需求，也必须返回一个 suggestions，内容只能有一个继续。"
                     ),
                 ),
             },
