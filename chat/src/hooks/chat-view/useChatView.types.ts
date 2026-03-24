@@ -12,7 +12,11 @@ export type ChatbotInstance = {
   chatEngine?: {
     eventBus?: {
       on?: (event: string, callback: (payload?: unknown) => void) => (() => void) | void
+      emit?: (event: string, payload?: unknown) => void
     }
+    sendRequest?: (params: { prompt?: string; messageID?: string }) => Promise<void>
+    processMessageResult?: (messageId: string, result: unknown) => void
+    setMessageStatus?: (messageId: string, status: string) => void
   }
 }
 

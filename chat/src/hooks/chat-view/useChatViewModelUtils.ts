@@ -8,6 +8,7 @@ export const DEFAULT_MODEL_CONFIGS: Record<
 > = {
   openai: {
     provider: 'openai',
+    accessMode: 'server',
     baseUrl: 'https://api.openai.com',
     apiKey: '',
     description: '',

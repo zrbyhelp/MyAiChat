@@ -49,6 +49,10 @@ export function normalizeModelConfig(input, index = 0) {
     id: String(input?.id || `model-${index + 1}`),
     name: String(input?.name || `模型配置 ${index + 1}`),
     provider,
+    accessMode:
+      input?.accessMode === 'browser-direct' || input?.access_mode === 'browser-direct'
+        ? 'browser-direct'
+        : 'server',
     baseUrl: String(input?.baseUrl || defaults.baseUrl).trim(),
     apiKey: String(input?.apiKey || '').trim(),
     model: String(input?.model || '').trim(),

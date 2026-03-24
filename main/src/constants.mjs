@@ -15,6 +15,7 @@ export const DEFAULT_MODEL_CONFIG = {
   id: 'model-default',
   name: '默认模型',
   provider: 'openai',
+  accessMode: 'server',
   baseUrl: 'https://api.openai.com',
   apiKey: '',
   model: '',

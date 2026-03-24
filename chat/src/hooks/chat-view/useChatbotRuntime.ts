@@ -5,17 +5,25 @@ import type { ChatbotInstance, ChatRenderMessage } from '@/hooks/chat-view/useCh
 
 interface UseChatbotRuntimeOptions {
   chatbotRef: Ref<ChatbotInstance | null>
+  shouldUseBrowserDirect: Ref<boolean>
   isChatResponding: Ref<boolean>
   pendingChatMessages: Ref<ChatRenderMessage[] | null>
   applyChatMessages: (messages: ChatRenderMessage[]) => void
+  runBrowserDirectRequest: (
+    params: { prompt?: string; messageID?: string },
+    engine: NonNullable<ChatbotInstance['chatEngine']>,
+  ) => Promise<void>
 }
 
 export function useChatbotRuntime(options: UseChatbotRuntimeOptions) {
   let disposeChatbotEventBus: (() => void) | null = null
+  let restoreSendRequest: (() => void) | null = null
 
-  watch(options.chatbotRef, (instance) => {
+  watch([options.chatbotRef, options.shouldUseBrowserDirect], ([instance, shouldUseBrowserDirect]) => {
     disposeChatbotEventBus?.()
     disposeChatbotEventBus = null
+    restoreSendRequest?.()
+    restoreSendRequest = null
 
     const eventBus = instance?.chatEngine?.eventBus
     const subscribe = eventBus?.on
@@ -40,6 +48,15 @@ export function useChatbotRuntime(options: UseChatbotRuntimeOptions) {
     } else {
       options.isChatResponding.value =
         instance?.chatStatus === 'pending' || instance?.chatStatus === 'streaming'
+    }
+
+    const engine = instance?.chatEngine
+    if (shouldUseBrowserDirect && engine?.sendRequest) {
+      const originalSendRequest = engine.sendRequest.bind(engine)
+      engine.sendRequest = async (params) => options.runBrowserDirectRequest(params, engine)
+      restoreSendRequest = () => {
+        engine.sendRequest = originalSendRequest
+      }
     }
 
     if (!instance?.registerMergeStrategy) {
@@ -78,5 +95,7 @@ export function useChatbotRuntime(options: UseChatbotRuntimeOptions) {
   onUnmounted(() => {
     disposeChatbotEventBus?.()
     disposeChatbotEventBus = null
+    restoreSendRequest?.()
+    restoreSendRequest = null
   })
 }

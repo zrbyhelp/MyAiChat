@@ -53,6 +53,9 @@
               >
                 {{ item.baseUrl || '未填写地址' }}
               </div>
+              <div class="config-card-meta config-card-meta-secondary">
+                {{ item.accessMode === 'browser-direct' ? '浏览器直连' : '服务器代理' }}
+              </div>
               <div class="config-card-tag-list">
                 <TTag
                   v-if="item.description"
@@ -129,8 +132,20 @@
               @change="(value) => $emit('handle-mobile-model-provider-change', value)"
             />
           </TFormItem>
+          <TFormItem label="访问方式">
+            <TSelect v-model="mobileModelDraft.accessMode" :options="accessModeOptions" />
+          </TFormItem>
           <TFormItem class="form-grid-span-2" label="Base URL">
             <TInput v-model="mobileModelDraft.baseUrl" placeholder="请输入 AI 服务地址" />
+          </TFormItem>
+          <TFormItem class="form-grid-span-2" label="模式说明">
+            <div class="config-empty">
+              {{
+                mobileModelDraft.accessMode === 'browser-direct'
+                  ? '浏览器会直接请求模型地址，不经过 main 聊天 API。云模型模式下 API Key 会在浏览器环境中使用。'
+                  : '通过当前项目后端代理访问模型，沿用现有 Python 智能体链路。'
+              }}
+            </div>
           </TFormItem>
           <TFormItem class="form-grid-span-2" label="上传到服务器">
             <TSwitch v-model="mobileModelDraft.persistToServer" />
@@ -255,6 +270,9 @@
             >
               {{ item.baseUrl || '未填写地址' }}
             </div>
+            <div class="config-card-meta config-card-meta-secondary">
+              {{ item.accessMode === 'browser-direct' ? '浏览器直连' : '服务器代理' }}
+            </div>
             <div class="config-card-tag-list">
               <TTag v-if="item.description" theme="default" variant="light" class="config-card-tag">
                 {{ item.description }}
@@ -324,8 +342,20 @@
               @change="(value) => $emit('handle-desktop-model-provider-change', value)"
             />
           </TFormItem>
+          <TFormItem label="访问方式">
+            <TSelect v-model="desktopModelDraft.accessMode" :options="accessModeOptions" />
+          </TFormItem>
           <TFormItem class="form-grid-span-2" label="Base URL">
             <TInput v-model="desktopModelDraft.baseUrl" placeholder="请输入 AI 服务地址" />
+          </TFormItem>
+          <TFormItem class="form-grid-span-2" label="模式说明">
+            <div class="config-empty">
+              {{
+                desktopModelDraft.accessMode === 'browser-direct'
+                  ? '浏览器会直接请求模型地址，不经过 main 聊天 API。云模型模式下 API Key 会在浏览器环境中使用。'
+                  : '通过当前项目后端代理访问模型，沿用现有 Python 智能体链路。'
+              }}
+            </div>
           </TFormItem>
           <TFormItem class="form-grid-span-2" label="上传到服务器">
             <TSwitch v-model="desktopModelDraft.persistToServer" />
@@ -545,4 +575,9 @@ const desktopTemperatureValue = computed({
   get: () => props.desktopModelTemperatureValue,
   set: (value: number | undefined) => emit('update:desktopModelTemperatureValue', value),
 })
+
+const accessModeOptions: OptionItem[] = [
+  { label: '服务器代理', value: 'server' },
+  { label: '浏览器直连', value: 'browser-direct' },
+]
 </script>

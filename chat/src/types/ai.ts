@@ -1,9 +1,11 @@
 export type ProviderType = 'openai'
+export type ModelAccessMode = 'server' | 'browser-direct'
 
 export interface AIModelConfigItem {
   id: string
   name: string
   provider: ProviderType
+  accessMode: ModelAccessMode
   baseUrl: string
   apiKey: string
   model: string

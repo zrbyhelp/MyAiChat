@@ -2,12 +2,13 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, reactive, ref, watch } from 'vue'
 
 import { getCapabilities, getModelConfigs, saveModelConfigs, testModelConnection } from '@/lib/api'
+import { fetchBrowserDirectModels } from '@/lib/browser-agent/openai-compatible'
 import {
   deleteLocalModelConfig,
   listLocalModelConfigs,
   putLocalModelConfig,
 } from '@/lib/local-db'
-import type { AIModelConfigItem, ModelCapabilities, ModelOption, ProviderType } from '@/types/ai'
+import type { AIModelConfigItem, ModelAccessMode, ModelCapabilities, ModelOption, ProviderType } from '@/types/ai'
 
 interface UseChatModelManagerOptions {
   createModelConfig: (provider?: ProviderType, index?: number) => AIModelConfigItem
@@ -121,6 +122,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     editingConfig.id = config.id
     editingConfig.name = config.name
     editingConfig.provider = config.provider
+    editingConfig.accessMode = normalizeAccessMode(config.accessMode)
     editingConfig.baseUrl = config.baseUrl
     editingConfig.apiKey = config.apiKey
     editingConfig.model = config.model
@@ -138,6 +140,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
             name: editingConfig.name.trim() || item.name || '未命名配置',
             description: String(editingConfig.description || '').trim(),
             tags: options.normalizeModelTags(editingConfig.tags),
+            accessMode: normalizeAccessMode(editingConfig.accessMode),
             persistToServer: Boolean(editingConfig.persistToServer),
           }
         : item,
@@ -151,6 +154,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
         name: String(item.name || `模型配置 ${index + 1}`),
         description: String(item.description || '').trim(),
         tags: options.normalizeModelTags(item.tags),
+        accessMode: normalizeAccessMode(item.accessMode),
         persistToServer: Boolean(item.persistToServer ?? true),
       }),
     )
@@ -229,6 +233,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
           apiKey: item.apiKey.trim(),
           description: item.description.trim(),
           tags: options.normalizeModelTags(item.tags),
+          accessMode: normalizeAccessMode(item.accessMode),
           persistToServer: Boolean(item.persistToServer),
         }))
       : [options.createModelConfig()]
@@ -274,6 +279,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     mobileModelDraft.id = String(source?.id || fallback.id)
     mobileModelDraft.name = String(source?.name || '')
     mobileModelDraft.provider = provider
+    mobileModelDraft.accessMode = normalizeAccessMode(source?.accessMode)
     mobileModelDraft.baseUrl = String(source?.baseUrl || fallback.baseUrl)
     mobileModelDraft.apiKey = String(source?.apiKey || '')
     mobileModelDraft.model = String(source?.model || '')
@@ -293,6 +299,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     desktopModelDraft.id = String(source?.id || fallback.id)
     desktopModelDraft.name = String(source?.name || '')
     desktopModelDraft.provider = provider
+    desktopModelDraft.accessMode = normalizeAccessMode(source?.accessMode)
     desktopModelDraft.baseUrl = String(source?.baseUrl || fallback.baseUrl)
     desktopModelDraft.apiKey = String(source?.apiKey || '')
     desktopModelDraft.model = String(source?.model || '')
@@ -410,7 +417,13 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   async function refreshModelsForConfig(config: AIModelConfigItem) {
     loadingModels.value = true
     try {
-      const models = await testModelConnection(config)
+      const models =
+        config.accessMode === 'browser-direct'
+          ? {
+              models: await fetchBrowserDirectModels(config),
+              message: '模型列表已从浏览器直连刷新',
+            }
+          : await testModelConnection(config)
       modelOptionsMap.value = {
         ...modelOptionsMap.value,
         [config.id]: models.models,
@@ -448,6 +461,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     const nextProvider: ProviderType = 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     editingConfig.provider = nextProvider
+    editingConfig.accessMode = normalizeAccessMode(editingConfig.accessMode)
     editingConfig.baseUrl = defaults.baseUrl
     editingConfig.apiKey = ''
     editingConfig.model = ''
@@ -507,6 +521,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     const nextProvider: ProviderType = 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     mobileModelDraft.provider = nextProvider
+    mobileModelDraft.accessMode = normalizeAccessMode(mobileModelDraft.accessMode)
     mobileModelDraft.baseUrl = defaults.baseUrl
     mobileModelDraft.apiKey = ''
     mobileModelDraft.model = ''
@@ -521,6 +536,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     const nextProvider: ProviderType = 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     desktopModelDraft.provider = nextProvider
+    desktopModelDraft.accessMode = normalizeAccessMode(desktopModelDraft.accessMode)
     desktopModelDraft.baseUrl = defaults.baseUrl
     desktopModelDraft.apiKey = ''
     desktopModelDraft.model = ''
@@ -625,6 +641,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
         apiKey: mobileModelDraft.apiKey.trim(),
         description: mobileModelDraft.description.trim(),
         tags: options.normalizeModelTags(mobileModelTagsInput.value),
+        accessMode: normalizeAccessMode(mobileModelDraft.accessMode),
         persistToServer: Boolean(mobileModelDraft.persistToServer),
       }
       const nextConfigs =
@@ -687,6 +704,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
         apiKey: desktopModelDraft.apiKey.trim(),
         description: desktopModelDraft.description.trim(),
         tags: options.normalizeModelTags(desktopModelTagsInput.value),
+        accessMode: normalizeAccessMode(desktopModelDraft.accessMode),
         persistToServer: Boolean(desktopModelDraft.persistToServer),
       }
       const nextConfigs =
@@ -811,3 +829,6 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     addModelConfig,
   }
 }
+  function normalizeAccessMode(value?: string): ModelAccessMode {
+    return value === 'browser-direct' ? 'browser-direct' : 'server'
+  }
