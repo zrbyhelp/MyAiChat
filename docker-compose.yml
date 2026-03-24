@@ -55,7 +55,6 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-myaichat}
     volumes:
       - ./agent/app:/app/app
-      - ./agent/start-agent.sh:/app/start-agent.sh:ro
     depends_on:
       mysql:
         condition: service_healthy
