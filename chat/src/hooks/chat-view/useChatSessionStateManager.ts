@@ -385,6 +385,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     currentSessionMemory.summary = normalized.summary
     currentSessionMemory.updatedAt = normalized.updatedAt
     currentSessionMemory.sourceMessageCount = normalized.sourceMessageCount
+    currentSessionMemory.persistToServer = normalized.persistToServer
     currentSessionMemory.threshold = normalized.threshold
     currentSessionMemory.recentMessageLimit = normalized.recentMessageLimit
     currentSessionMemory.structuredMemoryInterval = normalized.structuredMemoryInterval

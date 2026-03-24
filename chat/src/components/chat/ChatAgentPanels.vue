@@ -193,7 +193,7 @@
             <TFormItem class="form-grid-span-2" label="头像">
               <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
             </TFormItem>
-            <TFormItem class="form-grid-span-2" label="上传到服务器">
+            <TFormItem class="form-grid-span-2" label="新建聊天记录保存在服务器">
               <TSwitch v-model="mobileAgentDraft.persistToServer" />
             </TFormItem>
           </div>
@@ -430,7 +430,7 @@
             <TFormItem class="form-grid-span-2" label="头像">
               <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
             </TFormItem>
-            <TFormItem class="form-grid-span-2" label="上传到服务器">
+            <TFormItem class="form-grid-span-2" label="新建聊天记录保存在服务器">
               <TSwitch v-model="mobileAgentDraft.persistToServer" />
             </TFormItem>
           </div>

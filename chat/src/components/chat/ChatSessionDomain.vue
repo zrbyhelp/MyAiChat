@@ -236,9 +236,6 @@
                   placeholder="12"
                 />
               </TFormItem>
-              <TFormItem class="form-grid-span-2" label="聊天记录保存在服务器">
-                <TSwitch v-model="sessionMemoryDraft.persistToServer" />
-              </TFormItem>
             </div>
           </TForm>
         </div>
@@ -281,9 +278,6 @@
                   placeholder="12"
                 />
               </TFormItem>
-              <TFormItem class="form-grid-span-2" label="聊天记录保存在服务器">
-                <TSwitch v-model="sessionMemoryDraft.persistToServer" />
-              </TFormItem>
             </div>
           </TForm>
         </div>
@@ -306,7 +300,6 @@ import {
   FormItem as TFormItem,
   Input as TInput,
   InputNumber as TInputNumber,
-  Switch as TSwitch,
   Textarea as TTextarea,
 } from 'tdesign-vue-next'
 
