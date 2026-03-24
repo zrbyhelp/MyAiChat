@@ -1,191 +1,173 @@
 <template>
-  <div class="main" :style="mainStyle">
-    <PrimaryNav v-model="activePrimaryTab" />
-    <AgentTab v-if="activePrimaryTab === 'agent'" />
-    <DiscoverTab v-else-if="activePrimaryTab === 'discover'" />
-    <MineTab v-else />
+  <div class="mess-list">
+    <SessionHistoryPanel
+      :current-robot-label="currentRobotLabel"
+      :current-model-label="currentModelLabel"
+      :session-history="sessionHistory"
+      :session-id="sessionId"
+      :deleting-session-id="deletingSessionId"
+      @new-chat="handleNewChatEntry"
+      @go-robots="handleGoToRobotPage"
+      @open-session="openHistorySession"
+      @delete-session="handleDeleteSession"
+    />
   </div>
-    <template v-if="activePrimaryTab === 'agent'">
-      <div class="mess-list">
-        <SessionHistoryPanel
-          :current-robot-label="currentRobotLabel"
-          :current-model-label="currentModelLabel"
-          :session-history="sessionHistory"
-          :session-id="sessionId"
-          :deleting-session-id="deletingSessionId"
-          :batch-deleting-session-ids="batchDeletingSessionIds"
-          :history-selection-mode="historySelectionMode"
-          :selected-session-ids="selectedSessionIds"
-          @new-chat="handleNewChatEntry"
-          @go-robots="handleGoToRobotPage"
-          @open-session="openHistorySession"
-          @delete-session="handleDeleteSession"
-          @toggle-history-selection-mode="toggleHistorySelectionMode"
-          @toggle-session-selection="toggleSessionSelection"
-          @batch-delete-sessions="handleBatchDeleteSessions"
-        />
-      </div>
 
-      <div class="chat-container">
-        <div class="chatbot-header">
-          <TSpace align="center" size="small">
+  <div class="chat-container">
+    <div class="chatbot-header">
+      <TSpace align="center" size="small">
+        <TButton
+          class="mobile-sidebar-trigger"
+          shape="circle"
+          variant="outline"
+          @click="sidebarDrawerVisible = true"
+        >
+          <template #icon>
+            <MenuIcon />
+          </template>
+        </TButton>
+        <TButton shape="circle" variant="outline" @click="openMemoryDialog">
+          <template #icon>
+            <svg class="memory-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M9 4.5a3.5 3.5 0 0 0-3.28 4.73A3.75 3.75 0 0 0 4 12.5c0 1.34.7 2.52 1.75 3.18v1.07A2.25 2.25 0 0 0 8 19h1v1.25a.75.75 0 0 0 1.5 0V19h3v1.25a.75.75 0 0 0 1.5 0V19h1a2.25 2.25 0 0 0 2.25-2.25v-1.07A3.74 3.74 0 0 0 20 12.5a3.75 3.75 0 0 0-1.72-3.27A3.5 3.5 0 0 0 12 6.3 3.5 3.5 0 0 0 9 4.5Zm0 1.5c.97 0 1.82.63 2.13 1.54a.75.75 0 0 0 1.43 0A2.25 2.25 0 0 1 16.75 9a.75.75 0 0 0 .55.86 2.25 2.25 0 0 1 .45 4.18.75.75 0 0 0-.37.65v2.06a.75.75 0 0 1-.75.75H8a.75.75 0 0 1-.75-.75V14.7a.75.75 0 0 0-.37-.65 2.25 2.25 0 0 1 .45-4.18A.75.75 0 0 0 7.88 9 2.25 2.25 0 0 1 9 6Z"
+                fill="currentColor"
+              />
+            </svg>
+          </template>
+        </TButton>
+        <TButton shape="circle" variant="outline" @click="openSessionRobotDialog">
+          <template #icon>
+            <SettingIcon />
+          </template>
+        </TButton>
+      </TSpace>
+    </div>
+    <div class="chatbot">
+      <t-chatbot
+        :key="chatbotRuntimeKey"
+        ref="chatbotRef"
+        layout="both"
+        :message-props="chatMessageProps"
+        :sender-props="chatSenderProps"
+        :chat-service-config="chatServiceConfig"
+        :is-stream-load="effectiveStream"
+        :on-message-change="handleChatMessageChange"
+        @messageChange="handleChatMessageChange"
+      >
+        <template v-for="slot in formActivitySlots" :key="slot.slotName" #[slot.slotName]>
+          <div class="chat-form-card">
+            <div class="chat-form-title">{{ slot.schema.title || '请补充信息' }}</div>
+            <div v-if="slot.schema.description" class="chat-form-desc">
+              {{ slot.schema.description }}
+            </div>
+            <template
+              v-for="(draft, draftIndex) in [getFormDraft(slot.formId, slot.schema)]"
+              :key="`${slot.formId}-draft-${draftIndex}`"
+            >
+              <TForm label-align="top">
+                <TFormItem
+                  v-for="field in slot.schema.fields"
+                  :key="field.name"
+                  :label="field.label"
+                >
+                  <TInput
+                    v-if="field.type === 'input'"
+                    v-model="draft[field.name] as string | number"
+                    :type="field.inputType === 'number' ? 'number' : 'text'"
+                    :placeholder="field.placeholder || ''"
+                    :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+                  />
+                  <TRadioGroup
+                    v-else-if="field.type === 'radio'"
+                    v-model="draft[field.name] as string | number | boolean"
+                    :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+                  >
+                    <TRadio
+                      v-for="option in field.options || []"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </TRadio>
+                  </TRadioGroup>
+                  <TCheckboxGroup
+                    v-else-if="field.type === 'checkbox'"
+                    v-model="draft[field.name] as (string | number | boolean)[]"
+                    :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+                  >
+                    <TCheckbox
+                      v-for="option in field.options || []"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </TCheckbox>
+                  </TCheckboxGroup>
+                  <TSelect
+                    v-else-if="field.type === 'select'"
+                    v-model="draft[field.name] as string | number | (string | number)[]"
+                    :multiple="Boolean(field.multiple)"
+                    :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+                    :options="
+                      (field.options || []).map((option) => ({
+                        label: option.label,
+                        value: option.value,
+                      }))
+                    "
+                    :placeholder="field.placeholder || ''"
+                  />
+                </TFormItem>
+              </TForm>
+            </template>
             <TButton
-              class="mobile-sidebar-trigger"
-              shape="circle"
+              theme="primary"
+              :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+              @click="submitChatForm(slot)"
+            >
+              {{ submittedForms[slot.formId] ? '已提交' : slot.schema.submitText || '提交' }}
+            </TButton>
+          </div>
+        </template>
+        <template v-for="slot in loadingActivitySlots" :key="slot.slotName" #[slot.slotName]>
+          <div class="chat-loading-card" aria-label="loading">
+            <span class="chat-loading-text">{{ slot.text }}</span>
+            <span class="chat-loading-dot"></span>
+            <span class="chat-loading-dot"></span>
+            <span class="chat-loading-dot"></span>
+          </div>
+        </template>
+        <template #sender-footer-prefix>
+          <TSpace align="center" size="small" class="sender-footer-actions">
+            <TButton
+              v-if="showThinkingToggle"
+              shape="round"
               variant="outline"
-              @click="sidebarDrawerVisible = true"
+              :theme="effectiveThinking ? 'primary' : 'default'"
+              @click="switchThinking"
             >
               <template #icon>
-                <MenuIcon />
+                <LightbulbIcon />
               </template>
+              <span class="footer-button-label">思考</span>
             </TButton>
-            <TButton shape="circle" variant="outline" @click="openMemoryDialog">
-              <template #icon>
-                <svg class="memory-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M9 4.5a3.5 3.5 0 0 0-3.28 4.73A3.75 3.75 0 0 0 4 12.5c0 1.34.7 2.52 1.75 3.18v1.07A2.25 2.25 0 0 0 8 19h1v1.25a.75.75 0 0 0 1.5 0V19h3v1.25a.75.75 0 0 0 1.5 0V19h1a2.25 2.25 0 0 0 2.25-2.25v-1.07A3.74 3.74 0 0 0 20 12.5a3.75 3.75 0 0 0-1.72-3.27A3.5 3.5 0 0 0 12 6.3 3.5 3.5 0 0 0 9 4.5Zm0 1.5c.97 0 1.82.63 2.13 1.54a.75.75 0 0 0 1.43 0A2.25 2.25 0 0 1 16.75 9a.75.75 0 0 0 .55.86 2.25 2.25 0 0 1 .45 4.18.75.75 0 0 0-.37.65v2.06a.75.75 0 0 1-.75.75H8a.75.75 0 0 1-.75-.75V14.7a.75.75 0 0 0-.37-.65 2.25 2.25 0 0 1 .45-4.18A.75.75 0 0 0 7.88 9 2.25 2.25 0 0 1 9 6Z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </template>
-            </TButton>
-            <TButton shape="circle" variant="outline" @click="openSessionRobotDialog">
+            <TButton shape="round" variant="outline" @click="openConfigDialog">
               <template #icon>
                 <SettingIcon />
               </template>
+              <span class="footer-button-label footer-model-label">{{ currentModelLabel }}</span>
             </TButton>
           </TSpace>
-        </div>
-        <div class="chatbot">
-          <t-chatbot
-            :key="chatbotRuntimeKey"
-            ref="chatbotRef"
-            layout="both"
-            :message-props="chatMessageProps"
-            :sender-props="chatSenderProps"
-            :chat-service-config="chatServiceConfig"
-            :is-stream-load="effectiveStream"
-            :on-message-change="handleChatMessageChange"
-            @messageChange="handleChatMessageChange"
-          >
-            <template v-for="slot in formActivitySlots" :key="slot.slotName" #[slot.slotName]>
-              <div class="chat-form-card">
-                <div class="chat-form-title">{{ slot.schema.title || '请补充信息' }}</div>
-                <div v-if="slot.schema.description" class="chat-form-desc">
-                  {{ slot.schema.description }}
-                </div>
-                <template
-                  v-for="(draft, draftIndex) in [getFormDraft(slot.formId, slot.schema)]"
-                  :key="`${slot.formId}-draft-${draftIndex}`"
-                >
-                  <TForm label-align="top">
-                    <TFormItem
-                      v-for="field in slot.schema.fields"
-                      :key="field.name"
-                      :label="field.label"
-                    >
-                      <TInput
-                        v-if="field.type === 'input'"
-                        v-model="draft[field.name] as string | number"
-                        :type="field.inputType === 'number' ? 'number' : 'text'"
-                        :placeholder="field.placeholder || ''"
-                        :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
-                      />
-                      <TRadioGroup
-                        v-else-if="field.type === 'radio'"
-                        v-model="draft[field.name] as string | number | boolean"
-                        :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
-                      >
-                        <TRadio
-                          v-for="option in field.options || []"
-                          :key="option.value"
-                          :value="option.value"
-                        >
-                          {{ option.label }}
-                        </TRadio>
-                      </TRadioGroup>
-                      <TCheckboxGroup
-                        v-else-if="field.type === 'checkbox'"
-                        v-model="draft[field.name] as (string | number | boolean)[]"
-                        :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
-                      >
-                        <TCheckbox
-                          v-for="option in field.options || []"
-                          :key="option.value"
-                          :value="option.value"
-                        >
-                          {{ option.label }}
-                        </TCheckbox>
-                      </TCheckboxGroup>
-                      <TSelect
-                        v-else-if="field.type === 'select'"
-                        v-model="draft[field.name] as string | number | (string | number)[]"
-                        :multiple="Boolean(field.multiple)"
-                        :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
-                        :options="
-                          (field.options || []).map((option) => ({
-                            label: option.label,
-                            value: option.value,
-                          }))
-                        "
-                        :placeholder="field.placeholder || ''"
-                      />
-                    </TFormItem>
-                  </TForm>
-                </template>
-                <TButton
-                  theme="primary"
-                  :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
-                  @click="submitChatForm(slot)"
-                >
-                  {{ submittedForms[slot.formId] ? '已提交' : slot.schema.submitText || '提交' }}
-                </TButton>
-              </div>
-            </template>
-            <template v-for="slot in loadingActivitySlots" :key="slot.slotName" #[slot.slotName]>
-              <div class="chat-loading-card" aria-label="loading">
-                <span class="chat-loading-text">{{ slot.text }}</span>
-                <span class="chat-loading-dot"></span>
-                <span class="chat-loading-dot"></span>
-                <span class="chat-loading-dot"></span>
-              </div>
-            </template>
-            <template #sender-footer-prefix>
-              <TSpace align="center" size="small" class="sender-footer-actions">
-                <TButton
-                  v-if="showThinkingToggle"
-                  shape="round"
-                  variant="outline"
-                  :theme="effectiveThinking ? 'primary' : 'default'"
-                  @click="switchThinking"
-                >
-                  <template #icon>
-                    <LightbulbIcon />
-                  </template>
-                  <span class="footer-button-label">思考</span>
-                </TButton>
-                <TButton shape="round" variant="outline" @click="openConfigDialog">
-                  <template #icon>
-                    <SettingIcon />
-                  </template>
-                  <span class="footer-button-label footer-model-label">{{
-                    currentModelLabel
-                  }}</span>
-                </TButton>
-              </TSpace>
-            </template>
-          </t-chatbot>
-        </div>
-      </div>
-    </template>
-    <PlaceholderPane v-else :title="activePrimaryTab === 'discover' ? '发现' : '我的'" />
+        </template>
+      </t-chatbot>
+    </div>
   </div>
 
   <TDrawer
     v-model:visible="sidebarDrawerVisible"
     header="会话列表"
     placement="left"
-    size="320px"
+    size="280px"
     :footer="false"
   >
     <SessionHistoryPanel
@@ -194,16 +176,10 @@
       :session-history="sessionHistory"
       :session-id="sessionId"
       :deleting-session-id="deletingSessionId"
-      :batch-deleting-session-ids="batchDeletingSessionIds"
-      :history-selection-mode="historySelectionMode"
-      :selected-session-ids="selectedSessionIds"
       @new-chat="handleNewChatEntry"
       @go-robots="handleGoToRobotPage"
       @open-session="openHistorySession"
       @delete-session="handleDeleteSession"
-      @toggle-history-selection-mode="toggleHistorySelectionMode"
-      @toggle-session-selection="toggleSessionSelection"
-      @batch-delete-sessions="handleBatchDeleteSessions"
     />
   </TDrawer>
 
@@ -253,8 +229,6 @@
     :saving-mobile-model="savingMobileModel"
     :saving-desktop-model="savingDesktopModel"
     :loading-models="loadingModels"
-    :mobile-draft-stream-enabled="mobileDraftStreamEnabled"
-    :desktop-draft-stream-enabled="desktopDraftStreamEnabled"
     @update:mobile-model-tags-input="(value) => (mobileModelTagsInput = value)"
     @update:desktop-model-tags-input="(value) => (desktopModelTagsInput = value)"
     @update:mobile-model-temperature-value="(value) => (mobileModelTemperatureValue = value)"
@@ -270,8 +244,6 @@
     @handle-desktop-model-card-action="handleDesktopModelCardAction"
     @save-mobile-model="saveMobileModel"
     @save-desktop-model="saveDesktopModel"
-    @toggle-mobile-model-stream="toggleMobileDraftStreamEnabled"
-    @toggle-desktop-model-stream="toggleDesktopDraftStreamEnabled"
   />
 
   <ChatSessionDomain
@@ -292,38 +264,76 @@
 </template>
 
 <script setup lang="ts">
-import PrimaryNav from '@/components/chat/PrimaryNav.vue'
-import { useWindowSize } from '@/hooks/useWindowSize'
-import { computed, defineAsyncComponent } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import {
+  Button as TButton,
+  Checkbox as TCheckbox,
+  CheckboxGroup as TCheckboxGroup,
+  Drawer as TDrawer,
+  Form as TForm,
+  FormItem as TFormItem,
+  Input as TInput,
+  Radio as TRadio,
+  RadioGroup as TRadioGroup,
+  Select as TSelect,
+  Space as TSpace,
+} from 'tdesign-vue-next'
+import { LightbulbIcon, MenuIcon, SettingIcon } from 'tdesign-icons-vue-next'
 
-const AgentTab = defineAsyncComponent(() => import('@/components/chat/tabs/AgentTab.vue'))
-const DiscoverTab = defineAsyncComponent(() => import('@/components/chat/tabs/DiscoverTab.vue'))
-const MineTab = defineAsyncComponent(() => import('@/components/chat/tabs/MineTab.vue'))
+import ChatAgentPanels from '@/components/chat/ChatAgentPanels.vue'
+import ChatModelDomain from '@/components/chat/ChatModelDomain.vue'
+import ChatSessionDomain from '@/components/chat/ChatSessionDomain.vue'
+import SessionHistoryPanel from '@/components/chat/SessionHistoryPanel.vue'
+import { useAuth } from '@clerk/vue'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 
-const router = useRouter()
+import { useChatbotRuntime } from '@/hooks/chat-view/useChatbotRuntime'
+import { useChatViewBootstrap } from '@/hooks/chat-view/useChatViewBootstrap'
+import { useChatMessagePipeline } from '@/hooks/chat-view/useChatMessagePipeline'
+import { useChatInitializer } from '@/hooks/chat-view/useChatInitializer'
+import { useChatModelManager } from '@/hooks/chat-view/useChatModelManager'
+import {
+  createModelConfig,
+  createNumericComputationItem,
+  DEFAULT_MODEL_CONFIGS,
+  normalizeModelTags,
+  PROVIDER_OPTIONS,
+} from '@/hooks/chat-view/useChatViewModelUtils'
+import { useChatViewPresentation } from '@/hooks/chat-view/useChatViewPresentation'
+import { useChatRobotManager } from '@/hooks/chat-view/useChatRobotManager'
+import { useChatSessionLifecycle } from '@/hooks/chat-view/useChatSessionLifecycle'
+import { useChatSessionLifecycleDelegate } from '@/hooks/chat-view/useChatSessionLifecycleDelegate'
+import { useChatStreaming } from '@/hooks/chat-view/useChatStreaming'
+import { useChatViewUiController } from '@/hooks/chat-view/useChatViewUiController'
+import {
+  DEFAULT_SESSION_MEMORY,
+  DEFAULT_SESSION_USAGE,
+  DEFAULT_STRUCTURED_MEMORY,
+  DEFAULT_MEMORY_SCHEMA,
+  DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+  DEFAULT_STRUCTURED_MEMORY_INTERVAL,
+  normalizeMemorySchema,
+  normalizeSessionMessages,
+  useChatSessionStateManager,
+} from '@/hooks/chat-view/useChatSessionStateManager'
+import type { ChatbotInstance } from '@/hooks/chat-view/useChatView.types'
+import { useChatSession } from '@/hooks/useChatSession'
+import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
+
 const route = useRoute()
-const { width: windowWidth, height: windowHeight } = useWindowSize()
+const MOBILE_BREAKPOINT = 768
 
-const mainStyle = computed(() => ({
-  width: windowWidth.value > 0 ? `${windowWidth.value}px` : '100vw',
-  height: windowHeight.value > 0 ? `${windowHeight.value}px` : '100vh',
-}))
+const providerOptions = PROVIDER_OPTIONS
+const {
+  bindLifecycle,
+  refreshCurrentSessionState,
+  syncCurrentSessionMeta,
+  hydrateSession,
+  createNewChat,
+} = useChatSessionLifecycleDelegate()
 
-const activePrimaryTab = computed<'agent' | 'discover' | 'mine'>({
-  get: () => {
-    if (route.name === 'agent' || route.name === 'mine') {
-      return route.name
-    }
-    return 'agent'
-  },
-  set: (value) => {
-    if (route.name === value) {
-      return
-    }
-    void router.push({ name: value })
-  },
-})
+const activePrimaryTab = computed<'agent' | 'discover' | 'mine'>(() => 'agent')
+
 const chatbotRef = ref<ChatbotInstance | null>(null)
 const chatInstanceKey = ref(0)
 const isChatResponding = ref(false)
@@ -370,10 +380,6 @@ const {
   showThinkingToggle,
   effectiveStream,
   effectiveThinking,
-  mobileDraftStreamEnabled,
-  desktopDraftStreamEnabled,
-  toggleMobileDraftStreamEnabled,
-  toggleDesktopDraftStreamEnabled,
   mobileModelTemperatureValue,
   desktopModelTemperatureValue,
   applyModelConfigs,
@@ -431,18 +437,12 @@ const {
   sessionId,
   sessionHistory,
   deletingSessionId,
-  batchDeletingSessionIds,
-  historySelectionMode,
-  selectedSessionIds,
   createSessionId,
   getStoredActiveSessionId,
   storeActiveSessionId,
   refreshSessionHistory,
-  toggleHistorySelectionMode: toggleHistorySelectionModeState,
-  toggleSessionSelection: toggleSessionSelectionState,
   openHistorySession: openHistorySessionRecord,
   handleDeleteSession: handleDeleteSessionRecord,
-  handleBatchDeleteSessions: handleBatchDeleteSessionsRecord,
 } = useChatSession({
   onHydrateSession: hydrateSession,
   onCreateNewChat: () => createNewChat(),
@@ -522,9 +522,6 @@ const {
   switchThinking,
   openHistorySession,
   handleDeleteSession,
-  toggleHistorySelectionMode,
-  toggleSessionSelection,
-  handleBatchDeleteSessions,
 } = useChatViewUiController({
   mobileBreakpoint: MOBILE_BREAKPOINT,
   robotTemplates,
@@ -536,9 +533,6 @@ const {
   onOpenAgentManageDialog: openAgentManageDialog,
   onOpenHistorySession: openHistorySessionRecord,
   onDeleteSession: handleDeleteSessionRecord,
-  onToggleHistorySelectionMode: toggleHistorySelectionModeState,
-  onToggleSessionSelection: toggleSessionSelectionState,
-  onBatchDeleteSessions: handleBatchDeleteSessionsRecord,
 })
 const { isLoaded: isAuthLoaded, isSignedIn } = useAuth()
 
@@ -620,5 +614,3 @@ useChatViewBootstrap({
   routeName: () => String(route.name || ''),
 })
 </script>
-
-<style src="./ChatView.css"></style>
