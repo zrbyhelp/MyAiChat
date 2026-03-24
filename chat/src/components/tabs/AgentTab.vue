@@ -89,12 +89,12 @@
                     v-model="draft[field.name] as string | number"
                     :type="field.inputType === 'number' ? 'number' : 'text'"
                     :placeholder="field.placeholder || ''"
-                    :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+                    :disabled="Boolean(submittedForms[slot.formId]) || isChatInteractionLocked"
                   />
                   <TRadioGroup
                     v-else-if="field.type === 'radio'"
                     v-model="draft[field.name] as string | number | boolean"
-                    :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+                    :disabled="Boolean(submittedForms[slot.formId]) || isChatInteractionLocked"
                   >
                     <TRadio
                       v-for="option in field.options || []"
@@ -107,7 +107,7 @@
                   <TCheckboxGroup
                     v-else-if="field.type === 'checkbox'"
                     v-model="draft[field.name] as (string | number | boolean)[]"
-                    :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+                    :disabled="Boolean(submittedForms[slot.formId]) || isChatInteractionLocked"
                   >
                     <TCheckbox
                       v-for="option in field.options || []"
@@ -121,7 +121,7 @@
                     v-else-if="field.type === 'select'"
                     v-model="draft[field.name] as string | number | (string | number)[]"
                     :multiple="Boolean(field.multiple)"
-                    :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+                    :disabled="Boolean(submittedForms[slot.formId]) || isChatInteractionLocked"
                     :options="
                       (field.options || []).map((option) => ({
                         label: option.label,
@@ -135,7 +135,7 @@
             </template>
             <TButton
               theme="primary"
-              :disabled="Boolean(submittedForms[slot.formId]) || isChatResponding"
+              :disabled="Boolean(submittedForms[slot.formId]) || isChatInteractionLocked"
               @click="submitChatForm(slot)"
             >
               {{ submittedForms[slot.formId] ? '已提交' : slot.schema.submitText || '提交' }}
@@ -325,6 +325,7 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { useChatbotRuntime } from '@/hooks/chat-view/useChatbotRuntime'
+import { useChatInteractionGuard } from '@/hooks/chat-view/useChatInteractionGuard'
 import { useChatViewBootstrap } from '@/hooks/chat-view/useChatViewBootstrap'
 import { useChatMessagePipeline } from '@/hooks/chat-view/useChatMessagePipeline'
 import { useChatInitializer } from '@/hooks/chat-view/useChatInitializer'
@@ -378,6 +379,15 @@ const chatInstanceKey = ref(0)
 const isChatResponding = ref(false)
 const mobileSenderExpanded = ref(false)
 const {
+  isInteractionLocked: isChatInteractionLocked,
+  beginInteractionLock,
+  endInteractionLock,
+  sendPrompt,
+} = useChatInteractionGuard({
+  chatbotRef,
+  isChatResponding,
+})
+const {
   pendingChatMessages,
   pendingAssistantSuggestions,
   pendingAssistantForm,
@@ -397,7 +407,8 @@ const {
   submitChatForm,
 } = useChatMessagePipeline({
   chatbotRef,
-  isChatResponding,
+  isInteractionLocked: isChatInteractionLocked,
+  sendPrompt,
 })
 const {
   configVisible,
@@ -674,7 +685,7 @@ const { hasInitializedAgent, ensureAgentInitialized } = useChatInitializer({
 })
 useTokenStatisticAnimation(sessionPromptTokens, sessionCompletionTokens)
 const chatSenderProps = computed(() => ({
-  loading: isChatResponding.value,
+  loading: isChatResponding.value || isChatInteractionLocked.value,
   style: isMobile.value
     ? {
         position: 'fixed',
@@ -706,13 +717,14 @@ useChatbotRuntime({
 const chatbotRuntimeKey = computed(() => `${chatInstanceKey.value}`)
 const { chatMessageProps, agentCardActionOptions, modelCardActionOptions } =
   useChatViewPresentation({
-    chatbotRef,
-    isChatResponding,
+    isInteractionLocked: isChatInteractionLocked,
+    sendPrompt,
     assistantAvatar: computed(() => sessionRobot.avatar),
   })
 
 function finalizeChatResponse(options?: { refreshSession?: boolean }) {
   isChatResponding.value = false
+  endInteractionLock()
   currentAssistantLoadingText.value = ''
   currentMemoryStatusText.value = ''
   pendingAssistantMemoryStatus.value = null
@@ -728,6 +740,7 @@ function finalizeChatResponse(options?: { refreshSession?: boolean }) {
   }
 }
 const { chatServiceConfig } = useChatStreaming({
+  beginInteractionLock,
   sessionId,
   activeModelConfig,
   currentModelLabel,

@@ -21,6 +21,7 @@ import type {
 } from '@/types/ai'
 
 interface UseChatStreamingOptions {
+  beginInteractionLock: () => void
   sessionId: Ref<string>
   activeModelConfig: ComputedRef<AIModelConfigItem>
   currentModelLabel: ComputedRef<string>
@@ -66,6 +67,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
     endpoint: '/api/chat/stream',
     stream: true,
     onRequest: async (params) => {
+      options.beginInteractionLock()
       return {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

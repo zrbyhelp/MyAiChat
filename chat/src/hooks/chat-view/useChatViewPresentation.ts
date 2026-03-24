@@ -3,18 +3,16 @@ import type { Ref } from 'vue'
 
 import type { SuggestionOption } from '@/types/ai'
 
-import type { ChatbotInstance } from './useChatView.types'
-
 interface UseChatViewPresentationOptions {
-  chatbotRef: Ref<ChatbotInstance | null>
-  isChatResponding: Ref<boolean>
+  isInteractionLocked: Ref<boolean>
+  sendPrompt: (prompt: string, blockedMessage?: string) => Promise<boolean>
   assistantAvatar: Ref<string>
 }
 
 export function useChatViewPresentation(options: UseChatViewPresentationOptions) {
   const suggestionActionHandlers = {
     suggestion: async ({ content }: { content?: SuggestionOption }) => {
-      if (options.isChatResponding.value) {
+      if (options.isInteractionLocked.value) {
         MessagePlugin.warning('请等待当前回复结束后再操作')
         return
       }
@@ -22,7 +20,7 @@ export function useChatViewPresentation(options: UseChatViewPresentationOptions)
       if (!prompt) {
         return
       }
-      await options.chatbotRef.value?.sendUserMessage?.({ prompt })
+      await options.sendPrompt(prompt)
     },
   }
 

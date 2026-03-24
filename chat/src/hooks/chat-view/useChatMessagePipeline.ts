@@ -26,7 +26,8 @@ import type { AIFormSchema, SuggestionOption } from '@/types/ai'
 
 interface UseChatMessagePipelineOptions {
   chatbotRef: Ref<ChatbotInstance | null>
-  isChatResponding: Ref<boolean>
+  isInteractionLocked: Ref<boolean>
+  sendPrompt: (prompt: string, blockedMessage?: string) => Promise<boolean>
 }
 
 export function useChatMessagePipeline(options: UseChatMessagePipelineOptions) {
@@ -235,7 +236,7 @@ export function useChatMessagePipeline(options: UseChatMessagePipelineOptions) {
   }
 
   async function submitChatForm(slot: ChatFormSlot) {
-    if (options.isChatResponding.value) {
+    if (options.isInteractionLocked.value) {
       MessagePlugin.warning('请等待当前回复结束后再提交表单')
       return
     }
@@ -264,7 +265,10 @@ export function useChatMessagePipeline(options: UseChatMessagePipelineOptions) {
 
     submittedForms[slot.formId] = true
     try {
-      await options.chatbotRef.value?.sendUserMessage?.({ prompt })
+      const sent = await options.sendPrompt(prompt, '请等待当前回复结束后再提交表单')
+      if (!sent) {
+        submittedForms[slot.formId] = false
+      }
     } catch (error) {
       submittedForms[slot.formId] = false
       MessagePlugin.error(error instanceof Error ? error.message : '表单提交失败')
