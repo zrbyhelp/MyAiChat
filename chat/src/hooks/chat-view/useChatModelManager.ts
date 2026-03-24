@@ -55,7 +55,8 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   )
   const showStreamToggle = computed(() => capabilities.value.supportsStreaming)
   const showThinkingToggle = computed(() => capabilities.value.supportsReasoning)
-  const effectiveStream = computed(() => showStreamToggle.value && streamEnabled.value)
+  // 流式传输开关已下线，默认始终开启流式输出
+  const effectiveStream = computed(() => true)
   const effectiveThinking = computed(() => showThinkingToggle.value && thinkingEnabled.value)
   const editingModelOptions = computed(() =>
     (modelOptionsMap.value[editingConfigId.value] || []).map((item) => ({

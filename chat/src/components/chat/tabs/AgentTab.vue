@@ -229,8 +229,6 @@
     :saving-mobile-model="savingMobileModel"
     :saving-desktop-model="savingDesktopModel"
     :loading-models="loadingModels"
-    :mobile-draft-stream-enabled="mobileDraftStreamEnabled"
-    :desktop-draft-stream-enabled="desktopDraftStreamEnabled"
     @update:mobile-model-tags-input="(value) => (mobileModelTagsInput = value)"
     @update:desktop-model-tags-input="(value) => (desktopModelTagsInput = value)"
     @update:mobile-model-temperature-value="(value) => (mobileModelTemperatureValue = value)"
@@ -246,8 +244,6 @@
     @handle-desktop-model-card-action="handleDesktopModelCardAction"
     @save-mobile-model="saveMobileModel"
     @save-desktop-model="saveDesktopModel"
-    @toggle-mobile-model-stream="toggleMobileDraftStreamEnabled"
-    @toggle-desktop-model-stream="toggleDesktopDraftStreamEnabled"
   />
 
   <ChatSessionDomain
@@ -384,10 +380,6 @@ const {
   showThinkingToggle,
   effectiveStream,
   effectiveThinking,
-  mobileDraftStreamEnabled,
-  desktopDraftStreamEnabled,
-  toggleMobileDraftStreamEnabled,
-  toggleDesktopDraftStreamEnabled,
   mobileModelTemperatureValue,
   desktopModelTemperatureValue,
   applyModelConfigs,

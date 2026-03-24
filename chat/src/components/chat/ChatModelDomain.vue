@@ -183,15 +183,6 @@
           <TFormItem label="标签配置">
             <TInput v-model="mobileTagsValue" placeholder="多个标签用逗号分隔" />
           </TFormItem>
-          <TFormItem label="流式传输">
-            <TButton
-              variant="outline"
-              :theme="mobileDraftStreamEnabled ? 'primary' : 'default'"
-              @click="$emit('toggle-mobile-model-stream')"
-            >
-              {{ mobileDraftStreamEnabled ? '已开启' : '已关闭' }}
-            </TButton>
-          </TFormItem>
         </div>
       </TForm>
       <div class="mobile-overlay-actions drawer-actions">
@@ -383,15 +374,6 @@
           <TFormItem class="form-grid-span-2" label="标签配置">
             <TInput v-model="desktopTagsValue" placeholder="多个标签用逗号分隔" />
           </TFormItem>
-          <TFormItem label="流式传输">
-            <TButton
-              variant="outline"
-              :theme="desktopDraftStreamEnabled ? 'primary' : 'default'"
-              @click="$emit('toggle-desktop-model-stream')"
-            >
-              {{ desktopDraftStreamEnabled ? '已开启' : '已关闭' }}
-            </TButton>
-          </TFormItem>
         </div>
       </TForm>
       <div class="mobile-overlay-actions drawer-actions">
@@ -514,14 +496,6 @@ const props = defineProps({
     type: Boolean,
     required: true,
   },
-  mobileDraftStreamEnabled: {
-    type: Boolean,
-    required: true,
-  },
-  desktopDraftStreamEnabled: {
-    type: Boolean,
-    required: true,
-  },
 })
 
 const emit = defineEmits<{
@@ -543,8 +517,6 @@ const emit = defineEmits<{
   (e: 'handle-desktop-model-card-action', modelId: string, action?: CardAction): void
   (e: 'save-mobile-model'): void
   (e: 'save-desktop-model'): void
-  (e: 'toggle-mobile-model-stream'): void
-  (e: 'toggle-desktop-model-stream'): void
 }>()
 
 const mobileTagsValue = computed({
