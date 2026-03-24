@@ -28,6 +28,7 @@ class AgentState(TypedDict):
     structured_memory_interval: int
     structured_memory_history_limit: int
     model_config: dict
+    auxiliary_model_configs: dict
     numeric_computation_enabled: bool
     numeric_computation_prompt: str
     numeric_computation_items: list[dict]
@@ -57,6 +58,14 @@ def build_model(config: dict) -> ChatOpenAI:
         temperature=config.get("temperature", 0.7) or 0.7,
         stream_usage=True,
     )
+
+
+def resolve_node_model_config(state: AgentState, kind: str) -> dict:
+    auxiliary_configs = state.get("auxiliary_model_configs") or {}
+    target = auxiliary_configs.get(kind)
+    if isinstance(target, dict) and str(target.get("model") or "").strip():
+        return target
+    return state["model_config"]
 
 
 def compose_system_prompt(*sections: str) -> str:
@@ -623,7 +632,7 @@ async def numeric_agent_node(state: AgentState) -> dict:
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }
 
-    model = build_model(state["model_config"])
+    model = build_model(resolve_node_model_config(state, "numeric_computation"))
     structured_memory = StructuredMemory.model_validate(state["structured_memory"])
     response = await model.ainvoke(
         [
@@ -685,7 +694,7 @@ async def numeric_agent_node(state: AgentState) -> dict:
 
 
 async def ui_agent_node(state: AgentState) -> dict:
-    model = build_model(state["model_config"])
+    model = build_model(resolve_node_model_config(state, "form_option"))
     structured_memory = StructuredMemory.model_validate(state["structured_memory"])
     response = await model.ainvoke(
         [
@@ -724,7 +733,7 @@ async def ui_agent_node(state: AgentState) -> dict:
 
 
 async def memory_node(state: AgentState) -> dict:
-    model = build_model(state["model_config"])
+    model = build_model(resolve_node_model_config(state, "memory"))
     schema = MemorySchema.model_validate(state["memory_schema"])
     current_memory = StructuredMemory.model_validate(state["structured_memory"])
     response = await model.ainvoke(
@@ -845,5 +854,6 @@ def build_initial_state(
         "numeric_computation_items": request.robot.numeric_computation_items or [],
         "numeric_state": request.numeric_state or {},
         "model_config": request.model_settings.model_dump(),
+        "auxiliary_model_configs": request.auxiliary_model_configs.model_dump(),
         "usage": {"prompt_tokens": 0, "completion_tokens": 0},
     }

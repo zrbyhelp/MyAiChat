@@ -122,6 +122,7 @@ class ChatMessage(CompatibleModel):
 
 
 class ModelConfig(CompatibleModel):
+    provider: str = "openai"
     base_url: str = Field(validation_alias=AliasChoices("base_url", "baseUrl"))
     api_key: str = Field(validation_alias=AliasChoices("api_key", "apiKey"))
     model: str
@@ -138,6 +139,18 @@ class RobotProfile(CompatibleModel):
     system_prompt: str = Field(
         default="",
         validation_alias=AliasChoices("system_prompt", "systemPrompt"),
+    )
+    memory_model_config_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("memory_model_config_id", "memoryModelConfigId"),
+    )
+    numeric_computation_model_config_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("numeric_computation_model_config_id", "numericComputationModelConfigId"),
+    )
+    form_option_model_config_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("form_option_model_config_id", "formOptionModelConfigId"),
     )
     numeric_computation_enabled: bool = Field(
         default=False,
@@ -170,6 +183,18 @@ class RunUser(CompatibleModel):
     )
 
 
+class AuxiliaryModelConfigs(CompatibleModel):
+    memory: ModelConfig | None = None
+    numeric_computation: ModelConfig | None = Field(
+        default=None,
+        validation_alias=AliasChoices("numeric_computation", "numericComputation"),
+    )
+    form_option: ModelConfig | None = Field(
+        default=None,
+        validation_alias=AliasChoices("form_option", "formOption"),
+    )
+
+
 class RunRequest(CompatibleModel):
     thread_id: str
     session_id: str
@@ -188,6 +213,10 @@ class RunRequest(CompatibleModel):
     structured_memory_history_limit: int | None = Field(
         default=None,
         validation_alias=AliasChoices("structured_memory_history_limit", "structuredMemoryHistoryLimit"),
+    )
+    auxiliary_model_configs: AuxiliaryModelConfigs = Field(
+        default_factory=AuxiliaryModelConfigs,
+        validation_alias=AliasChoices("auxiliary_model_configs", "auxiliaryModelConfigs"),
     )
     numeric_state: dict[str, Any] = Field(
         default_factory=dict,
