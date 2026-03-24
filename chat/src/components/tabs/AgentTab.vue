@@ -623,7 +623,9 @@ const chatSenderProps = computed(() => ({
         pointerEvents: mobileSenderExpanded.value ? 'auto' : 'none',
         transition: 'bottom 0.24s ease, opacity 0.2s ease',
       }
-    : undefined,
+    : {
+        marginBottom: '12px',
+      },
 }))
 
 function toggleMobileSenderExpanded() {

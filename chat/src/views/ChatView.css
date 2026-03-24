@@ -255,6 +255,7 @@
 .chatbot-instance .t-chat-sender {
   border-top: 1px solid #e8edf6;
   background: linear-gradient(180deg, rgba(250, 252, 255, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+  margin-bottom: 12px;
 }
 
 .chatbot-instance .t-chat__text__assistant p,
@@ -906,6 +907,10 @@
 
   .chatbot-instance {
     border-radius: 12px;
+  }
+
+  .chatbot-instance .t-chat-sender {
+    margin-bottom: 0;
   }
 
   .chatbot-instance .t-chat__list {
