@@ -19,7 +19,13 @@
     />
   </div>
 
-  <div class="chat-container">
+  <div
+    class="chat-container"
+    :class="{
+      'mobile-chat-input-expanded': isMobile && mobileSenderExpanded,
+      'mobile-chat-input-collapsed': isMobile && !mobileSenderExpanded,
+    }"
+  >
     <div class="chatbot-header">
       <TSpace align="center" size="small">
         <TButton
@@ -53,6 +59,7 @@
       <t-chatbot
         :key="chatbotRuntimeKey"
         ref="chatbotRef"
+        class="chatbot-instance"
         layout="both"
         :message-props="chatMessageProps"
         :sender-props="chatSenderProps"
@@ -167,6 +174,19 @@
         </template>
       </t-chatbot>
     </div>
+  </div>
+
+  <div
+    v-if="isMobile"
+    class="mobile-sender-toggle"
+    :class="{
+      'is-expanded': mobileSenderExpanded,
+      'is-collapsed': !mobileSenderExpanded,
+    }"
+  >
+    <TButton shape="round" variant="outline" @click="toggleMobileSenderExpanded">
+      {{ mobileSenderExpanded ? '收回' : '展开' }}
+    </TButton>
   </div>
 
   <TDrawer
@@ -353,6 +373,7 @@ const activePrimaryTab = computed<'agent' | 'discover' | 'mine'>(() => 'agent')
 const chatbotRef = ref<ChatbotInstance | null>(null)
 const chatInstanceKey = ref(0)
 const isChatResponding = ref(false)
+const mobileSenderExpanded = ref(false)
 const {
   pendingChatMessages,
   pendingAssistantSuggestions,
@@ -588,7 +609,27 @@ const { hasInitializedAgent, ensureAgentInitialized } = useChatInitializer({
 useTokenStatisticAnimation(sessionPromptTokens, sessionCompletionTokens)
 const chatSenderProps = computed(() => ({
   loading: isChatResponding.value,
+  style: isMobile.value
+    ? {
+        position: 'fixed',
+        left: '12px',
+        width: 'calc(100vw - 24px)',
+        maxWidth: 'calc(100vw - 24px)',
+        bottom: mobileSenderExpanded.value
+          ? 'calc(76px + env(safe-area-inset-bottom))'
+          : 'calc(8px + env(safe-area-inset-bottom))',
+        zIndex: mobileSenderExpanded.value ? '12' : '10',
+        opacity: mobileSenderExpanded.value ? '1' : '0',
+        pointerEvents: mobileSenderExpanded.value ? 'auto' : 'none',
+        transition: 'bottom 0.24s ease, opacity 0.2s ease',
+      }
+    : undefined,
 }))
+
+function toggleMobileSenderExpanded() {
+  mobileSenderExpanded.value = !mobileSenderExpanded.value
+}
+
 useChatbotRuntime({
   chatbotRef,
   isChatResponding,
