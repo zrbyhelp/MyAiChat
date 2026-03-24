@@ -191,7 +191,21 @@
               <TInput v-model="mobileAgentDraft.description" placeholder="用于卡片展示的说明" />
             </TFormItem>
             <TFormItem class="form-grid-span-2" label="头像">
-              <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
+              <TUpload
+                ref="avatarUploadRef"
+                theme="image"
+                accept="image/*"
+                :max="1"
+                :multiple="false"
+                :auto-upload="false"
+                :model-value="avatarUploadFiles"
+                :request-method="requestAvatarUpload"
+                :tips="avatarUploadTips"
+                @change="handleAvatarUploadChange"
+                @success="handleAvatarUploadSuccess"
+                @fail="handleAvatarUploadFail"
+                @remove="handleAvatarUploadRemove"
+              />
             </TFormItem>
             <TFormItem class="form-grid-span-2" label="新建聊天记录保存在服务器">
               <TSwitch v-model="mobileAgentDraft.persistToServer" />
@@ -321,7 +335,7 @@
               >
             </div>
             <div class="agent-editor-actions-right">
-              <TButton theme="primary" :loading="savingMobileAgent" @click="$emit('save-mobile-agent')"
+              <TButton theme="primary" :loading="savingMobileAgent || savingAvatarOnSubmit" @click="handleSaveMobileAgent"
                 >确定</TButton
               >
             </div>
@@ -428,7 +442,21 @@
               <TInput v-model="mobileAgentDraft.description" placeholder="用于卡片展示的说明" />
             </TFormItem>
             <TFormItem class="form-grid-span-2" label="头像">
-              <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
+              <TUpload
+                ref="avatarUploadRef"
+                theme="image"
+                accept="image/*"
+                :max="1"
+                :multiple="false"
+                :auto-upload="false"
+                :model-value="avatarUploadFiles"
+                :request-method="requestAvatarUpload"
+                :tips="avatarUploadTips"
+                @change="handleAvatarUploadChange"
+                @success="handleAvatarUploadSuccess"
+                @fail="handleAvatarUploadFail"
+                @remove="handleAvatarUploadRemove"
+              />
             </TFormItem>
             <TFormItem class="form-grid-span-2" label="新建聊天记录保存在服务器">
               <TSwitch v-model="mobileAgentDraft.persistToServer" />
@@ -558,7 +586,7 @@
               >
             </div>
             <div class="agent-editor-actions-right">
-              <TButton theme="primary" :loading="savingMobileAgent" @click="$emit('save-mobile-agent')"
+              <TButton theme="primary" :loading="savingMobileAgent || savingAvatarOnSubmit" @click="handleSaveMobileAgent"
                 >确定</TButton
               >
             </div>
@@ -570,6 +598,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onBeforeUnmount, ref, toRefs } from 'vue'
 import type { PropType } from 'vue'
 import { InfoCircleIcon, MoreIcon } from 'tdesign-icons-vue-next'
 
@@ -588,12 +617,23 @@ import {
   Steps as TSteps,
   Switch as TSwitch,
   Textarea as TTextarea,
+  Upload as TUpload,
+  MessagePlugin,
 } from 'tdesign-vue-next'
 
 import MemorySchemaEditor from '@/components/chat/MemorySchemaEditor.vue'
+import { uploadImageFile } from '@/lib/api'
 import type { AIRobotCard, NumericComputationItem } from '@/types/ai'
+import type {
+  RequestMethodResponse,
+  SuccessContext,
+  UploadChangeContext,
+  UploadFailContext,
+  UploadFile,
+  UploadInstanceFunctions,
+} from 'tdesign-vue-next'
 
-defineProps({
+const props = defineProps({
   isMobile: {
     type: Boolean,
     required: true,
@@ -640,7 +680,189 @@ defineProps({
   },
 })
 
-defineEmits<{
+const {
+  isMobile,
+  newChatVisible,
+  agentManageVisible,
+  mobileAgentEditorVisible,
+  robotTemplates,
+  selectedNewChatRobotId,
+  isEditingAgentDraft,
+  agentEditorStep,
+  mobileAgentDraft,
+  savingMobileAgent,
+  agentCardActionOptions,
+} = toRefs(props)
+
+const avatarUploadRef = ref<UploadInstanceFunctions | null>(null)
+const pendingAvatarUploadFiles = ref<UploadFile[]>([])
+const localPreviewUrls = new Set<string>()
+const savingAvatarOnSubmit = ref(false)
+
+const avatarUploadFiles = computed<UploadFile[]>(() => {
+  if (pendingAvatarUploadFiles.value.length) {
+    return pendingAvatarUploadFiles.value
+  }
+
+  const avatar = String(mobileAgentDraft.value.avatar || '').trim()
+  if (!avatar) {
+    return []
+  }
+  return [
+    {
+      name: 'avatar',
+      url: avatar,
+      status: 'success',
+    },
+  ]
+})
+
+const hasPendingAvatarFile = computed(() =>
+  pendingAvatarUploadFiles.value.some((item) => item.raw instanceof File),
+)
+
+const avatarUploadTips = computed(() =>
+  mobileAgentDraft.value.persistToServer
+    ? '支持 jpg/png/webp/gif/svg/avif，最大 10MB；点击“确定”时上传头像'
+    : '当前未开启“上传到服务器”，不会执行头像上传',
+)
+
+async function requestAvatarUpload(files: UploadFile | UploadFile[]): Promise<RequestMethodResponse> {
+  if (!mobileAgentDraft.value.persistToServer) {
+    return {
+      status: 'fail',
+      error: '请先开启“上传到服务器”再上传头像',
+      response: {},
+    }
+  }
+
+  const currentFile = Array.isArray(files) ? files[0] : files
+  const rawFile = currentFile?.raw
+  if (!(rawFile instanceof File)) {
+    return {
+      status: 'fail',
+      error: '未获取到上传文件',
+      response: {},
+    }
+  }
+
+  try {
+    const payload = await uploadImageFile(rawFile)
+    return {
+      status: 'success',
+      response: {
+        url: payload.url,
+      },
+    }
+  } catch (error) {
+    return {
+      status: 'fail',
+      error: error instanceof Error ? error.message : '头像上传失败',
+      response: {},
+    }
+  }
+}
+
+function handleAvatarUploadSuccess(context: SuccessContext) {
+  const uploadedUrl = String(context.response?.url || context.file?.response?.url || '').trim()
+  if (!uploadedUrl) {
+    MessagePlugin.error('上传成功但未返回头像地址')
+    return
+  }
+  clearPendingAvatarFiles()
+  mobileAgentDraft.value.avatar = uploadedUrl
+}
+
+function handleAvatarUploadFail(context: UploadFailContext) {
+  const message = String(context.response?.message || context.response?.error || '头像上传失败').trim()
+  MessagePlugin.error(message || '头像上传失败')
+}
+
+function handleAvatarUploadChange(value: UploadFile[], _context: UploadChangeContext) {
+  clearPendingAvatarFiles()
+  pendingAvatarUploadFiles.value = createUploadFilesWithPreview(Array.isArray(value) ? value : [])
+}
+
+function handleAvatarUploadRemove() {
+  clearPendingAvatarFiles()
+  mobileAgentDraft.value.avatar = ''
+}
+
+async function handleSaveMobileAgent() {
+  if (!mobileAgentDraft.value.persistToServer || !hasPendingAvatarFile.value) {
+    emit('save-mobile-agent')
+    return
+  }
+
+  if (savingAvatarOnSubmit.value) {
+    return
+  }
+
+  savingAvatarOnSubmit.value = true
+  try {
+    const uploadSuccess = await uploadPendingAvatarBeforeSave()
+    if (!uploadSuccess) {
+      return
+    }
+    emit('save-mobile-agent')
+  } finally {
+    savingAvatarOnSubmit.value = false
+  }
+}
+
+async function uploadPendingAvatarBeforeSave() {
+  const pendingFile = pendingAvatarUploadFiles.value.find((item) => item.raw instanceof File)?.raw
+  if (!(pendingFile instanceof File)) {
+    MessagePlugin.error('未获取到待上传头像文件')
+    return false
+  }
+  try {
+    const payload = await uploadImageFile(pendingFile)
+    mobileAgentDraft.value.avatar = String(payload.url || '').trim()
+    clearPendingAvatarFiles()
+    return Boolean(mobileAgentDraft.value.avatar)
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '头像上传失败')
+    return false
+  }
+}
+
+function createUploadFilesWithPreview(files: UploadFile[]) {
+  return files.map((file) => {
+    if (file.url) {
+      return file
+    }
+    if (file.raw instanceof File) {
+      const previewUrl = URL.createObjectURL(file.raw)
+      localPreviewUrls.add(previewUrl)
+      return {
+        ...file,
+        url: previewUrl,
+      }
+    }
+    return file
+  })
+}
+
+function clearPendingAvatarFiles() {
+  pendingAvatarUploadFiles.value.forEach((file) => {
+    const fileUrl = String(file.url || '')
+    if (!fileUrl.startsWith('blob:')) {
+      return
+    }
+    if (localPreviewUrls.has(fileUrl)) {
+      URL.revokeObjectURL(fileUrl)
+      localPreviewUrls.delete(fileUrl)
+    }
+  })
+  pendingAvatarUploadFiles.value = []
+}
+
+onBeforeUnmount(() => {
+  clearPendingAvatarFiles()
+})
+
+const emit = defineEmits<{
   (e: 'update:newChatVisible', value: boolean): void
   (e: 'update:agentManageVisible', value: boolean): void
   (e: 'update:mobileAgentEditorVisible', value: boolean): void

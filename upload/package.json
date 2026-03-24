@@ -1,0 +1,17 @@
+{
+  "name": "myaichat-upload",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@clerk/express": "^2.0.5",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "minio": "^8.0.6",
+    "multer": "^2.0.2"
+  }
+}

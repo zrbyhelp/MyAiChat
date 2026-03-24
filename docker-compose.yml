@@ -1,4 +1,17 @@
 services:
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
   mysql:
     image: mysql:8.4
     restart: unless-stopped
@@ -70,5 +83,29 @@ services:
     ports:
       - "${CHAT_PORT:-8080}:80"
 
+  upload:
+    build:
+      context: ./upload
+    restart: unless-stopped
+    environment:
+      UPLOAD_PORT: ${UPLOAD_PORT:-3001}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
+      VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-myaichat-images}
+      MINIO_PUBLIC_BASE_URL: ${MINIO_PUBLIC_BASE_URL:-}
+      MINIO_PUBLIC_READ: ${MINIO_PUBLIC_READ:-true}
+      UPLOAD_MAX_FILE_SIZE_MB: ${UPLOAD_MAX_FILE_SIZE_MB:-10}
+    depends_on:
+      - minio
+    ports:
+      - "${UPLOAD_PORT:-3001}:3001"
+
 volumes:
   mysql-data:
+  minio-data:
