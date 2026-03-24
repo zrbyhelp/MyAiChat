@@ -13,9 +13,9 @@ import { useWindowSize } from '@/hooks/useWindowSize'
 import { computed, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-const AgentTab = defineAsyncComponent(() => import('@/components/chat/tabs/AgentTab.vue'))
-const DiscoverTab = defineAsyncComponent(() => import('@/components/chat/tabs/DiscoverTab.vue'))
-const MineTab = defineAsyncComponent(() => import('@/components/chat/tabs/MineTab.vue'))
+const AgentTab = defineAsyncComponent(() => import('@/components/tabs/AgentTab.vue'))
+const DiscoverTab = defineAsyncComponent(() => import('@/components/tabs/DiscoverTab.vue'))
+const MineTab = defineAsyncComponent(() => import('@/components/tabs/MineTab.vue'))
 
 const router = useRouter()
 const route = useRoute()
