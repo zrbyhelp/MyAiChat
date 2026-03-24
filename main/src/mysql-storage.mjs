@@ -108,26 +108,7 @@ function mapSessionRows(user, rows) {
 
 async function ensureDefaults(user) {
   const userId = resolveUserId(user)
-  const { ModelConfig, Robot } = getModels()
-
-  if ((await ModelConfig.count({ where: { userId } })) === 0) {
-    const defaults = normalizeModelConfigsPayload(DEFAULT_MODEL_CONFIGS)
-    await ModelConfig.bulkCreate(
-      defaults.configs.map((config) => ({
-        id: scopeId(user, config.id),
-        userId,
-        name: config.name,
-        provider: config.provider,
-        baseUrl: config.baseUrl,
-        apiKey: config.apiKey,
-        model: config.model,
-        description: config.description,
-        tagsJson: JSON.stringify(config.tags || []),
-        temperature: config.temperature,
-        isActive: config.id === defaults.activeModelConfigId,
-      })),
-    )
-  }
+  const { Robot } = getModels()
 
   if ((await Robot.count({ where: { userId } })) === 0) {
     await Robot.bulkCreate(normalizeRobots(DEFAULT_ROBOTS).map((robot) => ({
@@ -356,7 +337,7 @@ export async function readModelConfigs(user) {
   })
 
   if (!rows.length) {
-    return normalizeModelConfigsPayload(DEFAULT_MODEL_CONFIGS)
+    return normalizeModelConfigsPayload({ configs: [], activeModelConfigId: '' })
   }
 
   const configs = rows.map((row) => ({

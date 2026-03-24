@@ -1,7 +1,12 @@
 import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, reactive, ref, watch } from 'vue'
 
-import { getCapabilities, saveModelConfigs, testModelConnection } from '@/lib/api'
+import { getCapabilities, getModelConfigs, saveModelConfigs, testModelConnection } from '@/lib/api'
+import {
+  deleteLocalModelConfig,
+  listLocalModelConfigs,
+  putLocalModelConfig,
+} from '@/lib/local-db'
 import type { AIModelConfigItem, ModelCapabilities, ModelOption, ProviderType } from '@/types/ai'
 
 interface UseChatModelManagerOptions {
@@ -12,6 +17,7 @@ interface UseChatModelManagerOptions {
 }
 
 export function useChatModelManager(options: UseChatModelManagerOptions) {
+  const ACTIVE_MODEL_CONFIG_STORAGE_KEY = 'myaichat.active-model-config-id'
   const configVisible = ref(false)
   const mobileModelEditorVisible = ref(false)
   const desktopModelEditorVisible = ref(false)
@@ -99,6 +105,18 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     { deep: true, immediate: true },
   )
 
+  function getStoredActiveModelConfigId() {
+    return typeof window !== 'undefined'
+      ? window.localStorage.getItem(ACTIVE_MODEL_CONFIG_STORAGE_KEY) || ''
+      : ''
+  }
+
+  function storeActiveModelConfigId(value: string) {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ACTIVE_MODEL_CONFIG_STORAGE_KEY, value)
+    }
+  }
+
   function syncEditingConfig(config: AIModelConfigItem) {
     editingConfig.id = config.id
     editingConfig.name = config.name
@@ -109,6 +127,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     editingConfig.description = config.description
     editingConfig.tags = options.normalizeModelTags(config.tags)
     editingConfig.temperature = config.temperature
+    editingConfig.persistToServer = Boolean(config.persistToServer ?? true)
   }
 
   function commitEditingConfig() {
@@ -119,6 +138,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
             name: editingConfig.name.trim() || item.name || '未命名配置',
             description: String(editingConfig.description || '').trim(),
             tags: options.normalizeModelTags(editingConfig.tags),
+            persistToServer: Boolean(editingConfig.persistToServer),
           }
         : item,
     )
@@ -131,6 +151,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
         name: String(item.name || `模型配置 ${index + 1}`),
         description: String(item.description || '').trim(),
         tags: options.normalizeModelTags(item.tags),
+        persistToServer: Boolean(item.persistToServer ?? true),
       }),
     )
     modelConfigs.value = normalized
@@ -141,6 +162,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     activeModelConfigId.value = normalized.some((item) => item.id === activeId)
       ? activeId
       : normalized[0]!.id
+    storeActiveModelConfigId(activeModelConfigId.value)
     const editingTarget =
       normalized.find((item) => item.id === editingConfigId.value) ?? normalized[0]!
     editingConfigId.value = editingTarget.id
@@ -179,6 +201,21 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     capabilities.value = await getCapabilities(current.provider, current.model)
   }
 
+  async function loadModelConfigs() {
+    const [serverResponse, localConfigs] = await Promise.all([getModelConfigs(), listLocalModelConfigs()])
+    const mergedConfigs = [
+      ...serverResponse.configs.map((item) => ({ ...item, persistToServer: true })),
+      ...localConfigs.map((item) => ({ ...item, persistToServer: false })),
+    ]
+    const storedActiveId = getStoredActiveModelConfigId()
+    const resolvedActiveId = mergedConfigs.some((item) => item.id === storedActiveId)
+      ? storedActiveId
+      : mergedConfigs.some((item) => item.id === serverResponse.activeModelConfigId)
+        ? serverResponse.activeModelConfigId
+        : mergedConfigs[0]?.id || options.createModelConfig().id
+    applyModelConfigs(mergedConfigs, resolvedActiveId)
+  }
+
   async function persistModelConfigs(
     nextConfigs: AIModelConfigItem[],
     nextActiveModelId: string,
@@ -192,6 +229,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
           apiKey: item.apiKey.trim(),
           description: item.description.trim(),
           tags: options.normalizeModelTags(item.tags),
+          persistToServer: Boolean(item.persistToServer),
         }))
       : [options.createModelConfig()]
 
@@ -199,19 +237,32 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
       ? nextActiveModelId
       : payload[0]!.id
 
-    const response = await saveModelConfigs(payload, activeId)
-    const mergedConfigs = response.configs.map((item) => {
-      const submitted = payload.find((candidate) => candidate.id === item.id)
-      if (!submitted) {
-        return item
+    const serverPayload = payload.filter((item) => item.persistToServer)
+    const localPayload = payload.filter((item) => !item.persistToServer)
+    const currentServerResponse = await getModelConfigs()
+    const currentLocalIds = new Set((await listLocalModelConfigs()).map((item) => item.id))
+    const nextLocalIds = new Set(localPayload.map((item) => item.id))
+
+    if (serverPayload.length || currentServerResponse.configs.length) {
+      const serverActiveId = serverPayload.some((item) => item.id === activeId)
+        ? activeId
+        : serverPayload[0]?.id || ''
+      await saveModelConfigs(serverPayload, serverActiveId)
+    }
+
+    for (const config of localPayload) {
+      await putLocalModelConfig({
+        ...config,
+        persistToServer: false,
+      })
+    }
+    for (const configId of currentLocalIds) {
+      if (!nextLocalIds.has(configId)) {
+        await deleteLocalModelConfig(configId)
       }
-      return {
-        ...item,
-        description: submitted.description,
-        tags: submitted.tags,
-      }
-    })
-    applyModelConfigs(mergedConfigs, response.activeModelConfigId)
+    }
+
+    await loadModelConfigs()
     await loadCapabilities()
     await options.onSyncCurrentSessionMeta()
     MessagePlugin.success(successMessage)
@@ -228,6 +279,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     mobileModelDraft.model = String(source?.model || '')
     mobileModelDraft.description = String(source?.description || '')
     mobileModelDraft.tags = options.normalizeModelTags(source?.tags || fallback.tags)
+    mobileModelDraft.persistToServer = Boolean(source?.persistToServer ?? true)
     mobileModelTagsInput.value = mobileModelDraft.tags.join(', ')
     mobileModelDraft.temperature =
       typeof source?.temperature === 'number' || source?.temperature === null
@@ -246,6 +298,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     desktopModelDraft.model = String(source?.model || '')
     desktopModelDraft.description = String(source?.description || '')
     desktopModelDraft.tags = options.normalizeModelTags(source?.tags || fallback.tags)
+    desktopModelDraft.persistToServer = Boolean(source?.persistToServer ?? true)
     desktopModelTagsInput.value = desktopModelDraft.tags.join(', ')
     desktopModelDraft.temperature =
       typeof source?.temperature === 'number' || source?.temperature === null
@@ -310,6 +363,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     }
     commitEditingConfig()
     activeModelConfigId.value = configId
+    storeActiveModelConfigId(configId)
     await loadCapabilities()
     await options.onSyncCurrentSessionMeta()
   }
@@ -419,12 +473,8 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
       const activeId = payload.some((item) => item.id === activeModelConfigId.value)
         ? activeModelConfigId.value
         : payload[0]!.id
-      const response = await saveModelConfigs(payload, activeId)
-      applyModelConfigs(response.configs, response.activeModelConfigId)
+      await persistModelConfigs(payload, activeId, '模型配置已保存')
       configVisible.value = false
-      await loadCapabilities()
-      await options.onSyncCurrentSessionMeta()
-      MessagePlugin.success('模型配置已保存')
     } catch (error) {
       MessagePlugin.error(error instanceof Error ? error.message : '保存失败')
     } finally {
@@ -444,8 +494,8 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
 
     try {
       commitEditingConfig()
-      const response = await saveModelConfigs(modelConfigs.value, selectedValue)
-      applyModelConfigs(response.configs, response.activeModelConfigId)
+      activeModelConfigId.value = selectedValue
+      storeActiveModelConfigId(selectedValue)
       await loadCapabilities()
       await options.onSyncCurrentSessionMeta()
     } catch (error) {
@@ -575,6 +625,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
         apiKey: mobileModelDraft.apiKey.trim(),
         description: mobileModelDraft.description.trim(),
         tags: options.normalizeModelTags(mobileModelTagsInput.value),
+        persistToServer: Boolean(mobileModelDraft.persistToServer),
       }
       const nextConfigs =
         mobileModelEditorMode.value === 'edit'
@@ -636,6 +687,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
         apiKey: desktopModelDraft.apiKey.trim(),
         description: desktopModelDraft.description.trim(),
         tags: options.normalizeModelTags(desktopModelTagsInput.value),
+        persistToServer: Boolean(desktopModelDraft.persistToServer),
       }
       const nextConfigs =
         desktopModelEditorMode.value === 'edit'
@@ -728,6 +780,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
     mobileModelTemperatureValue,
     desktopModelTemperatureValue,
     applyModelConfigs,
+    loadModelConfigs,
     loadCapabilities,
     switchModel,
     openConfigDialog,

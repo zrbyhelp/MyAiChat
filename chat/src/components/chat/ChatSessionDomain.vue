@@ -219,26 +219,29 @@
         <div>分类：{{ currentMemorySchema.categories.length }}</div>
         <div>记录：{{ structuredMemoryRecordCount }}</div>
       </div>
-      <div class="session-robot-form-card">
-        <TForm label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="结构化记忆处理间隔">
+        <div class="session-robot-form-card">
+          <TForm label-align="top">
+            <div class="form-grid-2">
+              <TFormItem label="结构化记忆处理间隔">
               <TInputNumber
                 v-model="sessionMemoryDraft.structuredMemoryInterval"
                 :min="1"
                 placeholder="3"
               />
             </TFormItem>
-            <TFormItem label="提示词历史消息条数">
-              <TInputNumber
-                v-model="sessionMemoryDraft.structuredMemoryHistoryLimit"
-                :min="1"
-                placeholder="12"
-              />
-            </TFormItem>
-          </div>
-        </TForm>
-      </div>
+              <TFormItem label="提示词历史消息条数">
+                <TInputNumber
+                  v-model="sessionMemoryDraft.structuredMemoryHistoryLimit"
+                  :min="1"
+                  placeholder="12"
+                />
+              </TFormItem>
+              <TFormItem class="form-grid-span-2" label="聊天记录保存在服务器">
+                <TSwitch v-model="sessionMemoryDraft.persistToServer" />
+              </TFormItem>
+            </div>
+          </TForm>
+        </div>
       <MemoryTreeView :categories="memoryDisplayCategories" />
       <div class="mobile-overlay-actions drawer-actions">
         <TButton block theme="primary" @click="$emit('apply-session-memory-settings')">保存记忆设置</TButton>
@@ -261,26 +264,29 @@
         <div>分类：{{ currentMemorySchema.categories.length }}</div>
         <div>记录：{{ structuredMemoryRecordCount }}</div>
       </div>
-      <div class="session-robot-form-card">
-        <TForm label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="结构化记忆处理间隔">
+        <div class="session-robot-form-card">
+          <TForm label-align="top">
+            <div class="form-grid-2">
+              <TFormItem label="结构化记忆处理间隔">
               <TInputNumber
                 v-model="sessionMemoryDraft.structuredMemoryInterval"
                 :min="1"
                 placeholder="3"
               />
             </TFormItem>
-            <TFormItem label="提示词历史消息条数">
-              <TInputNumber
-                v-model="sessionMemoryDraft.structuredMemoryHistoryLimit"
-                :min="1"
-                placeholder="12"
-              />
-            </TFormItem>
-          </div>
-        </TForm>
-      </div>
+              <TFormItem label="提示词历史消息条数">
+                <TInputNumber
+                  v-model="sessionMemoryDraft.structuredMemoryHistoryLimit"
+                  :min="1"
+                  placeholder="12"
+                />
+              </TFormItem>
+              <TFormItem class="form-grid-span-2" label="聊天记录保存在服务器">
+                <TSwitch v-model="sessionMemoryDraft.persistToServer" />
+              </TFormItem>
+            </div>
+          </TForm>
+        </div>
       <MemoryTreeView :categories="memoryDisplayCategories" />
       <div class="mobile-overlay-actions drawer-actions">
         <TButton block theme="primary" @click="$emit('apply-session-memory-settings')">保存记忆设置</TButton>

@@ -13,6 +13,7 @@ export const DEFAULT_MODEL_CONFIGS: Record<
     description: '',
     tags: [],
     temperature: 0.7,
+    persistToServer: true,
   },
 }
 

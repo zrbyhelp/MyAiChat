@@ -130,7 +130,19 @@ function buildAgentRequest(payload, user, session) {
 }
 
 async function requestAgentRun(payload, user) {
-  const session = await getSessionRecord(user, payload.sessionId)
+  const session =
+    payload.persistToServer === false
+      ? normalizeSession(payload.sessionSnapshot || {
+          id: payload.sessionId,
+          persistToServer: false,
+          messages: [],
+          memory: {
+            ...DEFAULT_SESSION_MEMORY,
+            persistToServer: false,
+          },
+          structuredMemory: {},
+        })
+      : await getSessionRecord(user, payload.sessionId)
   const endpoint = `${getAgentServiceUrl()}/runs/stream`
 
   try {
@@ -153,6 +165,9 @@ async function requestAgentRun(payload, user) {
 }
 
 async function commitSession(payload, user, result, existingSession) {
+  if (payload.persistToServer === false) {
+    return null
+  }
   const now = new Date().toISOString()
   const existing = existingSession || await getSessionRecord(user, payload.sessionId)
   const nextMessages = [...(existing?.messages || [])]
@@ -329,7 +344,17 @@ async function runAgentAndCollect(payload, user, onEvent) {
     numericState: finalNumericState,
     memory: finalMemory,
     usage: finalUsage,
-    session: savedSession,
+    session: savedSession || normalizeSession({
+      ...(session || payload.sessionSnapshot || {}),
+      id: payload.sessionId,
+      persistToServer: false,
+      preview: finalMessage,
+      updatedAt: new Date().toISOString(),
+      threadId: finalThreadId,
+      structuredMemory: finalMemory,
+      numericState: finalNumericState,
+      usage: finalUsage,
+    }),
   }
 }
 

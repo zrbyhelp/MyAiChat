@@ -132,6 +132,9 @@
           <TFormItem class="form-grid-span-2" label="Base URL">
             <TInput v-model="mobileModelDraft.baseUrl" placeholder="请输入 AI 服务地址" />
           </TFormItem>
+          <TFormItem class="form-grid-span-2" label="上传到服务器">
+            <TSwitch v-model="mobileModelDraft.persistToServer" />
+          </TFormItem>
           <TFormItem v-if="mobileModelDraft.provider === 'openai'" label="API Key">
             <TInput
               v-model="mobileModelDraft.apiKey"
@@ -324,6 +327,9 @@
           <TFormItem class="form-grid-span-2" label="Base URL">
             <TInput v-model="desktopModelDraft.baseUrl" placeholder="请输入 AI 服务地址" />
           </TFormItem>
+          <TFormItem class="form-grid-span-2" label="上传到服务器">
+            <TSwitch v-model="desktopModelDraft.persistToServer" />
+          </TFormItem>
           <TFormItem v-if="desktopModelDraft.provider === 'openai'" label="API Key">
             <TInput
               v-model="desktopModelDraft.apiKey"
@@ -402,6 +408,7 @@ import {
   Popup as TPopup,
   Select as TSelect,
   Space as TSpace,
+  Switch as TSwitch,
   Tag as TTag,
 } from 'tdesign-vue-next'
 import { InfoCircleIcon, MoreIcon } from 'tdesign-icons-vue-next'

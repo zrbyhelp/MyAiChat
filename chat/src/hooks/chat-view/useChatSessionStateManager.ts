@@ -24,6 +24,7 @@ export const DEFAULT_SESSION_MEMORY: SessionMemoryState = {
   summary: '',
   updatedAt: '',
   sourceMessageCount: 0,
+  persistToServer: true,
   threshold: 20,
   recentMessageLimit: 10,
   structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
@@ -130,6 +131,7 @@ export function normalizeSessionMemory(memory?: Partial<SessionMemoryState> | nu
     updatedAt: typeof memory?.updatedAt === 'string' ? memory.updatedAt : '',
     sourceMessageCount:
       typeof memory?.sourceMessageCount === 'number' ? memory.sourceMessageCount : 0,
+    persistToServer: Boolean(memory?.persistToServer ?? true),
     threshold:
       typeof memory?.threshold === 'number' && memory.threshold > 0
         ? Math.round(memory.threshold)
@@ -233,8 +235,8 @@ export function normalizeSessionUsage(usage?: Partial<SessionUsageState> | null)
 export function normalizeSessionMessages(session: ChatSessionDetail) {
   return session.messages.map((item, index) => {
     if (item.role === 'user') {
-      return {
-        id: `${session.id}-user-${index}`,
+    return {
+      id: `${session.id}-user-${index}`,
         role: 'user',
         name: '',
         datetime: formatMessageDatetime(item.createdAt),
@@ -309,6 +311,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     ...DEFAULT_STRUCTURED_MEMORY,
   })
   const currentUsage = reactive<SessionUsageState>({ ...DEFAULT_SESSION_USAGE })
+  const currentNumericState = ref<Record<string, unknown>>({})
 
   const sessionRobot = reactive<SessionRobotState>({
     name: '当前智能体',
@@ -406,6 +409,11 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     currentUsage.completionTokens = normalized.completionTokens
   }
 
+  function applyNumericState(value?: Record<string, unknown> | null) {
+    currentNumericState.value =
+      typeof value === 'object' && value !== null ? { ...value } : {}
+  }
+
   function openMemoryDialog() {
     Object.assign(sessionMemoryDraft, normalizeSessionMemory(currentSessionMemory))
     memoryVisible.value = true
@@ -471,9 +479,11 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     applyStructuredMemory,
     applyMemorySchema,
     applySessionUsage,
+    applyNumericState,
     openMemoryDialog,
     openSessionRobotDialog,
     applySessionRobot,
     applySessionMemorySettings,
+    currentNumericState,
   }
 }

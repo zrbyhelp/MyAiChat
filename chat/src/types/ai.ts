@@ -10,6 +10,7 @@ export interface AIModelConfigItem {
   description: string
   tags: string[]
   temperature: number | null
+  persistToServer: boolean
 }
 
 export type MemoryFieldType = 'text' | 'number' | 'enum' | 'boolean' | 'object' | 'array'
@@ -57,6 +58,7 @@ export interface AIRobotCard {
   name: string
   description: string
   avatar: string
+  persistToServer: boolean
   commonPrompt: string
   systemPrompt: string
   numericComputationEnabled: boolean
@@ -93,6 +95,7 @@ export interface SessionMemoryState {
   summary: string
   updatedAt: string
   sourceMessageCount: number
+  persistToServer: boolean
   threshold: number
   recentMessageLimit: number
   prompt: string
@@ -170,6 +173,7 @@ export interface ChatSessionSummary {
   preview: string
   createdAt: string
   updatedAt: string
+  persistToServer: boolean
   robotName: string
   modelConfigId: string
   modelLabel: string

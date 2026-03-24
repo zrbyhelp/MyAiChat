@@ -140,6 +140,7 @@ export function upsertSession(session: {
   modelConfigId?: string
   modelLabel?: string
   memorySchema?: MemorySchemaState
+  persistToServer?: boolean
 }) {
   return requestJson<SessionResponse>('/api/sessions', {
     method: 'POST',

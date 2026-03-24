@@ -1,9 +1,8 @@
 import { MessagePlugin } from 'tdesign-vue-next'
 import { nextTick, ref, type Ref } from 'vue'
 
-import { getModelConfigs, getSession } from '@/lib/api'
 import { isSignedInNow, waitForAuthReady } from '@/lib/auth'
-import type { AIModelConfigItem, ChatSessionDetail, ChatSessionSummary } from '@/types/ai'
+import type { ChatSessionSummary } from '@/types/ai'
 
 interface UseChatInitializerOptions {
   routeName: () => string
@@ -12,11 +11,11 @@ interface UseChatInitializerOptions {
   sessionHistory: Ref<ChatSessionSummary[]>
   getStoredActiveSessionId: () => string
   initDebug: (message: string, extra?: Record<string, unknown>) => void
-  applyModelConfigs: (configs: AIModelConfigItem[], activeId: string) => void
+  loadModelConfigs: () => Promise<void>
   loadCapabilities: () => Promise<void>
   loadRobotTemplates: () => Promise<void>
   refreshSessionHistory: () => Promise<void>
-  hydrateSession: (session: ChatSessionDetail) => Promise<void>
+  openSessionById: (sessionId: string) => Promise<boolean>
   createNewChat: () => Promise<void>
 }
 
@@ -46,13 +45,9 @@ export function useChatInitializer(options: UseChatInitializerOptions) {
         })
         return false
       }
-      options.initDebug('request getModelConfigs')
-      const { configs, activeModelConfigId: activeId } = await getModelConfigs()
-      options.initDebug('getModelConfigs success', {
-        configCount: configs.length,
-        activeId,
-      })
-      options.applyModelConfigs(configs, activeId)
+      options.initDebug('request loadModelConfigs')
+      await options.loadModelConfigs()
+      options.initDebug('loadModelConfigs success')
       await options.loadCapabilities()
       options.initDebug('loadCapabilities success')
       await options.loadRobotTemplates()
@@ -70,12 +65,14 @@ export function useChatInitializer(options: UseChatInitializerOptions) {
       })
       if (initialSessionId) {
         try {
-          options.initDebug('request getSession', { sessionId: initialSessionId })
-          const response = await getSession(initialSessionId)
-          await options.hydrateSession(response.session)
-          options.initDebug('getSession success', { sessionId: initialSessionId })
+          options.initDebug('request open session', { sessionId: initialSessionId })
+          const opened = await options.openSessionById(initialSessionId)
+          if (!opened) {
+            throw new Error('open session failed')
+          }
+          options.initDebug('open session success', { sessionId: initialSessionId })
         } catch {
-          options.initDebug('getSession failed, fallback createNewChat', { sessionId: initialSessionId })
+          options.initDebug('open session failed, fallback createNewChat', { sessionId: initialSessionId })
           await options.createNewChat()
         }
       } else {

@@ -61,6 +61,7 @@ export type NormalizedStreamPayload = {
   promptTokens?: number
   completionTokens?: number
   memory?: import('@/types/ai').StructuredMemoryState
+  state?: Record<string, unknown>
 }
 
 export type ChatFormSlot = {

@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 
 import { getRobots, saveRobots } from '@/lib/api'
 import { UnauthorizedError } from '@/lib/auth'
+import { deleteLocalRobot, listLocalRobots, putLocalRobot } from '@/lib/local-db'
 import type {
   AIRobotCard,
   MemorySchemaState,
@@ -40,6 +41,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       name: '新智能体',
       description: '',
       avatar: '',
+      persistToServer: true,
       commonPrompt: '',
       systemPrompt: '',
       numericComputationEnabled: false,
@@ -99,6 +101,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.name = String(source?.name || '')
     mobileAgentDraft.description = String(source?.description || '')
     mobileAgentDraft.avatar = String(source?.avatar || '')
+    mobileAgentDraft.persistToServer = Boolean(source?.persistToServer ?? true)
     mobileAgentDraft.commonPrompt = String(source?.commonPrompt || '')
     mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
     mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
@@ -115,25 +118,30 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.memorySchema = options.normalizeMemorySchema(source?.memorySchema || fallback.memorySchema)
   }
 
-  async function persistRobotTemplates(nextTemplates: AIRobotCard[], successMessage: string) {
-    const payload = nextTemplates.length
-      ? nextTemplates.map((item, index) => ({
-          ...item,
-          name: item.name.trim() || `智能体 ${index + 1}`,
-          description: item.description.trim(),
-          avatar: item.avatar.trim(),
-          commonPrompt: item.commonPrompt.trim(),
-          numericComputationEnabled: Boolean(item.numericComputationEnabled),
-          numericComputationPrompt: item.numericComputationPrompt.trim(),
-          numericComputationItems: cloneNumericComputationItems(item.numericComputationItems),
-          structuredMemoryInterval: Math.max(1, Math.round(item.structuredMemoryInterval || options.defaultStructuredMemoryInterval)),
-          structuredMemoryHistoryLimit: Math.max(1, Math.round(item.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit)),
-          memorySchema: options.normalizeMemorySchema(item.memorySchema),
-        }))
-      : [createRobotTemplate()]
+  function normalizeRobotDraft(item: AIRobotCard, index: number): AIRobotCard {
+    return {
+      ...item,
+      name: item.name.trim() || `智能体 ${index + 1}`,
+      description: item.description.trim(),
+      avatar: item.avatar.trim(),
+      persistToServer: Boolean(item.persistToServer),
+      commonPrompt: item.commonPrompt.trim(),
+      numericComputationEnabled: Boolean(item.numericComputationEnabled),
+      numericComputationPrompt: item.numericComputationPrompt.trim(),
+      numericComputationItems: cloneNumericComputationItems(item.numericComputationItems),
+      structuredMemoryInterval: Math.max(1, Math.round(item.structuredMemoryInterval || options.defaultStructuredMemoryInterval)),
+      structuredMemoryHistoryLimit: Math.max(1, Math.round(item.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit)),
+      memorySchema: options.normalizeMemorySchema(item.memorySchema),
+    }
+  }
 
-    const response = await saveRobots(payload)
-    robotTemplates.value = response.robots.length ? response.robots : [createRobotTemplate()]
+  async function reloadRobotTemplates() {
+    const [serverResponse, localRobots] = await Promise.all([getRobots(), listLocalRobots()])
+    robotTemplates.value = [...serverResponse.robots, ...localRobots]
+  }
+
+  async function persistRobotTemplates(nextTemplates: AIRobotCard[], successMessage: string) {
+    robotTemplates.value = nextTemplates.length ? nextTemplates : [createRobotTemplate()]
     if (!robotTemplates.value.some((item) => item.id === selectedNewChatRobotId.value)) {
       selectedNewChatRobotId.value = robotTemplates.value[0]?.id || ''
     }
@@ -144,13 +152,12 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
   }
 
   async function loadRobotTemplates() {
-    const response = await getRobots()
-    robotTemplates.value = response.robots
-    if (!robotTemplates.value.some((item) => item.id === selectedNewChatRobotId.value) && response.robots.length) {
-      selectedNewChatRobotId.value = response.robots[0]!.id
+    await reloadRobotTemplates()
+    if (!robotTemplates.value.some((item) => item.id === selectedNewChatRobotId.value) && robotTemplates.value.length) {
+      selectedNewChatRobotId.value = robotTemplates.value[0]!.id
     }
-    if (!robotTemplates.value.some((item) => item.id === editingAgentId.value) && response.robots.length) {
-      editingAgentId.value = response.robots[0]!.id
+    if (!robotTemplates.value.some((item) => item.id === editingAgentId.value) && robotTemplates.value.length) {
+      editingAgentId.value = robotTemplates.value[0]!.id
     }
   }
 
@@ -204,8 +211,18 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
   async function removeMobileAgent(agentId: string) {
     savingMobileAgent.value = true
     try {
-      const nextTemplates = robotTemplates.value.filter((item) => item.id !== agentId)
-      await persistRobotTemplates(nextTemplates, '智能体已删除')
+      const target = robotTemplates.value.find((item) => item.id === agentId)
+      if (!target) {
+        return
+      }
+      if (target.persistToServer) {
+        const serverResponse = await getRobots()
+        await saveRobots(serverResponse.robots.filter((item) => item.id !== agentId))
+      } else {
+        await deleteLocalRobot(agentId)
+      }
+      await reloadRobotTemplates()
+      await persistRobotTemplates(robotTemplates.value, '智能体已删除')
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return
@@ -249,13 +266,38 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         structuredMemoryHistoryLimit: Math.max(1, Math.round(mobileAgentDraft.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit)),
         memorySchema: options.normalizeMemorySchema(mobileAgentDraft.memorySchema),
       }
-      const nextTemplates =
+      const previousAgent =
         mobileAgentEditorMode.value === 'edit'
-          ? robotTemplates.value.map((item) => (item.id === editingMobileAgentId.value ? nextAgent : item))
-          : [...robotTemplates.value, nextAgent]
+          ? robotTemplates.value.find((item) => item.id === editingMobileAgentId.value) || null
+          : null
+      const normalizedAgent = normalizeRobotDraft(nextAgent, robotTemplates.value.length)
 
+      if (normalizedAgent.persistToServer) {
+        const serverResponse = await getRobots()
+        const nextServerRobots =
+          previousAgent?.persistToServer
+            ? serverResponse.robots.map((item) =>
+                item.id === normalizedAgent.id ? normalizedAgent : item,
+              )
+            : [...serverResponse.robots, normalizedAgent]
+        await saveRobots(nextServerRobots)
+        if (previousAgent && !previousAgent.persistToServer) {
+          await deleteLocalRobot(previousAgent.id)
+        }
+      } else {
+        await putLocalRobot({
+          ...normalizedAgent,
+          persistToServer: false,
+        })
+        if (previousAgent?.persistToServer) {
+          const serverResponse = await getRobots()
+          await saveRobots(serverResponse.robots.filter((item) => item.id !== previousAgent.id))
+        }
+      }
+
+      await reloadRobotTemplates()
       await persistRobotTemplates(
-        nextTemplates,
+        robotTemplates.value,
         mobileAgentEditorMode.value === 'edit' ? '智能体已更新' : '智能体已新增',
       )
 

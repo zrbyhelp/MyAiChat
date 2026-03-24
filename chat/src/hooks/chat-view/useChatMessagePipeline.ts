@@ -279,6 +279,7 @@ export function useChatMessagePipeline(options: UseChatMessagePipelineOptions) {
     currentAssistantLoadingText,
     currentMemoryStatusText,
     chatMessages,
+    rawChatMessages,
     submittedForms,
     formActivitySlots,
     loadingActivitySlots,

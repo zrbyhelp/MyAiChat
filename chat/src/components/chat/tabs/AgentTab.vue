@@ -299,6 +299,7 @@ import ChatAgentPanels from '@/components/chat/ChatAgentPanels.vue'
 import ChatModelDomain from '@/components/chat/ChatModelDomain.vue'
 import ChatSessionDomain from '@/components/chat/ChatSessionDomain.vue'
 import SessionHistoryPanel from '@/components/chat/SessionHistoryPanel.vue'
+import { putLocalSession } from '@/lib/local-db'
 import { useAuth } from '@clerk/vue'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -308,6 +309,7 @@ import { useChatViewBootstrap } from '@/hooks/chat-view/useChatViewBootstrap'
 import { useChatMessagePipeline } from '@/hooks/chat-view/useChatMessagePipeline'
 import { useChatInitializer } from '@/hooks/chat-view/useChatInitializer'
 import { useChatModelManager } from '@/hooks/chat-view/useChatModelManager'
+import { serializeChatMessages } from '@/hooks/chat-view/useChatView.message-utils'
 import {
   createModelConfig,
   createNumericComputationItem,
@@ -333,6 +335,7 @@ import {
   useChatSessionStateManager,
 } from '@/hooks/chat-view/useChatSessionStateManager'
 import type { ChatbotInstance } from '@/hooks/chat-view/useChatView.types'
+import type { ChatSessionDetail } from '@/types/ai'
 import { useChatSession } from '@/hooks/useChatSession'
 import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
 
@@ -361,6 +364,7 @@ const {
   currentAssistantLoadingText,
   currentMemoryStatusText,
   chatMessages,
+  rawChatMessages,
   submittedForms,
   formActivitySlots,
   loadingActivitySlots,
@@ -403,6 +407,7 @@ const {
   mobileModelTemperatureValue,
   desktopModelTemperatureValue,
   applyModelConfigs,
+  loadModelConfigs,
   loadCapabilities,
   openConfigDialog,
   openMobileModelCreateDialog,
@@ -464,6 +469,7 @@ const {
   getStoredActiveSessionId,
   storeActiveSessionId,
   refreshSessionHistory,
+  loadSessionRecord,
   toggleHistorySelectionMode: toggleHistorySelectionModeState,
   toggleSessionSelection: toggleSessionSelectionState,
   openHistorySession: openHistorySessionRecord,
@@ -487,10 +493,14 @@ const {
   structuredMemoryRecordCount,
   sessionPromptTokens,
   sessionCompletionTokens,
+  currentStructuredMemory,
+  currentUsage,
+  currentNumericState,
   applySessionMemory,
   applyStructuredMemory,
   applyMemorySchema,
   applySessionUsage,
+  applyNumericState,
   openMemoryDialog,
   openSessionRobotDialog,
   applySessionRobot,
@@ -500,6 +510,59 @@ const {
   validateNumericComputationItems,
   onSyncCurrentSessionMeta: syncCurrentSessionMeta,
 })
+function buildCurrentSessionDetail(): ChatSessionDetail {
+  const serializedMessages = serializeChatMessages(rawChatMessages.value)
+  const createdAt =
+    serializedMessages[0]?.createdAt ||
+    sessionHistory.value.find((item) => item.id === sessionId.value)?.createdAt ||
+    new Date().toISOString()
+  const updatedAt = serializedMessages[serializedMessages.length - 1]?.createdAt || new Date().toISOString()
+  return {
+    id: sessionId.value,
+    title:
+      sessionHistory.value.find((item) => item.id === sessionId.value)?.title ||
+      (serializedMessages.find((item) => item.role === 'user')?.content
+        ? serializedMessages.find((item) => item.role === 'user')!.content.slice(0, 24)
+        : '新对话'),
+    preview: serializedMessages[serializedMessages.length - 1]?.content || '',
+    createdAt,
+    updatedAt,
+    persistToServer: currentSessionMemory.persistToServer,
+    robotName: sessionRobot.name || '当前智能体',
+    modelConfigId: activeModelConfig.value.id,
+    modelLabel: currentModelLabel.value,
+    usage: {
+      promptTokens: currentUsage.promptTokens,
+      completionTokens: currentUsage.completionTokens,
+    },
+    threadId: sessionId.value,
+    robot: {
+      name: sessionRobot.name,
+      avatar: sessionRobot.avatar,
+      commonPrompt: sessionRobot.commonPrompt,
+      systemPrompt: sessionRobot.systemPrompt,
+      numericComputationEnabled: sessionRobot.numericComputationEnabled,
+      numericComputationPrompt: sessionRobot.numericComputationPrompt,
+      numericComputationItems: cloneNumericComputationItems(sessionRobot.numericComputationItems),
+      structuredMemoryInterval: sessionRobot.structuredMemoryInterval,
+      structuredMemoryHistoryLimit: sessionRobot.structuredMemoryHistoryLimit,
+    },
+    messages: serializedMessages,
+    memory: {
+      ...currentSessionMemory,
+      persistToServer: currentSessionMemory.persistToServer,
+    },
+    memorySchema: {
+      categories: currentMemorySchema.categories,
+    },
+    structuredMemory: {
+      updatedAt: currentStructuredMemory.updatedAt,
+      categories: currentStructuredMemory.categories,
+    },
+    numericState: currentNumericState.value,
+  }
+}
+
 const {
   refreshCurrentSessionState: refreshCurrentSessionStateFromLifecycle,
   syncCurrentSessionMeta: syncCurrentSessionMetaFromLifecycle,
@@ -510,6 +573,8 @@ const {
   createSessionId,
   storeActiveSessionId,
   refreshSessionHistory,
+  loadSessionRecord,
+  buildCurrentSessionDetail,
   sessionRobot,
   currentSessionMemory,
   currentMemorySchema,
@@ -522,6 +587,7 @@ const {
   applyMemorySchema,
   applyStructuredMemory,
   applySessionUsage,
+  applyNumericState,
   applyChatMessages,
   loadCapabilities,
   normalizeSessionMessages,
@@ -578,11 +644,11 @@ const { hasInitializedAgent, ensureAgentInitialized } = useChatInitializer({
   sessionHistory,
   getStoredActiveSessionId,
   initDebug,
-  applyModelConfigs,
+  loadModelConfigs,
   loadCapabilities,
   loadRobotTemplates,
   refreshSessionHistory,
-  hydrateSession,
+  openSessionById: openHistorySessionRecord,
   createNewChat: () => createNewChat(),
 })
 useTokenStatisticAnimation(sessionPromptTokens, sessionCompletionTokens)
@@ -613,6 +679,10 @@ function finalizeChatResponse(options?: { refreshSession?: boolean }) {
   if (options?.refreshSession) {
     refreshCurrentSessionState().catch(() => {})
     refreshSessionHistory().catch(() => {})
+  } else {
+    putLocalSession(buildCurrentSessionDetail())
+      .then(() => refreshSessionHistory())
+      .catch(() => {})
   }
 }
 const { chatServiceConfig } = useChatStreaming({
@@ -620,11 +690,18 @@ const { chatServiceConfig } = useChatStreaming({
   activeModelConfig,
   currentModelLabel,
   sessionRobot,
+  currentSessionMemory,
+  currentMemorySchema,
+  currentStructuredMemory,
+  currentNumericState,
+  rawChatMessages,
   effectiveStream,
   effectiveThinking,
   cloneNumericComputationItems,
+  applyNumericState,
   applySessionUsage,
   applyStructuredMemory,
+  serializeChatMessages,
   finalizeChatResponse,
   currentAssistantLoadingText,
   currentMemoryStatusText,
