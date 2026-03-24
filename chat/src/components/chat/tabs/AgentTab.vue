@@ -6,10 +6,16 @@
       :session-history="sessionHistory"
       :session-id="sessionId"
       :deleting-session-id="deletingSessionId"
+      :batch-deleting-session-ids="batchDeletingSessionIds"
+      :history-selection-mode="historySelectionMode"
+      :selected-session-ids="selectedSessionIds"
       @new-chat="handleNewChatEntry"
       @go-robots="handleGoToRobotPage"
       @open-session="openHistorySession"
       @delete-session="handleDeleteSession"
+      @toggle-history-selection-mode="toggleHistorySelectionMode"
+      @toggle-session-selection="toggleSessionSelection"
+      @batch-delete-sessions="handleBatchDeleteSessions"
     />
   </div>
 
@@ -167,7 +173,7 @@
     v-model:visible="sidebarDrawerVisible"
     header="会话列表"
     placement="left"
-    size="280px"
+    size="320px"
     :footer="false"
   >
     <SessionHistoryPanel
@@ -176,10 +182,16 @@
       :session-history="sessionHistory"
       :session-id="sessionId"
       :deleting-session-id="deletingSessionId"
+      :batch-deleting-session-ids="batchDeletingSessionIds"
+      :history-selection-mode="historySelectionMode"
+      :selected-session-ids="selectedSessionIds"
       @new-chat="handleNewChatEntry"
       @go-robots="handleGoToRobotPage"
       @open-session="openHistorySession"
       @delete-session="handleDeleteSession"
+      @toggle-history-selection-mode="toggleHistorySelectionMode"
+      @toggle-session-selection="toggleSessionSelection"
+      @batch-delete-sessions="handleBatchDeleteSessions"
     />
   </TDrawer>
 
@@ -229,6 +241,8 @@
     :saving-mobile-model="savingMobileModel"
     :saving-desktop-model="savingDesktopModel"
     :loading-models="loadingModels"
+    :mobile-draft-stream-enabled="mobileDraftStreamEnabled"
+    :desktop-draft-stream-enabled="desktopDraftStreamEnabled"
     @update:mobile-model-tags-input="(value) => (mobileModelTagsInput = value)"
     @update:desktop-model-tags-input="(value) => (desktopModelTagsInput = value)"
     @update:mobile-model-temperature-value="(value) => (mobileModelTemperatureValue = value)"
@@ -244,6 +258,8 @@
     @handle-desktop-model-card-action="handleDesktopModelCardAction"
     @save-mobile-model="saveMobileModel"
     @save-desktop-model="saveDesktopModel"
+    @toggle-mobile-model-stream="toggleMobileDraftStreamEnabled"
+    @toggle-desktop-model-stream="toggleDesktopDraftStreamEnabled"
   />
 
   <ChatSessionDomain
@@ -380,6 +396,10 @@ const {
   showThinkingToggle,
   effectiveStream,
   effectiveThinking,
+  mobileDraftStreamEnabled,
+  desktopDraftStreamEnabled,
+  toggleMobileDraftStreamEnabled,
+  toggleDesktopDraftStreamEnabled,
   mobileModelTemperatureValue,
   desktopModelTemperatureValue,
   applyModelConfigs,
@@ -437,12 +457,18 @@ const {
   sessionId,
   sessionHistory,
   deletingSessionId,
+  batchDeletingSessionIds,
+  historySelectionMode,
+  selectedSessionIds,
   createSessionId,
   getStoredActiveSessionId,
   storeActiveSessionId,
   refreshSessionHistory,
+  toggleHistorySelectionMode: toggleHistorySelectionModeState,
+  toggleSessionSelection: toggleSessionSelectionState,
   openHistorySession: openHistorySessionRecord,
   handleDeleteSession: handleDeleteSessionRecord,
+  handleBatchDeleteSessions: handleBatchDeleteSessionsRecord,
 } = useChatSession({
   onHydrateSession: hydrateSession,
   onCreateNewChat: () => createNewChat(),
@@ -522,6 +548,9 @@ const {
   switchThinking,
   openHistorySession,
   handleDeleteSession,
+  toggleHistorySelectionMode,
+  toggleSessionSelection,
+  handleBatchDeleteSessions,
 } = useChatViewUiController({
   mobileBreakpoint: MOBILE_BREAKPOINT,
   robotTemplates,
@@ -533,6 +562,9 @@ const {
   onOpenAgentManageDialog: openAgentManageDialog,
   onOpenHistorySession: openHistorySessionRecord,
   onDeleteSession: handleDeleteSessionRecord,
+  onToggleHistorySelectionMode: toggleHistorySelectionModeState,
+  onToggleSessionSelection: toggleSessionSelectionState,
+  onBatchDeleteSessions: handleBatchDeleteSessionsRecord,
 })
 const { isLoaded: isAuthLoaded, isSignedIn } = useAuth()
 
