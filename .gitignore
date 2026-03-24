@@ -33,5 +33,6 @@ agent/.run/
 agent/.state/
 agent/.tmp/
 agent/.venv/
+.launcher/
 **/__pycache__/
 *.pyc

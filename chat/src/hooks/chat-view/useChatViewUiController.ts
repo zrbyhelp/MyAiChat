@@ -15,6 +15,9 @@ interface UseChatViewUiControllerOptions {
   onOpenAgentManageDialog: () => void
   onOpenHistorySession: (targetSessionId: string) => Promise<boolean>
   onDeleteSession: (targetSessionId: string) => Promise<unknown>
+  onToggleHistorySelectionMode: () => void
+  onToggleSessionSelection: (targetSessionId: string) => void
+  onBatchDeleteSessions: () => Promise<unknown>
 }
 
 export function useChatViewUiController(options: UseChatViewUiControllerOptions) {
@@ -70,6 +73,18 @@ export function useChatViewUiController(options: UseChatViewUiControllerOptions)
     await options.onDeleteSession(targetSessionId)
   }
 
+  function toggleHistorySelectionMode() {
+    options.onToggleHistorySelectionMode()
+  }
+
+  function toggleSessionSelection(targetSessionId: string) {
+    options.onToggleSessionSelection(targetSessionId)
+  }
+
+  async function handleBatchDeleteSessions() {
+    await options.onBatchDeleteSessions()
+  }
+
   return {
     isMobile,
     sidebarDrawerVisible,
@@ -81,5 +96,8 @@ export function useChatViewUiController(options: UseChatViewUiControllerOptions)
     switchThinking,
     openHistorySession,
     handleDeleteSession,
+    toggleHistorySelectionMode,
+    toggleSessionSelection,
+    handleBatchDeleteSessions,
   }
 }

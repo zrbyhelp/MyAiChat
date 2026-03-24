@@ -100,21 +100,21 @@
       <div class="agent-manage-panel">
         <div v-if="robotTemplates.length" class="config-list-body">
           <TCard
-            v-for="(item, index) in robotTemplates"
+            v-for="item in robotTemplates"
             :key="item.id"
             class="config-card"
             hoverShadow
             @click="$emit('open-mobile-agent-edit-dialog', item.id)"
           >
-            <template #header>
-              <div class="config-card-head">
-                <span
-                  class="config-card-name ellipsis-1"
-                  :title="item.name || `智能体 ${index + 1}`"
-                >
-                  {{ item.name || `智能体 ${index + 1}` }}
-                </span>
-              </div>
+            <template #title>
+              <span class="config-card-name ellipsis-1" :title="item.name || '未命名智能体'">{{
+                item.name || '未命名智能体'
+              }}</span>
+            </template>
+            <template #subtitle>
+              <span class="config-card-meta ellipsis-1" :title="item.description || '暂无简介'">
+                {{ item.description || '暂无简介' }}
+              </span>
             </template>
             <template #actions>
               <TDropdown
@@ -123,12 +123,13 @@
                 :options="agentCardActionOptions"
                 @click="(data) => $emit('handle-agent-card-action', item.id, data.value)"
               >
-                <TButton variant="text" size="small" @click.stop>操作</TButton>
+                <TButton variant="text" shape="square" size="small" @click.stop>
+                  <template #icon>
+                    <MoreIcon />
+                  </template>
+                </TButton>
               </TDropdown>
             </template>
-            <div class="config-card-meta ellipsis-2" :title="item.description || '暂无简介'">
-              {{ item.description || '暂无简介' }}
-            </div>
             <div
               class="config-card-meta config-card-meta-secondary ellipsis-2"
               :title="item.systemPrompt || '未填写主要故事设定'"
@@ -328,21 +329,21 @@
         </div>
         <div v-if="robotTemplates.length" class="desktop-config-grid">
           <TCard
-            v-for="(item, index) in robotTemplates"
+            v-for="item in robotTemplates"
             :key="item.id"
             class="config-card"
             hoverShadow
             @click="$emit('open-mobile-agent-edit-dialog', item.id)"
           >
-            <template #header>
-              <div class="config-card-head">
-                <span
-                  class="config-card-name ellipsis-1"
-                  :title="item.name || `智能体 ${index + 1}`"
-                >
-                  {{ item.name || `智能体 ${index + 1}` }}
-                </span>
-              </div>
+            <template #title>
+              <span class="config-card-name ellipsis-1" :title="item.name || '未命名智能体'">{{
+                item.name || '未命名智能体'
+              }}</span>
+            </template>
+            <template #subtitle>
+              <span class="config-card-meta ellipsis-1" :title="item.description || '暂无简介'">
+                {{ item.description || '暂无简介' }}
+              </span>
             </template>
             <template #actions>
               <TDropdown
@@ -351,12 +352,13 @@
                 :options="agentCardActionOptions"
                 @click="(data) => $emit('handle-agent-card-action', item.id, data.value)"
               >
-                <TButton variant="text" size="small" @click.stop>操作</TButton>
+                <TButton variant="text" shape="square" size="small" @click.stop>
+                  <template #icon>
+                    <MoreIcon />
+                  </template>
+                </TButton>
               </TDropdown>
             </template>
-            <div class="config-card-meta ellipsis-2" :title="item.description || '暂无简介'">
-              {{ item.description || '暂无简介' }}
-            </div>
             <div
               class="config-card-meta config-card-meta-secondary ellipsis-2"
               :title="item.systemPrompt || '未填写主要故事设定'"
@@ -533,6 +535,7 @@
 
 <script setup lang="ts">
 import type { PropType } from 'vue'
+import { MoreIcon } from 'tdesign-icons-vue-next'
 
 import {
   Button as TButton,

@@ -398,6 +398,55 @@ npm run migrate
 npm run spell:check
 ```
 
+### 10.3 Launcher
+
+Added a Node-based launcher to manage the local `chat / main / agent` services in one place.
+
+Directory:
+
+```bash
+tools/launcher
+```
+
+Supported commands:
+
+```bash
+open <chat|main|agent|all>
+restart <chat|main|agent|all>
+close <chat|main|agent|all>
+status
+logs <chat|main|agent>
+exit
+```
+
+Run directly:
+
+```bash
+cd tools/launcher
+node launcher.mjs
+```
+
+Short commands from the repo root:
+
+```bash
+npm run launcher
+npm run launcher:open
+npm run launcher:status
+npm run launcher:close
+npm run launcher:restart
+```
+
+Double-click entry points:
+
+- macOS: `Start MyAiChat.command`
+- Windows: `Start-MyAiChat.vbs`
+
+Notes:
+
+- The Windows entry opens PowerShell instead of a `cmd` popup.
+- Closing the launcher window attempts to stop all services started by the launcher.
+- `agent` starts in local `file` storage mode by default and writes to `agent/.state/`.
+
 ## 11. Debugging Guide
 
 ### 11.1 Validate the chain first

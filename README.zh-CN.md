@@ -398,6 +398,55 @@ npm run migrate
 npm run spell:check
 ```
 
+### 10.3 启动器
+
+新增一个 Node 启动器，统一管理 `chat / main / agent` 三个本地开发服务。
+
+目录：
+
+```bash
+tools/launcher
+```
+
+支持命令：
+
+```bash
+open <chat|main|agent|all>
+restart <chat|main|agent|all>
+close <chat|main|agent|all>
+status
+logs <chat|main|agent>
+exit
+```
+
+直接启动：
+
+```bash
+cd tools/launcher
+node launcher.mjs
+```
+
+根目录短命令：
+
+```bash
+npm run launcher
+npm run launcher:open
+npm run launcher:status
+npm run launcher:close
+npm run launcher:restart
+```
+
+双击入口：
+
+- macOS：`Start MyAiChat.command`
+- Windows：`Start-MyAiChat.vbs`
+
+说明：
+
+- Windows 入口打开 PowerShell 窗口，不显示 `cmd` 弹窗。
+- 关闭启动器窗口时，会尝试停止所有由启动器托管的服务。
+- `agent` 默认按本地 `file` 存储模式启动，并写入 `agent/.state/`。
+
 ## 11. 调试建议
 
 ### 11.1 先测链路，再测业务

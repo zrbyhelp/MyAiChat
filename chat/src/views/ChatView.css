@@ -6,7 +6,7 @@
 }
 
 .mess-list {
-  width: 240px;
+  width: 300px;
   height: 100%;
   background-color: #fff;
   padding: 16px;
@@ -471,7 +471,7 @@
 
 .config-layout {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 320px 1fr;
   gap: 16px;
   min-height: 420px;
 }
@@ -557,7 +557,7 @@
 }
 
 .agent-manage-layout {
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
   min-height: 70vh;
 }
 
