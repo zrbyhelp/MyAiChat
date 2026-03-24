@@ -57,6 +57,7 @@ export interface AIRobotCard {
   name: string
   description: string
   avatar: string
+  commonPrompt: string
   systemPrompt: string
   numericComputationEnabled: boolean
   numericComputationPrompt: string
@@ -79,6 +80,7 @@ export interface ModelCapabilities {
 export interface SessionRobotState {
   name: string
   avatar: string
+  commonPrompt: string
   systemPrompt: string
   numericComputationEnabled: boolean
   numericComputationPrompt: string

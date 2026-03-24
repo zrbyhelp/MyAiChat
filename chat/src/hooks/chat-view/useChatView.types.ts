@@ -48,8 +48,6 @@ export type NormalizedStreamPayload = {
     | 'form'
     | 'memory_status'
     | 'usage'
-    | 'agent_turn'
-    | 'tool_status'
     | 'structured_memory'
     | 'numeric_state_updated'
     | 'ui_loading'
@@ -62,11 +60,6 @@ export type NormalizedStreamPayload = {
   status?: 'running' | 'success' | 'error'
   promptTokens?: number
   completionTokens?: number
-  agent?: string
-  tool?: string
-  toolType?: 'tool_call' | 'tool_result'
-  query?: string
-  url?: string
   memory?: import('@/types/ai').StructuredMemoryState
 }
 

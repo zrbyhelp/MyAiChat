@@ -203,6 +203,21 @@
               placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
             />
           </TFormItem>
+          <TFormItem>
+            <template #label>
+              <span class="form-label-with-tip">
+                智能体通用提示
+                <TPopup content="该提示词会通用到本智能体全部生成工具上" placement="top">
+                  <InfoCircleIcon class="form-label-tip-icon" />
+                </TPopup>
+              </span>
+            </template>
+            <TTextarea
+              v-model="mobileAgentDraft.commonPrompt"
+              :autosize="{ minRows: 5, maxRows: 8 }"
+              placeholder="填写会统一加到本智能体所有生成节点顶部的通用要求。"
+            />
+          </TFormItem>
           <TFormItem label="启用数值计算">
             <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
           </TFormItem>
@@ -422,6 +437,21 @@
               placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
             />
           </TFormItem>
+          <TFormItem>
+            <template #label>
+              <span class="form-label-with-tip">
+                智能体通用提示
+                <TPopup content="该提示词会通用到本智能体全部生成工具上" placement="top">
+                  <InfoCircleIcon class="form-label-tip-icon" />
+                </TPopup>
+              </span>
+            </template>
+            <TTextarea
+              v-model="mobileAgentDraft.commonPrompt"
+              :autosize="{ minRows: 5, maxRows: 8 }"
+              placeholder="填写会统一加到本智能体所有生成节点顶部的通用要求。"
+            />
+          </TFormItem>
           <TFormItem label="启用数值计算">
             <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
           </TFormItem>
@@ -535,7 +565,7 @@
 
 <script setup lang="ts">
 import type { PropType } from 'vue'
-import { MoreIcon } from 'tdesign-icons-vue-next'
+import { InfoCircleIcon, MoreIcon } from 'tdesign-icons-vue-next'
 
 import {
   Button as TButton,
@@ -547,6 +577,7 @@ import {
   FormItem as TFormItem,
   Input as TInput,
   InputNumber as TInputNumber,
+  Popup as TPopup,
   StepItem as TStepItem,
   Steps as TSteps,
   Switch as TSwitch,

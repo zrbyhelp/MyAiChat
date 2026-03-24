@@ -40,6 +40,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       name: '新智能体',
       description: '',
       avatar: '',
+      commonPrompt: '',
       systemPrompt: '',
       numericComputationEnabled: false,
       numericComputationPrompt: '',
@@ -98,6 +99,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.name = String(source?.name || '')
     mobileAgentDraft.description = String(source?.description || '')
     mobileAgentDraft.avatar = String(source?.avatar || '')
+    mobileAgentDraft.commonPrompt = String(source?.commonPrompt || '')
     mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
     mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
     mobileAgentDraft.numericComputationPrompt = String(source?.numericComputationPrompt || '')
@@ -120,6 +122,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
           name: item.name.trim() || `智能体 ${index + 1}`,
           description: item.description.trim(),
           avatar: item.avatar.trim(),
+          commonPrompt: item.commonPrompt.trim(),
           numericComputationEnabled: Boolean(item.numericComputationEnabled),
           numericComputationPrompt: item.numericComputationPrompt.trim(),
           numericComputationItems: cloneNumericComputationItems(item.numericComputationItems),
@@ -237,6 +240,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         name: mobileAgentDraft.name.trim(),
         description: mobileAgentDraft.description.trim(),
         avatar: mobileAgentDraft.avatar.trim(),
+        commonPrompt: mobileAgentDraft.commonPrompt.trim(),
         systemPrompt: mobileAgentDraft.systemPrompt,
         numericComputationEnabled: Boolean(mobileAgentDraft.numericComputationEnabled),
         numericComputationPrompt: mobileAgentDraft.numericComputationPrompt.trim(),

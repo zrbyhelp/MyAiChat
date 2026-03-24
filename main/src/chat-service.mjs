@@ -99,6 +99,7 @@ function buildAgentRequest(payload, user, session) {
     robot: {
       name: robot?.name || payload.robotName || '当前智能体',
       avatar: robot?.avatar || '',
+      common_prompt: String(robot?.commonPrompt || ''),
       system_prompt: robot?.systemPrompt || payload.systemPrompt || '',
       numeric_computation_enabled: Boolean(robot?.numericComputationEnabled),
       numeric_computation_prompt: String(robot?.numericComputationPrompt || ''),
@@ -345,28 +346,6 @@ export async function requestNonStreamChat(payload, user) {
 }
 
 function forwardAgentEvent(res, payload) {
-  if (payload.type === 'agent_turn') {
-    sendSSE(res, {
-      type: 'agent_turn',
-      agent: payload.agent,
-      message: payload.message,
-    })
-    return
-  }
-
-  if (payload.type === 'tool_call' || payload.type === 'tool_result') {
-    sendSSE(res, {
-      type: 'tool_status',
-      toolType: payload.type,
-      tool: payload.tool,
-      query: payload.query,
-      url: payload.url,
-      results: payload.results,
-      page: payload.page,
-    })
-    return
-  }
-
   if (payload.type === 'message_delta' && payload.text) {
     sendSSE(res, { type: 'text', text: payload.text })
     return

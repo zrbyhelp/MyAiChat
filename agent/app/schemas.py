@@ -131,6 +131,10 @@ class ModelConfig(CompatibleModel):
 class RobotProfile(CompatibleModel):
     name: str = "当前智能体"
     avatar: str = ""
+    common_prompt: str = Field(
+        default="",
+        validation_alias=AliasChoices("common_prompt", "commonPrompt"),
+    )
     system_prompt: str = Field(
         default="",
         validation_alias=AliasChoices("system_prompt", "systemPrompt"),

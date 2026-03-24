@@ -66,6 +66,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       robot: {
         name: options.sessionRobot.name,
         avatar: options.sessionRobot.avatar,
+        commonPrompt: options.sessionRobot.commonPrompt,
         systemPrompt: options.sessionRobot.systemPrompt,
         numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
         numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
@@ -94,6 +95,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.sessionId.value = session.id
     options.sessionRobot.name = session.robot.name || '当前智能体'
     options.sessionRobot.avatar = session.robot.avatar || ''
+    options.sessionRobot.commonPrompt = session.robot.commonPrompt || ''
     options.sessionRobot.systemPrompt = session.robot.systemPrompt || ''
     options.sessionRobot.numericComputationEnabled = Boolean(session.robot.numericComputationEnabled)
     options.sessionRobot.numericComputationPrompt = session.robot.numericComputationPrompt || ''
@@ -128,6 +130,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     if (robot) {
       options.sessionRobot.name = robot.name.trim() || '当前智能体'
       options.sessionRobot.avatar = robot.avatar || ''
+      options.sessionRobot.commonPrompt = robot.commonPrompt
       options.sessionRobot.systemPrompt = robot.systemPrompt
       options.sessionRobot.numericComputationEnabled = Boolean(robot.numericComputationEnabled)
       options.sessionRobot.numericComputationPrompt = robot.numericComputationPrompt
@@ -142,6 +145,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     } else {
       options.sessionRobot.name = '当前智能体'
       options.sessionRobot.avatar = ''
+      options.sessionRobot.commonPrompt = ''
       options.sessionRobot.systemPrompt = ''
       options.sessionRobot.numericComputationEnabled = false
       options.sessionRobot.numericComputationPrompt = ''

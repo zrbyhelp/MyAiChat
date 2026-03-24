@@ -313,6 +313,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   const sessionRobot = reactive<SessionRobotState>({
     name: '当前智能体',
     avatar: '',
+    commonPrompt: '',
     systemPrompt: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
@@ -323,6 +324,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   const sessionRobotDraft = reactive<SessionRobotState>({
     name: '',
     avatar: '',
+    commonPrompt: '',
     systemPrompt: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
@@ -412,6 +414,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   function openSessionRobotDialog() {
     sessionRobotDraft.name = sessionRobot.name
     sessionRobotDraft.avatar = sessionRobot.avatar
+    sessionRobotDraft.commonPrompt = sessionRobot.commonPrompt
     sessionRobotDraft.systemPrompt = sessionRobot.systemPrompt
     sessionRobotDraft.numericComputationEnabled = sessionRobot.numericComputationEnabled
     sessionRobotDraft.numericComputationPrompt = sessionRobot.numericComputationPrompt
@@ -431,6 +434,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     }
     sessionRobot.name = sessionRobotDraft.name.trim() || '当前智能体'
     sessionRobot.avatar = sessionRobotDraft.avatar.trim()
+    sessionRobot.commonPrompt = sessionRobotDraft.commonPrompt.trim()
     sessionRobot.systemPrompt = sessionRobotDraft.systemPrompt
     sessionRobot.numericComputationEnabled = Boolean(sessionRobotDraft.numericComputationEnabled)
     sessionRobot.numericComputationPrompt = sessionRobotDraft.numericComputationPrompt.trim()

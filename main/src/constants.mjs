@@ -94,6 +94,7 @@ export const DEFAULT_ROBOTS = [
     name: '默认智能体',
     description: '',
     avatar: '',
+    commonPrompt: '',
     systemPrompt: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
@@ -107,6 +108,7 @@ export const DEFAULT_ROBOTS = [
 export const DEFAULT_SESSION_ROBOT = {
   name: '当前智能体',
   avatar: '',
+  commonPrompt: '',
   systemPrompt: '',
   numericComputationEnabled: false,
   numericComputationPrompt: '',

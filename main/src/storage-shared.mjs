@@ -115,6 +115,7 @@ export function normalizeRobots(input) {
     name: String(robot?.name || `智能体 ${index + 1}`),
     description: String(robot?.description || ''),
     avatar: String(robot?.avatar || '').trim(),
+    commonPrompt: String(robot?.commonPrompt || robot?.common_prompt || '').trim(),
     systemPrompt: String(robot?.systemPrompt || ''),
     numericComputationEnabled: Boolean(robot?.numericComputationEnabled ?? robot?.imageFetchEnabled),
     numericComputationPrompt: String((robot?.numericComputationPrompt ?? robot?.imageFetchPrompt) || '').trim(),
@@ -137,6 +138,7 @@ export function normalizeSessionRobot(input) {
   return {
     name: String(input?.name || DEFAULT_SESSION_ROBOT.name),
     avatar: String(input?.avatar || '').trim(),
+    commonPrompt: String(input?.commonPrompt || input?.common_prompt || ''),
     systemPrompt: String(input?.systemPrompt || ''),
     numericComputationEnabled: Boolean(input?.numericComputationEnabled ?? input?.imageFetchEnabled),
     numericComputationPrompt: String((input?.numericComputationPrompt ?? input?.imageFetchPrompt) || '').trim(),

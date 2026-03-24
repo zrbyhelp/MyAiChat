@@ -17,12 +17,10 @@ from .schemas import (
     StructuredMemory,
     StructuredMemoryPatch,
     )
-from .tools import fetch_url, web_search
-
-
 class AgentState(TypedDict):
     thread_id: str
     prompt: str
+    common_prompt: str
     system_prompt: str
     history: list[dict]
     memory_schema: dict
@@ -34,9 +32,6 @@ class AgentState(TypedDict):
     numeric_computation_prompt: str
     numeric_computation_items: list[dict]
     numeric_state: dict
-    moderation: NotRequired[dict]
-    research_summary: NotRequired[str]
-    tool_events: NotRequired[list[dict]]
     final_response: NotRequired[str]
     ui_payload: NotRequired[dict]
     usage: NotRequired[dict]
@@ -62,6 +57,10 @@ def build_model(config: dict) -> ChatOpenAI:
         temperature=config.get("temperature", 0.7) or 0.7,
         stream_usage=True,
     )
+
+
+def compose_system_prompt(*sections: str) -> str:
+    return "\n\n".join([section.strip() for section in sections if isinstance(section, str) and section.strip()])
 
 
 def parse_json_object(raw: str, fallback: dict) -> dict:
@@ -575,63 +574,10 @@ def merge_structured_memory(schema: MemorySchema, current_memory: StructuredMemo
     })
 
 
-async def moderator_node(state: AgentState) -> dict:
-    model = build_model(state["model_config"])
-    prompt = (
-        "你是多智能体群聊中的 moderator。"
-        "请判断当前用户问题是否需要联网搜索，并给出最多 2 个搜索词。"
-        '只输出 JSON：{"need_web_search":true|false,"search_queries":["..."],"summary":"给下游智能体的简短说明"}'
-    )
-    response = await model.ainvoke(
-        [
-            {"role": "system", "content": prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"结构化记忆：\n{memory_text(StructuredMemory.model_validate(state['structured_memory']))}\n\n"
-                    f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
-                    f"用户最新输入：{state['prompt']}"
-                ),
-            },
-        ]
-    )
-    moderation = parse_json_object(
-        response.content if isinstance(response.content, str) else str(response.content),
-        {"need_web_search": False, "search_queries": [], "summary": "直接回答"},
-    )
-    usage = extract_usage(response)
-    return {"moderation": moderation, "usage": usage}
-
-
-async def researcher_node(state: AgentState) -> dict:
-    moderation = state.get("moderation") or {}
-    queries = [str(item).strip() for item in moderation.get("search_queries", []) if str(item).strip()][:2]
-    tool_events: list[dict] = []
-    summaries: list[str] = []
-    for query in queries:
-        tool_events.append({"type": "tool_call", "tool": "web_search", "query": query})
-        results = await web_search(query)
-        tool_events.append({"type": "tool_result", "tool": "web_search", "query": query, "results": results})
-        summaries.append(f"搜索词：{query}")
-        for item in results[:3]:
-            summaries.append(f"- {item['title']} | {item['url']} | {item['snippet']}")
-        first_url = results[0]["url"] if results else ""
-        if first_url:
-            tool_events.append({"type": "tool_call", "tool": "url_fetch", "url": first_url})
-            fetched = await fetch_url(first_url)
-            tool_events.append({"type": "tool_result", "tool": "url_fetch", "url": first_url, "page": fetched})
-            summaries.append(f"页面摘要：{fetched['title']}\n{fetched['content']}")
-    return {
-        "tool_events": tool_events,
-        "research_summary": "\n".join(summaries).strip(),
-    }
-
-
 async def answerer_node(state: AgentState) -> dict:
     model = build_model(state["model_config"])
-    research = state.get("research_summary") or "无额外联网资料。"
     structured_memory = StructuredMemory.model_validate(state["structured_memory"])
-    response = await model.ainvoke(build_answerer_messages(state, structured_memory, research))
+    response = await model.ainvoke(build_answerer_messages(state, structured_memory))
     usage = extract_usage(response)
     content = response.content if isinstance(response.content, str) else str(response.content)
     return {"final_response": content.strip(), "usage": usage}
@@ -640,18 +586,17 @@ async def answerer_node(state: AgentState) -> dict:
 def build_answerer_messages(
     state: AgentState,
     structured_memory: StructuredMemory | None = None,
-    research: str | None = None,
 ) -> list[dict]:
     memory = structured_memory or StructuredMemory.model_validate(state["structured_memory"])
-    research_text = research if research is not None else state.get("research_summary") or "无额外联网资料。"
     numeric_items = normalize_numeric_items(state.get("numeric_computation_items"))
     return [
         {
             "role": "system",
-            "content": (
-                f"{state['system_prompt']}\n\n"
-                "请综合结构化记忆、历史消息，直接给出中文内容。"
-            ).strip(),
+            "content": compose_system_prompt(
+                state["common_prompt"],
+                "请综合结构化记忆、历史消息，直接给出中文内容。",
+                state["system_prompt"],
+            ),
         },
         {
             "role": "user",
@@ -660,8 +605,6 @@ def build_answerer_messages(
                 "数值信息说明：每个数值项中的 description 字段表示这个值的名字或含义。你只能读取、引用这里提供的 currentValue，不能以任何形式自行计算、修改、推断、纠正、补全或重写这些数值；如果正文需要提到数值，必须严格以这里给出的 currentValue 为准。\n\n"
                 f"数值信息：\n{json.dumps(numeric_payload_for_answerer(numeric_items, state.get('numeric_state')), ensure_ascii=False)}\n\n"
                 f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
-                f"moderator 说明：{(state.get('moderation') or {}).get('summary', '')}\n\n"
-                f"researcher 输出：\n{research_text}\n\n"
                 f"用户最新输入：{state['prompt']}"
             ),
         },
@@ -686,14 +629,18 @@ async def numeric_agent_node(state: AgentState) -> dict:
         [
             {
                 "role": "system",
-                "content": (
-                    "你是多智能体系统中的数值计算节点，用来在正文回复前根据上下文生成数值 JSON。"
-                    "你只能输出 JSON，不要输出解释。"
-                    "输出格式必须是一个 JSON 对象，字段必须严格遵循给定数值结构体。"
-                    "你必须根据用户传入的数值计算提示词修改当前 JSON 数据并输出。"
-                    "所有叶子字段都必须是 number，不能输出字符串、布尔值、null。"
-                    "不要输出 summary、explanation 或任何额外字段。"
-                    f"\n\n用户配置的数值计算提示词：\n{state.get('numeric_computation_prompt') or '未配置'}"
+                "content": compose_system_prompt(
+                    state["common_prompt"],
+                    (
+                        "你是多智能体系统中的数值计算节点，用来在正文回复前根据上下文生成数值 JSON。"
+                        "你只能输出 JSON，不要输出解释。"
+                        "输出格式必须是一个 JSON 对象，字段必须严格遵循给定数值结构体。"
+                        "你必须根据用户传入的数值计算提示词修改当前 JSON 数据并输出。"
+                        "所有叶子字段都必须是 number，不能输出字符串、布尔值、null。"
+                        "不要输出 summary、explanation 或任何额外字段。"
+                        f"\n\n用户配置的数值计算提示词：\n{state.get('numeric_computation_prompt') or '未配置'}"
+                    ),
+                    state["system_prompt"],
                 ),
             },
             {
@@ -704,7 +651,6 @@ async def numeric_agent_node(state: AgentState) -> dict:
                     f"数值结构体：\n{json.dumps(numeric_schema, ensure_ascii=False)}\n\n"
                     f"当前数值状态：\n{numeric_state_text(current_numeric_state)}\n\n"
                     f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
-                    f"researcher 输出：\n{state.get('research_summary') or '无额外联网资料。'}\n\n"
                     f"用户最新输入：{state['prompt']}"
                 ),
             },
@@ -745,14 +691,18 @@ async def ui_agent_node(state: AgentState) -> dict:
         [
             {
                 "role": "system",
-                "content": (
-                    "你负责为当前 assistant 回复生成聊天气泡里的交互 UI。"
-                    "只输出 JSON，顶层结构固定为 {\"suggestions\":[{\"title\":\"按钮文字\",\"prompt\":\"点击后发送文本\"}],\"form\":null} 或 {\"suggestions\":[],\"form\":{\"title\":\"标题\",\"description\":\"说明\",\"submitText\":\"提交\",\"fields\":[{\"name\":\"字段名\",\"label\":\"字段标签\",\"type\":\"input|radio|checkbox|select\",\"placeholder\":\"占位\",\"required\":true,\"inputType\":\"text|number\",\"multiple\":false,\"options\":[{\"label\":\"选项\",\"value\":\"值\"}],\"defaultValue\":\"默认值\"}]}}。"
-                    "只要当前回复要求用户输入，补充、填写任何输入内容，必须优先生成 form，不要生成 suggestions。"
-                    "只有在不需要用户输入、只是给出后续动作或方向选择时，才生成 suggestions。"
-                    "当回复存在明确下一步选择时，生成 suggestions。"
-                    "form 和 suggestions 不能同时出现。"
-                    "如果没有明显交互需求，也必须返回一个 suggestions，内容只能有一个继续。"
+                "content": compose_system_prompt(
+                    state["common_prompt"],
+                    (
+                        "你负责为当前 assistant 回复生成聊天气泡里的交互 UI。"
+                        "只输出 JSON，顶层结构固定为 {\"suggestions\":[{\"title\":\"按钮文字\",\"prompt\":\"点击后发送文本\"}],\"form\":null} 或 {\"suggestions\":[],\"form\":{\"title\":\"标题\",\"description\":\"说明\",\"submitText\":\"提交\",\"fields\":[{\"name\":\"字段名\",\"label\":\"字段标签\",\"type\":\"input|radio|checkbox|select\",\"placeholder\":\"占位\",\"required\":true,\"inputType\":\"text|number\",\"multiple\":false,\"options\":[{\"label\":\"选项\",\"value\":\"值\"}],\"defaultValue\":\"默认值\"}]}}。"
+                        "只要当前回复要求用户输入，补充、填写任何输入内容，必须优先生成 form，不要生成 suggestions。"
+                        "只有在不需要用户输入、只是给出后续动作或方向选择时，才生成 suggestions。"
+                        "当回复存在明确下一步选择时，生成 suggestions。"
+                        "form 和 suggestions 不能同时出现。"
+                        "如果没有明显交互需求，也必须返回一个 suggestions，内容只能有一个继续。"
+                    ),
+                    state["system_prompt"],
                 ),
             },
             {
@@ -781,23 +731,27 @@ async def memory_node(state: AgentState) -> dict:
         [
             {
                 "role": "system",
-                "content": (
-                    "你负责把当前对话整理成结构化长期记忆。"
-                    "你必须严格遵循给定 schema，只输出 JSON。"
-                    "你输出的是增量 patch，不是完整重写后的全部记忆。"
-                    "顶层结构固定为："
-                    '{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","items":[{"op":"add|update|delete","id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}]}]}。'
-                    "categories 里只能使用 schema 中声明的 category_id。"
-                    "values 里只能写该分类 schema 声明过的字段。"
-                    "每个 item 必须显式声明 op，只允许 add、update、delete。"
-                    "只输出本轮新增或发生变化的记忆项；未变化的旧记忆不要重复输出。"
-                    "如果某个分类本轮没有新增或变化，items 输出空数组即可。"
-                    "如果要修改已有记忆，必须使用 op=update，并提供现有记录的 id。"
-                    "如果要删除已有记忆，必须使用 op=delete，并提供现有记录的 id。"
-                    "delete 时不要输出 values。"
-                    "add 时必须提供有效 values；update 时只需要输出要修改的字段。"
-                    "除非本轮明确要求删除或纠正错误记忆，否则不要输出 delete。"
-                    "不要输出没有任何字段值的 add item，不要输出缺少 id 的 update/delete item。"
+                "content": compose_system_prompt(
+                    state["common_prompt"],
+                    (
+                        "你负责把当前对话整理成结构化长期记忆。"
+                        "你必须严格遵循给定 schema，只输出 JSON。"
+                        "你输出的是增量 patch，不是完整重写后的全部记忆。"
+                        "顶层结构固定为："
+                        '{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","items":[{"op":"add|update|delete","id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}]}]}。'
+                        "categories 里只能使用 schema 中声明的 category_id。"
+                        "values 里只能写该分类 schema 声明过的字段。"
+                        "每个 item 必须显式声明 op，只允许 add、update、delete。"
+                        "只输出本轮新增或发生变化的记忆项；未变化的旧记忆不要重复输出。"
+                        "如果某个分类本轮没有新增或变化，items 输出空数组即可。"
+                        "如果要修改已有记忆，必须使用 op=update，并提供现有记录的 id。"
+                        "如果要删除已有记忆，必须使用 op=delete，并提供现有记录的 id。"
+                        "delete 时不要输出 values。"
+                        "add 时必须提供有效 values；update 时只需要输出要修改的字段。"
+                        "除非本轮明确要求删除或纠正错误记忆，否则不要输出 delete。"
+                        "不要输出没有任何字段值的 add item，不要输出缺少 id 的 update/delete item。"
+                    ),
+                    state["system_prompt"],
                 ),
             },
             {
@@ -833,13 +787,6 @@ def add_usage(existing: dict | None, delta: dict | None) -> dict:
 def build_graph():
     graph = StateGraph(AgentState)
 
-    async def moderator(state: AgentState) -> dict:
-        result = await moderator_node(state)
-        return {"moderation": result["moderation"], "usage": add_usage(state.get("usage"), result.get("usage"))}
-
-    async def researcher(state: AgentState) -> dict:
-        return await researcher_node(state)
-
     async def numeric_agent(state: AgentState) -> dict:
         result = await numeric_agent_node(state)
         return {
@@ -859,19 +806,11 @@ def build_graph():
         result = await memory_node(state)
         return {"structured_memory": result["structured_memory"], "usage": add_usage(state.get("usage"), result.get("usage"))}
 
-    graph.add_node("moderator", moderator)
-    graph.add_node("researcher", researcher)
     graph.add_node("numeric_agent", numeric_agent)
     graph.add_node("answerer", answerer)
     graph.add_node("ui_agent", ui_agent)
     graph.add_node("memory", memory)
-    graph.add_edge(START, "moderator")
-    graph.add_conditional_edges(
-        "moderator",
-        lambda state: "researcher" if (state.get("moderation") or {}).get("need_web_search") else "numeric_agent",
-        {"researcher": "researcher", "numeric_agent": "numeric_agent"},
-    )
-    graph.add_edge("researcher", "numeric_agent")
+    graph.add_edge(START, "numeric_agent")
     graph.add_edge("numeric_agent", "answerer")
     graph.add_edge("answerer", "ui_agent")
     graph.add_edge("ui_agent", "memory")
@@ -888,6 +827,7 @@ def build_initial_state(
     return {
         "thread_id": request.thread_id,
         "prompt": request.prompt,
+        "common_prompt": request.robot.common_prompt or "",
         "system_prompt": request.system_prompt or request.robot.system_prompt or "",
         "history": [item.model_dump() for item in history],
         "memory_schema": memory_schema.model_dump(),

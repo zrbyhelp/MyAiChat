@@ -15,8 +15,6 @@ from .graph import (
     numeric_payload_for_answerer,
     extract_usage,
     memory_node,
-    moderator_node,
-    researcher_node,
     ui_agent_node,
 )
 from .schemas import StructuredMemory
@@ -87,34 +85,11 @@ async def run_stream(request: RunRequest):
         final_memory = structured_memory.model_dump()
         final_ui_payload = {"suggestions": [], "form": None}
         usage = {"prompt_tokens": 0, "completion_tokens": 0}
-        moderation_payload = await moderator_node(state)
-        state.update(moderation_payload)
-        moderation = moderation_payload.get("moderation") or {}
-        usage = moderation_payload.get("usage") or usage
-        yield sse({
-            "type": "agent_turn",
-            "agent": "moderator",
-            "message": moderation.get("summary") or "已完成路由决策",
-        })
-
-        if moderation.get("need_web_search"):
-            research_payload = await researcher_node(state)
-            state.update(research_payload)
-            for item in research_payload.get("tool_events") or []:
-                yield sse(item)
-            yield sse({
-                "type": "agent_turn",
-                "agent": "researcher",
-                "message": research_payload.get("research_summary") or "已完成联网检索",
-            })
-
-        yield sse({"type": "agent_turn", "agent": "numeric_agent", "message": "正在计算数值状态"})
         numeric_payload = await numeric_agent_node(state)
         state.update(numeric_payload)
         usage = numeric_payload.get("usage") or usage
         yield sse({"type": "numeric_state_updated", "state": state.get("numeric_state") or {}})
 
-        yield sse({"type": "agent_turn", "agent": "answerer", "message": "正在生成最终答复"})
         print(
             "[answerer:numeric-input]",
             json.dumps(

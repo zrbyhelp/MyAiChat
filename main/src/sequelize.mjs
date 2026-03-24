@@ -144,6 +144,12 @@ export function getModels() {
       defaultValue: '',
       field: 'system_prompt',
     },
+    commonPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'common_prompt',
+    },
     imageFetchEnabled: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
@@ -245,6 +251,12 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'robot_system_prompt',
+    },
+    robotCommonPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_common_prompt',
     },
     robotImageFetchEnabled: {
       type: DataTypes.BOOLEAN,

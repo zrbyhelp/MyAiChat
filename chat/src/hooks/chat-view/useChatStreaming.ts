@@ -51,18 +51,6 @@ function createThinkingChunk(text: string, done = false): AIMessageContent {
   } as AIMessageContent
 }
 
-function createAgentStatusChunk(title: string, text: string): AIMessageContent {
-  return {
-    type: 'thinking',
-    strategy: 'merge',
-    status: 'streaming',
-    data: {
-      title,
-      text: `${text}\n`,
-    },
-  } as AIMessageContent
-}
-
 export function useChatStreaming(options: UseChatStreamingOptions) {
   const chatServiceConfig = computed<ChatServiceConfig>(() => ({
     endpoint: '/api/chat/stream',
@@ -83,6 +71,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
           robot: {
             name: options.sessionRobot.name,
             avatar: options.sessionRobot.avatar,
+            commonPrompt: options.sessionRobot.commonPrompt,
             systemPrompt: options.sessionRobot.systemPrompt,
             numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
             numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
@@ -157,15 +146,6 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
           completionTokens: payload.completionTokens,
         })
         return null
-      }
-      if (payload.type === 'agent_turn' && payload.message) {
-        return null
-      }
-      if (payload.type === 'tool_status') {
-        const summary = payload.toolType === 'tool_call'
-          ? `调用工具 ${payload.tool || ''} ${payload.query || payload.url || ''}`.trim()
-          : `工具结果 ${payload.tool || ''} 已返回`
-        return createAgentStatusChunk('Tool', summary)
       }
       if (payload.type === 'structured_memory' && payload.memory) {
         options.applyStructuredMemory(payload.memory)
