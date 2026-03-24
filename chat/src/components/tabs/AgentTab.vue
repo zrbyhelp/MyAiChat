@@ -226,6 +226,7 @@
     :agent-editor-step="agentEditorStep"
     :mobile-agent-draft="mobileAgentDraft"
     :saving-mobile-agent="savingMobileAgent"
+    :aux-model-options="auxModelOptions"
     :agent-card-action-options="agentCardActionOptions"
     @confirm-start-new-chat="confirmStartNewChat"
     @open-mobile-agent-edit-dialog="openMobileAgentEditDialog"
@@ -289,6 +290,7 @@
     :session-robot-draft="sessionRobotDraft"
     :session-memory-draft="sessionMemoryDraft"
     :memory-updated-label="memoryUpdatedLabel"
+    :aux-model-options="auxModelOptions"
     :current-memory-schema="currentMemorySchema"
     :structured-memory-record-count="structuredMemoryRecordCount"
     :memory-display-categories="memoryDisplayCategories"
@@ -542,6 +544,16 @@ const {
   validateNumericComputationItems,
   onSyncCurrentSessionMeta: syncCurrentSessionMeta,
 })
+const auxModelOptions = computed(() => [
+  {
+    label: '未单独配置，默认跟随正文模型',
+    value: '',
+  },
+  ...modelConfigs.value.map((item) => ({
+    label: item.model ? `${item.name} / ${item.model}` : item.name,
+    value: item.id,
+  })),
+])
 function buildCurrentSessionDetail(): ChatSessionDetail {
   const serializedMessages = serializeChatMessages(rawChatMessages.value)
   const createdAt =
@@ -573,6 +585,9 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
       avatar: sessionRobot.avatar,
       commonPrompt: sessionRobot.commonPrompt,
       systemPrompt: sessionRobot.systemPrompt,
+      memoryModelConfigId: sessionRobot.memoryModelConfigId,
+      numericComputationModelConfigId: sessionRobot.numericComputationModelConfigId,
+      formOptionModelConfigId: sessionRobot.formOptionModelConfigId,
       numericComputationEnabled: sessionRobot.numericComputationEnabled,
       numericComputationPrompt: sessionRobot.numericComputationPrompt,
       numericComputationItems: cloneNumericComputationItems(sessionRobot.numericComputationItems),
@@ -744,6 +759,7 @@ const { chatServiceConfig } = useChatStreaming({
   sessionId,
   activeModelConfig,
   currentModelLabel,
+  modelConfigs,
   sessionRobot,
   currentSessionMemory,
   currentMemorySchema,

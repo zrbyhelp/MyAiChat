@@ -98,6 +98,9 @@ export const DEFAULT_ROBOTS = [
     persistToServer: true,
     commonPrompt: '',
     systemPrompt: '',
+    memoryModelConfigId: '',
+    numericComputationModelConfigId: '',
+    formOptionModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
     numericComputationItems: [],
@@ -112,6 +115,9 @@ export const DEFAULT_SESSION_ROBOT = {
   avatar: '',
   commonPrompt: '',
   systemPrompt: '',
+  memoryModelConfigId: '',
+  numericComputationModelConfigId: '',
+  formOptionModelConfigId: '',
   numericComputationEnabled: false,
   numericComputationPrompt: '',
   numericComputationItems: [],
@@ -143,6 +149,10 @@ export const DEFAULT_SESSIONS_PAYLOAD = {
 export const PROVIDER_DEFAULTS = {
   openai: {
     baseUrl: 'https://api.openai.com',
+    temperature: 0.7,
+  },
+  ollama: {
+    baseUrl: 'http://127.0.0.1:11434',
     temperature: 0.7,
   },
 }

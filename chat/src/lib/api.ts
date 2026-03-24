@@ -134,8 +134,9 @@ export function saveRobots(robots: AIRobotCard[]) {
   })
 }
 
-export async function getModels(_provider: string, baseUrl: string, apiKey: string) {
+export async function getModels(provider: string, baseUrl: string, apiKey: string) {
   const search = new URLSearchParams({
+    provider,
     baseUrl,
   })
 
@@ -147,8 +148,9 @@ export async function getModels(_provider: string, baseUrl: string, apiKey: stri
   return data.models as ModelOption[]
 }
 
-export async function getCapabilities(_provider: string, model: string) {
+export async function getCapabilities(provider: string, model: string) {
   const search = new URLSearchParams({
+    provider,
     model,
   })
 

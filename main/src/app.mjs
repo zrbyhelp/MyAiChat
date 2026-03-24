@@ -199,6 +199,7 @@ export function createApp() {
   app.get('/api/models', async (req, res, next) => {
     try {
       const config = normalizeModelConfig({
+        provider: req.query.provider,
         baseUrl: req.query.baseUrl,
         apiKey: req.query.apiKey,
       })
@@ -209,11 +210,12 @@ export function createApp() {
   })
 
   app.get('/api/capabilities', (req, res) => {
+    const provider = String(req.query.provider || 'openai')
     const model = String(req.query.model || '')
     res.json({
       capabilities: {
         supportsStreaming: true,
-        supportsReasoning: detectReasoningSupport('openai', model),
+        supportsReasoning: detectReasoningSupport(provider, model),
       },
     })
   })

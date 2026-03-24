@@ -269,7 +269,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   }
 
   function syncMobileModelDraft(source?: Partial<AIModelConfigItem> | null) {
-    const provider: ProviderType = 'openai'
+    const provider: ProviderType = source?.provider === 'ollama' ? 'ollama' : 'openai'
     const fallback = options.createModelConfig(provider)
     mobileModelDraft.id = String(source?.id || fallback.id)
     mobileModelDraft.name = String(source?.name || '')
@@ -288,7 +288,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   }
 
   function syncDesktopModelDraft(source?: Partial<AIModelConfigItem> | null) {
-    const provider: ProviderType = 'openai'
+    const provider: ProviderType = source?.provider === 'ollama' ? 'ollama' : 'openai'
     const fallback = options.createModelConfig(provider)
     desktopModelDraft.id = String(source?.id || fallback.id)
     desktopModelDraft.name = String(source?.name || '')
@@ -445,7 +445,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   }
 
   function handleProviderChange() {
-    const nextProvider: ProviderType = 'openai'
+    const nextProvider: ProviderType = editingConfig.provider === 'ollama' ? 'ollama' : 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     editingConfig.provider = nextProvider
     editingConfig.baseUrl = defaults.baseUrl
@@ -504,7 +504,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   }
 
   function handleMobileModelProviderChange() {
-    const nextProvider: ProviderType = 'openai'
+    const nextProvider: ProviderType = mobileModelDraft.provider === 'ollama' ? 'ollama' : 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     mobileModelDraft.provider = nextProvider
     mobileModelDraft.baseUrl = defaults.baseUrl
@@ -518,7 +518,7 @@ export function useChatModelManager(options: UseChatModelManagerOptions) {
   }
 
   function handleDesktopModelProviderChange() {
-    const nextProvider: ProviderType = 'openai'
+    const nextProvider: ProviderType = desktopModelDraft.provider === 'ollama' ? 'ollama' : 'openai'
     const defaults = options.defaultModelConfigs[nextProvider]
     desktopModelDraft.provider = nextProvider
     desktopModelDraft.baseUrl = defaults.baseUrl

@@ -29,10 +29,13 @@ function getOpenAIBaseUrl(baseUrl) {
 }
 
 function buildHeaders(config) {
-  return {
+  const headers = {
     'Content-Type': 'application/json',
-    Authorization: config.apiKey ? `Bearer ${config.apiKey}` : '',
   }
+  if (config.provider !== 'ollama' && config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`
+  }
+  return headers
 }
 
 function describeFetchError(error, endpoint, actionLabel) {
@@ -51,7 +54,10 @@ function describeFetchError(error, endpoint, actionLabel) {
   return `${actionLabel}失败：${error.message}`
 }
 
-export function detectReasoningSupport(_provider, model) {
+export function detectReasoningSupport(provider, model) {
+  if (String(provider || 'openai') === 'ollama') {
+    return false
+  }
   if (!model) {
     return false
   }
@@ -81,6 +87,27 @@ function buildAgentRequest(payload, user, session) {
     normalizePositiveInteger(robot?.structuredMemoryHistoryLimit, DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit),
   )
 
+  function resolveAuxiliaryModelConfig(modelConfigId) {
+    const targetId = String(modelConfigId || '').trim()
+    const primaryConfig = normalizeModelConfig({
+      provider: payload.provider,
+      baseUrl: payload.baseUrl,
+      apiKey: payload.apiKey,
+      model: payload.model,
+      temperature: payload.temperature,
+    }, 0)
+
+    if (!targetId) {
+      return primaryConfig
+    }
+
+    const matched = Array.isArray(payload.modelConfigs)
+      ? payload.modelConfigs.find((item) => String(item?.id || '') === targetId)
+      : null
+
+    return matched ? normalizeModelConfig(matched, 0) : primaryConfig
+  }
+
   return {
     thread_id: session?.threadId || payload.sessionId,
     session_id: payload.sessionId,
@@ -91,6 +118,7 @@ function buildAgentRequest(payload, user, session) {
       display_name: user.displayName || null,
     },
     model_config: {
+      provider: String(payload.provider || 'openai'),
       base_url: sanitizeBaseUrl(payload.baseUrl),
       api_key: String(payload.apiKey || ''),
       model: String(payload.model || ''),
@@ -101,6 +129,9 @@ function buildAgentRequest(payload, user, session) {
       avatar: robot?.avatar || '',
       common_prompt: String(robot?.commonPrompt || ''),
       system_prompt: robot?.systemPrompt || payload.systemPrompt || '',
+      memory_model_config_id: String(robot?.memoryModelConfigId || ''),
+      numeric_computation_model_config_id: String(robot?.numericComputationModelConfigId || ''),
+      form_option_model_config_id: String(robot?.formOptionModelConfigId || ''),
       numeric_computation_enabled: Boolean(robot?.numericComputationEnabled),
       numeric_computation_prompt: String(robot?.numericComputationPrompt || ''),
       numeric_computation_items: Array.isArray(robot?.numericComputationItems) ? robot.numericComputationItems : [],
@@ -124,6 +155,41 @@ function buildAgentRequest(payload, user, session) {
       typeof session?.numericState === 'object' && session?.numericState !== null
         ? session.numericState
         : {},
+    auxiliary_model_configs: {
+      memory: (() => {
+        const config = resolveAuxiliaryModelConfig(robot?.memoryModelConfigId)
+        return {
+          model_config_id: String(robot?.memoryModelConfigId || ''),
+          provider: config.provider,
+          base_url: sanitizeBaseUrl(config.baseUrl),
+          api_key: String(config.apiKey || ''),
+          model: String(config.model || ''),
+          temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
+        }
+      })(),
+      numeric_computation: (() => {
+        const config = resolveAuxiliaryModelConfig(robot?.numericComputationModelConfigId)
+        return {
+          model_config_id: String(robot?.numericComputationModelConfigId || ''),
+          provider: config.provider,
+          base_url: sanitizeBaseUrl(config.baseUrl),
+          api_key: String(config.apiKey || ''),
+          model: String(config.model || ''),
+          temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
+        }
+      })(),
+      form_option: (() => {
+        const config = resolveAuxiliaryModelConfig(robot?.formOptionModelConfigId)
+        return {
+          model_config_id: String(robot?.formOptionModelConfigId || ''),
+          provider: config.provider,
+          base_url: sanitizeBaseUrl(config.baseUrl),
+          api_key: String(config.apiKey || ''),
+          model: String(config.model || ''),
+          temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
+        }
+      })(),
+    },
     structured_memory_interval: structuredMemoryInterval,
     structured_memory_history_limit: structuredMemoryHistoryLimit,
   }
@@ -465,22 +531,28 @@ export async function handleChatStream(payload, res, user) {
 
 export async function fetchModels(config) {
   const normalized = normalizeModelConfig(config, 0)
-  const baseUrl = getOpenAIBaseUrl(normalized.baseUrl)
+  const isOllama = normalized.provider === 'ollama'
+  const baseUrl = isOllama ? sanitizeBaseUrl(normalized.baseUrl) : getOpenAIBaseUrl(normalized.baseUrl)
 
   try {
-    const response = await fetch(`${baseUrl}/v1/models`, {
+    const response = await fetch(isOllama ? `${baseUrl}/api/tags` : `${baseUrl}/v1/models`, {
       headers: buildHeaders(normalized),
     })
     if (!response.ok) {
-      throw new Error((await response.text()) || 'OpenAI-compatible 模型列表获取失败')
+      throw new Error((await response.text()) || `${isOllama ? 'Ollama' : 'OpenAI-compatible'} 模型列表获取失败`)
     }
 
     const data = await response.json()
-    return (data.data || [])
-      .map((item) => ({
-        id: item.id,
-        label: item.id,
-      }))
+    const modelItems = isOllama ? (data.models || []) : (data.data || [])
+    return modelItems
+      .map((item) => {
+        const id = String(item?.name || item?.model || item?.id || '').trim()
+        return {
+          id,
+          label: id,
+        }
+      })
+      .filter((item) => item.id)
       .sort((left, right) => left.label.localeCompare(right.label))
   } catch (error) {
     throw new Error(describeFetchError(error, baseUrl, '获取模型列表'))

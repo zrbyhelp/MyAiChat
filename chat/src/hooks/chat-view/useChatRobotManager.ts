@@ -44,6 +44,9 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       persistToServer: true,
       commonPrompt: '',
       systemPrompt: '',
+      memoryModelConfigId: '',
+      numericComputationModelConfigId: '',
+      formOptionModelConfigId: '',
       numericComputationEnabled: false,
       numericComputationPrompt: '',
       numericComputationItems: [],
@@ -104,6 +107,9 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.persistToServer = Boolean(source?.persistToServer ?? true)
     mobileAgentDraft.commonPrompt = String(source?.commonPrompt || '')
     mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
+    mobileAgentDraft.memoryModelConfigId = String(source?.memoryModelConfigId || '')
+    mobileAgentDraft.numericComputationModelConfigId = String(source?.numericComputationModelConfigId || '')
+    mobileAgentDraft.formOptionModelConfigId = String(source?.formOptionModelConfigId || '')
     mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
     mobileAgentDraft.numericComputationPrompt = String(source?.numericComputationPrompt || '')
     mobileAgentDraft.numericComputationItems = cloneNumericComputationItems(source?.numericComputationItems)
@@ -126,6 +132,9 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       avatar: item.avatar.trim(),
       persistToServer: Boolean(item.persistToServer),
       commonPrompt: item.commonPrompt.trim(),
+      memoryModelConfigId: String(item.memoryModelConfigId || '').trim(),
+      numericComputationModelConfigId: String(item.numericComputationModelConfigId || '').trim(),
+      formOptionModelConfigId: String(item.formOptionModelConfigId || '').trim(),
       numericComputationEnabled: Boolean(item.numericComputationEnabled),
       numericComputationPrompt: item.numericComputationPrompt.trim(),
       numericComputationItems: cloneNumericComputationItems(item.numericComputationItems),
@@ -259,6 +268,9 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         avatar: mobileAgentDraft.avatar.trim(),
         commonPrompt: mobileAgentDraft.commonPrompt.trim(),
         systemPrompt: mobileAgentDraft.systemPrompt,
+        memoryModelConfigId: String(mobileAgentDraft.memoryModelConfigId || '').trim(),
+        numericComputationModelConfigId: String(mobileAgentDraft.numericComputationModelConfigId || '').trim(),
+        formOptionModelConfigId: String(mobileAgentDraft.formOptionModelConfigId || '').trim(),
         numericComputationEnabled: Boolean(mobileAgentDraft.numericComputationEnabled),
         numericComputationPrompt: mobileAgentDraft.numericComputationPrompt.trim(),
         numericComputationItems: itemsValidation.ok ? itemsValidation.normalized : [],

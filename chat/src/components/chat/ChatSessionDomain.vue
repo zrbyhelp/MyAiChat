@@ -44,8 +44,34 @@
                 :autosize="{ minRows: 5, maxRows: 8 }"
               />
             </TFormItem>
+            <div class="form-grid-2">
+              <TFormItem label="记忆模型">
+                <TSelect
+                  v-model="sessionRobotDraft.memoryModelConfigId"
+                  :options="auxModelOptions"
+                  placeholder="未单独配置，默认跟随正文模型"
+                  clearable
+                />
+              </TFormItem>
+              <TFormItem label="表单选项生成模型">
+                <TSelect
+                  v-model="sessionRobotDraft.formOptionModelConfigId"
+                  :options="auxModelOptions"
+                  placeholder="未单独配置，默认跟随正文模型"
+                  clearable
+                />
+              </TFormItem>
+            </div>
             <TFormItem label="启用数值计算">
               <TSwitch v-model="sessionRobotDraft.numericComputationEnabled" />
+            </TFormItem>
+            <TFormItem label="数值计算模型">
+              <TSelect
+                v-model="sessionRobotDraft.numericComputationModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
             </TFormItem>
             <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值计算提示词">
               <TTextarea
@@ -142,8 +168,34 @@
                 :autosize="{ minRows: 5, maxRows: 8 }"
               />
             </TFormItem>
+            <div class="form-grid-2">
+              <TFormItem label="记忆模型">
+                <TSelect
+                  v-model="sessionRobotDraft.memoryModelConfigId"
+                  :options="auxModelOptions"
+                  placeholder="未单独配置，默认跟随正文模型"
+                  clearable
+                />
+              </TFormItem>
+              <TFormItem label="表单选项生成模型">
+                <TSelect
+                  v-model="sessionRobotDraft.formOptionModelConfigId"
+                  :options="auxModelOptions"
+                  placeholder="未单独配置，默认跟随正文模型"
+                  clearable
+                />
+              </TFormItem>
+            </div>
             <TFormItem label="启用数值计算">
               <TSwitch v-model="sessionRobotDraft.numericComputationEnabled" />
+            </TFormItem>
+            <TFormItem label="数值计算模型">
+              <TSelect
+                v-model="sessionRobotDraft.numericComputationModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
             </TFormItem>
             <TFormItem v-if="sessionRobotDraft.numericComputationEnabled" label="数值计算提示词">
               <TTextarea
@@ -300,6 +352,7 @@ import {
   FormItem as TFormItem,
   Input as TInput,
   InputNumber as TInputNumber,
+  Select as TSelect,
   Textarea as TTextarea,
 } from 'tdesign-vue-next'
 
@@ -335,6 +388,10 @@ defineProps({
   },
   memoryUpdatedLabel: {
     type: String,
+    required: true,
+  },
+  auxModelOptions: {
+    type: Array as PropType<Array<{ label: string; value: string }>>,
     required: true,
   },
   currentMemorySchema: {

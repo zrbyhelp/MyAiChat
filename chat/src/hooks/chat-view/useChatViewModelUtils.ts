@@ -1,6 +1,9 @@
 import type { AIModelConfigItem, NumericComputationItem, ProviderType } from '@/types/ai'
 
-export const PROVIDER_OPTIONS = [{ label: 'OpenAI Compatible', value: 'openai' }]
+export const PROVIDER_OPTIONS = [
+  { label: 'OpenAI Compatible', value: 'openai' },
+  { label: 'Ollama', value: 'ollama' },
+]
 
 export const DEFAULT_MODEL_CONFIGS: Record<
   ProviderType,
@@ -9,6 +12,15 @@ export const DEFAULT_MODEL_CONFIGS: Record<
   openai: {
     provider: 'openai',
     baseUrl: 'https://api.openai.com',
+    apiKey: '',
+    description: '',
+    tags: [],
+    temperature: 0.7,
+    persistToServer: true,
+  },
+  ollama: {
+    provider: 'ollama',
+    baseUrl: 'http://127.0.0.1:11434',
     apiKey: '',
     description: '',
     tags: [],

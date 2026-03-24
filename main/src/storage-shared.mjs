@@ -37,7 +37,7 @@ export function createSessionTitle(text, fallback = '新对话') {
 }
 
 export function normalizeModelConfig(input, index = 0) {
-  const provider = 'openai'
+  const provider = String(input?.provider || '').trim() === 'ollama' ? 'ollama' : 'openai'
   const defaults = PROVIDER_DEFAULTS[provider]
   const tags = Array.isArray(input?.tags)
     ? input.tags
@@ -119,6 +119,11 @@ export function normalizeRobots(input) {
     persistToServer: Boolean(robot?.persistToServer ?? robot?.persist_to_server ?? true),
     commonPrompt: String(robot?.commonPrompt || robot?.common_prompt || '').trim(),
     systemPrompt: String(robot?.systemPrompt || ''),
+    memoryModelConfigId: String(robot?.memoryModelConfigId || robot?.memory_model_config_id || '').trim(),
+    numericComputationModelConfigId: String(
+      robot?.numericComputationModelConfigId || robot?.numeric_computation_model_config_id || '',
+    ).trim(),
+    formOptionModelConfigId: String(robot?.formOptionModelConfigId || robot?.form_option_model_config_id || '').trim(),
     numericComputationEnabled: Boolean(robot?.numericComputationEnabled ?? robot?.imageFetchEnabled),
     numericComputationPrompt: String((robot?.numericComputationPrompt ?? robot?.imageFetchPrompt) || '').trim(),
     numericComputationItems: normalizeNumericComputationItems(robot?.numericComputationItems ?? robot?.numericComputationSchema),
@@ -142,6 +147,11 @@ export function normalizeSessionRobot(input) {
     avatar: String(input?.avatar || '').trim(),
     commonPrompt: String(input?.commonPrompt || input?.common_prompt || ''),
     systemPrompt: String(input?.systemPrompt || ''),
+    memoryModelConfigId: String(input?.memoryModelConfigId || input?.memory_model_config_id || '').trim(),
+    numericComputationModelConfigId: String(
+      input?.numericComputationModelConfigId || input?.numeric_computation_model_config_id || '',
+    ).trim(),
+    formOptionModelConfigId: String(input?.formOptionModelConfigId || input?.form_option_model_config_id || '').trim(),
     numericComputationEnabled: Boolean(input?.numericComputationEnabled ?? input?.imageFetchEnabled),
     numericComputationPrompt: String((input?.numericComputationPrompt ?? input?.imageFetchPrompt) || '').trim(),
     numericComputationItems: normalizeNumericComputationItems(input?.numericComputationItems ?? input?.numericComputationSchema),

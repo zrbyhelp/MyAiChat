@@ -25,6 +25,7 @@ interface UseChatStreamingOptions {
   sessionId: Ref<string>
   activeModelConfig: ComputedRef<AIModelConfigItem>
   currentModelLabel: ComputedRef<string>
+  modelConfigs: Ref<AIModelConfigItem[]>
   sessionRobot: SessionRobotState
   currentSessionMemory: SessionMemoryState
   currentMemorySchema: MemorySchemaState
@@ -63,6 +64,37 @@ function createThinkingChunk(text: string, done = false): AIMessageContent {
 }
 
 export function useChatStreaming(options: UseChatStreamingOptions) {
+  function resolveModelConfig(modelConfigId?: string | null) {
+    const targetId = String(modelConfigId || '').trim()
+    if (!targetId) {
+      return options.activeModelConfig.value
+    }
+
+    return (
+      options.modelConfigs.value.find((item) => item.id === targetId) ??
+      options.activeModelConfig.value
+    )
+  }
+
+  function buildAuxiliaryModelConfig(
+    kind: 'memory' | 'numeric_computation' | 'form_option',
+    modelConfigId?: string | null,
+  ) {
+    const targetId = String(modelConfigId || '').trim()
+    const resolved = resolveModelConfig(targetId)
+
+    return {
+      kind,
+      model_config_id: targetId,
+      provider: resolved.provider,
+      base_url: resolved.baseUrl,
+      api_key: resolved.apiKey,
+      model: resolved.model,
+      temperature: typeof resolved.temperature === 'number' ? resolved.temperature : 0.7,
+      fallback_to_primary: !targetId || resolved.id === options.activeModelConfig.value.id,
+    }
+  }
+
   const chatServiceConfig = computed<ChatServiceConfig>(() => ({
     endpoint: '/api/chat/stream',
     stream: true,
@@ -79,6 +111,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
           model: options.activeModelConfig.value.model,
           modelConfigId: options.activeModelConfig.value.id,
           modelLabel: options.currentModelLabel.value,
+          modelConfigs: options.modelConfigs.value,
           persistToServer: options.currentSessionMemory.persistToServer,
           systemPrompt: options.sessionRobot.systemPrompt,
           robot: {
@@ -86,11 +119,22 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             avatar: options.sessionRobot.avatar,
             commonPrompt: options.sessionRobot.commonPrompt,
             systemPrompt: options.sessionRobot.systemPrompt,
+            memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
+            numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
+            formOptionModelConfigId: options.sessionRobot.formOptionModelConfigId,
             numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
             numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
             numericComputationItems: options.cloneNumericComputationItems(options.sessionRobot.numericComputationItems),
             structuredMemoryInterval: options.sessionRobot.structuredMemoryInterval,
             structuredMemoryHistoryLimit: options.sessionRobot.structuredMemoryHistoryLimit,
+          },
+          auxiliaryModelConfigs: {
+            memory: buildAuxiliaryModelConfig('memory', options.sessionRobot.memoryModelConfigId),
+            numericComputation: buildAuxiliaryModelConfig(
+              'numeric_computation',
+              options.sessionRobot.numericComputationModelConfigId,
+            ),
+            formOption: buildAuxiliaryModelConfig('form_option', options.sessionRobot.formOptionModelConfigId),
           },
           sessionSnapshot: {
             id: options.sessionId.value,

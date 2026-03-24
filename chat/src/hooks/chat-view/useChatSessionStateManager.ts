@@ -318,6 +318,9 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     avatar: '',
     commonPrompt: '',
     systemPrompt: '',
+    memoryModelConfigId: '',
+    numericComputationModelConfigId: '',
+    formOptionModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
     numericComputationItems: [],
@@ -329,6 +332,9 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     avatar: '',
     commonPrompt: '',
     systemPrompt: '',
+    memoryModelConfigId: '',
+    numericComputationModelConfigId: '',
+    formOptionModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
     numericComputationItems: [],
@@ -425,6 +431,9 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionRobotDraft.avatar = sessionRobot.avatar
     sessionRobotDraft.commonPrompt = sessionRobot.commonPrompt
     sessionRobotDraft.systemPrompt = sessionRobot.systemPrompt
+    sessionRobotDraft.memoryModelConfigId = sessionRobot.memoryModelConfigId
+    sessionRobotDraft.numericComputationModelConfigId = sessionRobot.numericComputationModelConfigId
+    sessionRobotDraft.formOptionModelConfigId = sessionRobot.formOptionModelConfigId
     sessionRobotDraft.numericComputationEnabled = sessionRobot.numericComputationEnabled
     sessionRobotDraft.numericComputationPrompt = sessionRobot.numericComputationPrompt
     sessionRobotDraft.numericComputationItems = options.cloneNumericComputationItems(
@@ -445,6 +454,9 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionRobot.avatar = sessionRobotDraft.avatar.trim()
     sessionRobot.commonPrompt = sessionRobotDraft.commonPrompt.trim()
     sessionRobot.systemPrompt = sessionRobotDraft.systemPrompt
+    sessionRobot.memoryModelConfigId = String(sessionRobotDraft.memoryModelConfigId || '').trim()
+    sessionRobot.numericComputationModelConfigId = String(sessionRobotDraft.numericComputationModelConfigId || '').trim()
+    sessionRobot.formOptionModelConfigId = String(sessionRobotDraft.formOptionModelConfigId || '').trim()
     sessionRobot.numericComputationEnabled = Boolean(sessionRobotDraft.numericComputationEnabled)
     sessionRobot.numericComputationPrompt = sessionRobotDraft.numericComputationPrompt.trim()
     sessionRobot.numericComputationItems = itemsValidation.ok ? itemsValidation.normalized : []

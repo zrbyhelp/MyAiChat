@@ -150,6 +150,24 @@ export function getModels() {
       defaultValue: '',
       field: 'common_prompt',
     },
+    memoryModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'memory_model_config_id',
+    },
+    numericComputationModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'numeric_computation_model_config_id',
+    },
+    formOptionModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'form_option_model_config_id',
+    },
     imageFetchEnabled: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
@@ -257,6 +275,24 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'robot_common_prompt',
+    },
+    robotMemoryModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_memory_model_config_id',
+    },
+    robotNumericComputationModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_numeric_computation_model_config_id',
+    },
+    robotFormOptionModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_form_option_model_config_id',
     },
     robotImageFetchEnabled: {
       type: DataTypes.BOOLEAN,

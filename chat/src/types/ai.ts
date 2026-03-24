@@ -1,4 +1,4 @@
-export type ProviderType = 'openai'
+export type ProviderType = 'openai' | 'ollama'
 
 export interface AIModelConfigItem {
   id: string
@@ -61,6 +61,9 @@ export interface AIRobotCard {
   persistToServer: boolean
   commonPrompt: string
   systemPrompt: string
+  memoryModelConfigId: string
+  numericComputationModelConfigId: string
+  formOptionModelConfigId: string
   numericComputationEnabled: boolean
   numericComputationPrompt: string
   numericComputationItems: NumericComputationItem[]
@@ -84,6 +87,9 @@ export interface SessionRobotState {
   avatar: string
   commonPrompt: string
   systemPrompt: string
+  memoryModelConfigId: string
+  numericComputationModelConfigId: string
+  formOptionModelConfigId: string
   numericComputationEnabled: boolean
   numericComputationPrompt: string
   numericComputationItems: NumericComputationItem[]

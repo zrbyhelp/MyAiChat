@@ -78,6 +78,9 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
           avatar: options.sessionRobot.avatar,
           commonPrompt: options.sessionRobot.commonPrompt,
           systemPrompt: options.sessionRobot.systemPrompt,
+          memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
+          numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
+          formOptionModelConfigId: options.sessionRobot.formOptionModelConfigId,
           numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
           numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
           numericComputationItems: options.cloneNumericComputationItems(
@@ -120,6 +123,9 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.sessionRobot.avatar = session.robot.avatar || ''
     options.sessionRobot.commonPrompt = session.robot.commonPrompt || ''
     options.sessionRobot.systemPrompt = session.robot.systemPrompt || ''
+    options.sessionRobot.memoryModelConfigId = session.robot.memoryModelConfigId || ''
+    options.sessionRobot.numericComputationModelConfigId = session.robot.numericComputationModelConfigId || ''
+    options.sessionRobot.formOptionModelConfigId = session.robot.formOptionModelConfigId || ''
     options.sessionRobot.numericComputationEnabled = Boolean(session.robot.numericComputationEnabled)
     options.sessionRobot.numericComputationPrompt = session.robot.numericComputationPrompt || ''
     options.sessionRobot.numericComputationItems = options.cloneNumericComputationItems(
@@ -156,6 +162,9 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.avatar = robot.avatar || ''
       options.sessionRobot.commonPrompt = robot.commonPrompt
       options.sessionRobot.systemPrompt = robot.systemPrompt
+      options.sessionRobot.memoryModelConfigId = robot.memoryModelConfigId || ''
+      options.sessionRobot.numericComputationModelConfigId = robot.numericComputationModelConfigId || ''
+      options.sessionRobot.formOptionModelConfigId = robot.formOptionModelConfigId || ''
       options.sessionRobot.numericComputationEnabled = Boolean(robot.numericComputationEnabled)
       options.sessionRobot.numericComputationPrompt = robot.numericComputationPrompt
       options.sessionRobot.numericComputationItems = options.cloneNumericComputationItems(
@@ -171,6 +180,9 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.avatar = ''
       options.sessionRobot.commonPrompt = ''
       options.sessionRobot.systemPrompt = ''
+      options.sessionRobot.memoryModelConfigId = ''
+      options.sessionRobot.numericComputationModelConfigId = ''
+      options.sessionRobot.formOptionModelConfigId = ''
       options.sessionRobot.numericComputationEnabled = false
       options.sessionRobot.numericComputationPrompt = ''
       options.sessionRobot.numericComputationItems = []
