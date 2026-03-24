@@ -348,6 +348,7 @@
     v-if="!isMobile"
     :visible="agentManageVisible"
     header="设置智能体"
+    placement="center"
     width="1160px"
     :footer="false"
     :confirm-btn="null"
