@@ -193,6 +193,9 @@
             <TFormItem class="form-grid-span-2" label="头像">
               <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
             </TFormItem>
+            <TFormItem class="form-grid-span-2" label="上传到服务器">
+              <TSwitch v-model="mobileAgentDraft.persistToServer" />
+            </TFormItem>
           </div>
         </TForm>
         <TForm v-else-if="agentEditorStep === 2" label-align="top">
@@ -426,6 +429,9 @@
             </TFormItem>
             <TFormItem class="form-grid-span-2" label="头像">
               <TInput v-model="mobileAgentDraft.avatar" placeholder="请输入头像图片 URL" />
+            </TFormItem>
+            <TFormItem class="form-grid-span-2" label="上传到服务器">
+              <TSwitch v-model="mobileAgentDraft.persistToServer" />
             </TFormItem>
           </div>
         </TForm>

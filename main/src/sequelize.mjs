@@ -77,6 +77,12 @@ export function getModels() {
       type: DataTypes.STRING(32),
       allowNull: false,
     },
+    accessMode: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: 'server',
+      field: 'access_mode',
+    },
     baseUrl: {
       type: DataTypes.STRING(1024),
       allowNull: false,

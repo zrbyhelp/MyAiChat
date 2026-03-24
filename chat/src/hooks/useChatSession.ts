@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { deleteSession, getSession, getSessions } from '@/lib/api'
+import { deleteLocalSession, getLocalSession, listLocalSessions } from '@/lib/local-db'
 import type { ChatSessionDetail, ChatSessionSummary } from '@/types/ai'
 
 const ACTIVE_SESSION_STORAGE_KEY = 'myaichat.active-session-id'
@@ -35,14 +36,20 @@ export function useChatSession(options: UseChatSessionOptions) {
   const historySelectionMode = ref(false)
   const selectedSessionIds = ref<string[]>([])
 
+  function mergeSessions(serverSessions: ChatSessionSummary[], localSessions: ChatSessionSummary[]) {
+    return [...serverSessions, ...localSessions].sort(
+      (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    )
+  }
+
   async function refreshSessionHistory() {
-    const response = await getSessions()
-    sessionHistory.value = response.sessions
+    const [serverResponse, localSessions] = await Promise.all([getSessions(), listLocalSessions()])
+    sessionHistory.value = mergeSessions(serverResponse.sessions, localSessions)
     if (!historySelectionMode.value) {
       selectedSessionIds.value = []
       return
     }
-    const existingIds = new Set(response.sessions.map((item) => item.id))
+    const existingIds = new Set(sessionHistory.value.map((item) => item.id))
     selectedSessionIds.value = selectedSessionIds.value.filter((id) => existingIds.has(id))
   }
 
@@ -71,14 +78,31 @@ export function useChatSession(options: UseChatSessionOptions) {
     selectedSessionIds.value = Array.from(current)
   }
 
+  async function loadSessionRecord(targetSessionId: string) {
+    const targetSummary = sessionHistory.value.find((item) => item.id === targetSessionId)
+    if (targetSummary?.persistToServer === false) {
+      return getLocalSession(targetSessionId)
+    }
+
+    try {
+      const response = await getSession(targetSessionId)
+      return response.session
+    } catch {
+      return getLocalSession(targetSessionId)
+    }
+  }
+
   async function openHistorySession(targetSessionId: string) {
     if (!targetSessionId || targetSessionId === sessionId.value) {
       return false
     }
 
     try {
-      const response = await getSession(targetSessionId)
-      await options.onHydrateSession(response.session)
+      const session = await loadSessionRecord(targetSessionId)
+      if (!session) {
+        throw new Error('会话不存在')
+      }
+      await options.onHydrateSession(session)
       return true
     } catch (error) {
       MessagePlugin.error(error instanceof Error ? error.message : '加载历史聊天失败')
@@ -104,13 +128,22 @@ export function useChatSession(options: UseChatSessionOptions) {
       sessionId.value === targetSessionId ? remainingSessions[0]?.id || '' : sessionId.value
 
     try {
-      await deleteSession(targetSessionId)
+      const targetSummary = sessionHistory.value.find((item) => item.id === targetSessionId)
+      if (targetSummary?.persistToServer === false) {
+        await deleteLocalSession(targetSessionId)
+      } else {
+        await deleteSession(targetSessionId)
+      }
       await refreshSessionHistory()
 
       if (sessionId.value === targetSessionId) {
         if (nextSessionId) {
-          const response = await getSession(nextSessionId)
-          await options.onHydrateSession(response.session)
+          const nextSession = await loadSessionRecord(nextSessionId)
+          if (nextSession) {
+            await options.onHydrateSession(nextSession)
+          } else {
+            await options.onCreateNewChat()
+          }
         } else {
           await options.onCreateNewChat()
         }
@@ -146,7 +179,12 @@ export function useChatSession(options: UseChatSessionOptions) {
 
     try {
       for (const targetSessionId of targetIds) {
-        await deleteSession(targetSessionId)
+        const targetSummary = sessionHistory.value.find((item) => item.id === targetSessionId)
+        if (targetSummary?.persistToServer === false) {
+          await deleteLocalSession(targetSessionId)
+        } else {
+          await deleteSession(targetSessionId)
+        }
       }
 
       await refreshSessionHistory()
@@ -154,8 +192,12 @@ export function useChatSession(options: UseChatSessionOptions) {
       if (targetIdSet.has(sessionId.value)) {
         const nextSessionId = sessionHistory.value.find((item) => !targetIdSet.has(item.id))?.id || ''
         if (nextSessionId) {
-          const response = await getSession(nextSessionId)
-          await options.onHydrateSession(response.session)
+          const nextSession = await loadSessionRecord(nextSessionId)
+          if (nextSession) {
+            await options.onHydrateSession(nextSession)
+          } else {
+            await options.onCreateNewChat()
+          }
         } else {
           await options.onCreateNewChat()
         }
@@ -182,6 +224,7 @@ export function useChatSession(options: UseChatSessionOptions) {
     getStoredActiveSessionId,
     storeActiveSessionId,
     refreshSessionHistory,
+    loadSessionRecord,
     exitHistorySelectionMode,
     toggleHistorySelectionMode,
     toggleSessionSelection,

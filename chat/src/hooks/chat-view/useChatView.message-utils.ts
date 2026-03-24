@@ -1,4 +1,4 @@
-import type { AIFormField, AIFormSchema, SuggestionOption } from '@/types/ai'
+import type { AIFormField, AIFormSchema, ChatSessionMessage, SuggestionOption } from '@/types/ai'
 
 import type {
   ChatRenderContent,
@@ -260,4 +260,50 @@ export function buildFormPrompt(schema: AIFormSchema, values: Record<string, For
     }
   })
   return lines.join('\n')
+}
+
+export function serializeChatMessages(messages: ChatRenderMessage[]): ChatSessionMessage[] {
+  return messages
+    .filter((message) => message?.role === 'user' || message?.role === 'assistant')
+    .map((message, index) => {
+      const content = Array.isArray(message.content) ? message.content : []
+      const markdownParts = content
+        .filter((item) => item?.type === 'markdown' && typeof item?.data === 'string')
+        .map((item) => String(item.data))
+      const textParts = content
+        .filter((item) => item?.type === 'text' && typeof item?.data === 'string')
+        .map((item) => String(item.data))
+      const thinkingParts = content
+        .filter((item) => item?.type === 'thinking')
+        .map((item) => {
+          const data = asRecord(item.data)
+          return typeof data.text === 'string' ? data.text : ''
+        })
+        .filter(Boolean)
+      const suggestionContent = content.find((item) => item?.type === 'suggestion')
+      const formContent = content.find((item) => item?.type === 'activity-form')
+      const formSchema = formContent ? extractActivityFormSchema(formContent) : null
+      const suggestionItems = Array.isArray(suggestionContent?.data)
+        ? suggestionContent.data
+            .map((item) => asRecord(item))
+            .filter((item) => typeof item.title === 'string' && typeof item.prompt === 'string')
+            .map((item) => ({
+              title: String(item.title),
+              prompt: String(item.prompt),
+            }))
+        : []
+
+      return {
+        id: String(message.id || `message-${index + 1}`),
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content:
+          message.role === 'assistant'
+            ? markdownParts.join('')
+            : [...textParts, ...markdownParts].join(''),
+        reasoning: message.role === 'assistant' ? thinkingParts.join('') : '',
+        suggestions: message.role === 'assistant' ? suggestionItems : [],
+        form: message.role === 'assistant' ? formSchema : null,
+        createdAt: typeof message.datetime === 'string' && message.datetime ? message.datetime : formatMessageDatetime(),
+      }
+    })
 }

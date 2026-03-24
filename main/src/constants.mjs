@@ -15,12 +15,14 @@ export const DEFAULT_MODEL_CONFIG = {
   id: 'model-default',
   name: '默认模型',
   provider: 'openai',
+  accessMode: 'server',
   baseUrl: 'https://api.openai.com',
   apiKey: '',
   model: '',
   description: '',
   tags: [],
   temperature: 0.7,
+  persistToServer: true,
 }
 
 export const DEFAULT_MODEL_CONFIGS = {
@@ -94,6 +96,7 @@ export const DEFAULT_ROBOTS = [
     name: '默认智能体',
     description: '',
     avatar: '',
+    persistToServer: true,
     commonPrompt: '',
     systemPrompt: '',
     numericComputationEnabled: false,
@@ -121,6 +124,7 @@ export const DEFAULT_SESSION_MEMORY = {
   summary: '',
   updatedAt: '',
   sourceMessageCount: 0,
+  persistToServer: true,
   threshold: DEFAULT_MEMORY_THRESHOLD,
   recentMessageLimit: DEFAULT_RECENT_MESSAGE_LIMIT,
   prompt: DEFAULT_MEMORY_PROMPT,

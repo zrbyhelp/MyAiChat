@@ -319,6 +319,7 @@ import ChatAgentPanels from '@/components/chat/ChatAgentPanels.vue'
 import ChatModelDomain from '@/components/chat/ChatModelDomain.vue'
 import ChatSessionDomain from '@/components/chat/ChatSessionDomain.vue'
 import SessionHistoryPanel from '@/components/chat/SessionHistoryPanel.vue'
+import { putLocalSession } from '@/lib/local-db'
 import { useAuth } from '@clerk/vue'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -328,6 +329,11 @@ import { useChatViewBootstrap } from '@/hooks/chat-view/useChatViewBootstrap'
 import { useChatMessagePipeline } from '@/hooks/chat-view/useChatMessagePipeline'
 import { useChatInitializer } from '@/hooks/chat-view/useChatInitializer'
 import { useChatModelManager } from '@/hooks/chat-view/useChatModelManager'
+import {
+  createFormActivityContent,
+  createSuggestionContent,
+  serializeChatMessages,
+} from '@/hooks/chat-view/useChatView.message-utils'
 import {
   createModelConfig,
   createNumericComputationItem,
@@ -353,6 +359,8 @@ import {
   useChatSessionStateManager,
 } from '@/hooks/chat-view/useChatSessionStateManager'
 import type { ChatbotInstance } from '@/hooks/chat-view/useChatView.types'
+import type { ChatSessionDetail } from '@/types/ai'
+import { runBrowserDirectAgent } from '@/lib/browser-agent/runtime'
 import { useChatSession } from '@/hooks/useChatSession'
 import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
 
@@ -382,6 +390,7 @@ const {
   currentAssistantLoadingText,
   currentMemoryStatusText,
   chatMessages,
+  rawChatMessages,
   submittedForms,
   formActivitySlots,
   loadingActivitySlots,
@@ -424,6 +433,7 @@ const {
   mobileModelTemperatureValue,
   desktopModelTemperatureValue,
   applyModelConfigs,
+  loadModelConfigs,
   loadCapabilities,
   openConfigDialog,
   openMobileModelCreateDialog,
@@ -485,6 +495,7 @@ const {
   getStoredActiveSessionId,
   storeActiveSessionId,
   refreshSessionHistory,
+  loadSessionRecord,
   toggleHistorySelectionMode: toggleHistorySelectionModeState,
   toggleSessionSelection: toggleSessionSelectionState,
   openHistorySession: openHistorySessionRecord,
@@ -508,10 +519,14 @@ const {
   structuredMemoryRecordCount,
   sessionPromptTokens,
   sessionCompletionTokens,
+  currentStructuredMemory,
+  currentUsage,
+  currentNumericState,
   applySessionMemory,
   applyStructuredMemory,
   applyMemorySchema,
   applySessionUsage,
+  applyNumericState,
   openMemoryDialog,
   openSessionRobotDialog,
   applySessionRobot,
@@ -521,6 +536,59 @@ const {
   validateNumericComputationItems,
   onSyncCurrentSessionMeta: syncCurrentSessionMeta,
 })
+function buildCurrentSessionDetail(): ChatSessionDetail {
+  const serializedMessages = serializeChatMessages(rawChatMessages.value)
+  const createdAt =
+    serializedMessages[0]?.createdAt ||
+    sessionHistory.value.find((item) => item.id === sessionId.value)?.createdAt ||
+    new Date().toISOString()
+  const updatedAt = serializedMessages[serializedMessages.length - 1]?.createdAt || new Date().toISOString()
+  return {
+    id: sessionId.value,
+    title:
+      sessionHistory.value.find((item) => item.id === sessionId.value)?.title ||
+      (serializedMessages.find((item) => item.role === 'user')?.content
+        ? serializedMessages.find((item) => item.role === 'user')!.content.slice(0, 24)
+        : '新对话'),
+    preview: serializedMessages[serializedMessages.length - 1]?.content || '',
+    createdAt,
+    updatedAt,
+    persistToServer: currentSessionMemory.persistToServer,
+    robotName: sessionRobot.name || '当前智能体',
+    modelConfigId: activeModelConfig.value.id,
+    modelLabel: currentModelLabel.value,
+    usage: {
+      promptTokens: currentUsage.promptTokens,
+      completionTokens: currentUsage.completionTokens,
+    },
+    threadId: sessionId.value,
+    robot: {
+      name: sessionRobot.name,
+      avatar: sessionRobot.avatar,
+      commonPrompt: sessionRobot.commonPrompt,
+      systemPrompt: sessionRobot.systemPrompt,
+      numericComputationEnabled: sessionRobot.numericComputationEnabled,
+      numericComputationPrompt: sessionRobot.numericComputationPrompt,
+      numericComputationItems: cloneNumericComputationItems(sessionRobot.numericComputationItems),
+      structuredMemoryInterval: sessionRobot.structuredMemoryInterval,
+      structuredMemoryHistoryLimit: sessionRobot.structuredMemoryHistoryLimit,
+    },
+    messages: serializedMessages,
+    memory: {
+      ...currentSessionMemory,
+      persistToServer: currentSessionMemory.persistToServer,
+    },
+    memorySchema: {
+      categories: currentMemorySchema.categories,
+    },
+    structuredMemory: {
+      updatedAt: currentStructuredMemory.updatedAt,
+      categories: currentStructuredMemory.categories,
+    },
+    numericState: currentNumericState.value,
+  }
+}
+
 const {
   refreshCurrentSessionState: refreshCurrentSessionStateFromLifecycle,
   syncCurrentSessionMeta: syncCurrentSessionMetaFromLifecycle,
@@ -531,6 +599,8 @@ const {
   createSessionId,
   storeActiveSessionId,
   refreshSessionHistory,
+  loadSessionRecord,
+  buildCurrentSessionDetail,
   sessionRobot,
   currentSessionMemory,
   currentMemorySchema,
@@ -543,6 +613,7 @@ const {
   applyMemorySchema,
   applyStructuredMemory,
   applySessionUsage,
+  applyNumericState,
   applyChatMessages,
   loadCapabilities,
   normalizeSessionMessages,
@@ -599,11 +670,11 @@ const { hasInitializedAgent, ensureAgentInitialized } = useChatInitializer({
   sessionHistory,
   getStoredActiveSessionId,
   initDebug,
-  applyModelConfigs,
+  loadModelConfigs,
   loadCapabilities,
   loadRobotTemplates,
   refreshSessionHistory,
-  hydrateSession,
+  openSessionById: openHistorySessionRecord,
   createNewChat: () => createNewChat(),
 })
 useTokenStatisticAnimation(sessionPromptTokens, sessionCompletionTokens)
@@ -627,16 +698,148 @@ const chatSenderProps = computed(() => ({
         marginBottom: '12px',
       },
 }))
-
 function toggleMobileSenderExpanded() {
   mobileSenderExpanded.value = !mobileSenderExpanded.value
 }
 
+const isBrowserDirectModel = computed(
+  () => activeModelConfig.value.accessMode === 'browser-direct',
+)
+
+function buildBrowserDirectHistory(prompt: string) {
+  const messages = serializeChatMessages(rawChatMessages.value)
+  const history = [...messages]
+  const lastMessage = history[history.length - 1]
+  if (
+    lastMessage?.role === 'assistant' &&
+    !lastMessage.content &&
+    !lastMessage.reasoning &&
+    !lastMessage.suggestions?.length &&
+    !lastMessage.form
+  ) {
+    history.pop()
+  }
+  const finalMessage = history[history.length - 1]
+  if (finalMessage?.role === 'user' && finalMessage.content === prompt) {
+    history.pop()
+  }
+  return history
+}
+
+async function runBrowserDirectRequest(
+  params: { prompt?: string; messageID?: string },
+  engine: NonNullable<ChatbotInstance['chatEngine']>,
+) {
+  const prompt = String(params.prompt || '').trim()
+  const messageId = String(params.messageID || '')
+  if (!prompt || !messageId) {
+    return
+  }
+
+  const emitEvent = (event: string, payload?: unknown) => {
+    engine.eventBus?.emit?.(event, payload)
+  }
+
+  try {
+    emitEvent('request:start', params)
+    engine.setMessageStatus?.(messageId, 'streaming')
+    currentAssistantLoadingText.value = ''
+    currentMemoryStatusText.value = ''
+    pendingAssistantSuggestions.value = null
+    pendingAssistantForm.value = null
+    pendingAssistantMemoryStatus.value = null
+
+    await runBrowserDirectAgent(
+      {
+        prompt,
+        modelConfig: activeModelConfig.value,
+        sessionRobot,
+        history: buildBrowserDirectHistory(prompt),
+        memorySchema: currentMemorySchema,
+        structuredMemory: currentStructuredMemory,
+        numericState: currentNumericState.value,
+        structuredMemoryHistoryLimit: currentSessionMemory.structuredMemoryHistoryLimit,
+      },
+      (event) => {
+        if (event.type === 'reasoning' && event.text.trim()) {
+          engine.processMessageResult?.(messageId, {
+            type: 'thinking',
+            strategy: 'merge',
+            status: 'complete',
+            data: {
+              title: '深度思考已完成',
+              text: event.text,
+            },
+          })
+          return
+        }
+        if (event.type === 'text' && event.text) {
+          engine.processMessageResult?.(messageId, {
+            type: 'markdown',
+            strategy: 'merge',
+            data: event.text,
+          })
+          return
+        }
+        if (event.type === 'ui_loading') {
+          currentAssistantLoadingText.value = event.text
+          applyChatMessages(chatMessages.value)
+          return
+        }
+        if (event.type === 'suggestion' && event.items.length) {
+          currentAssistantLoadingText.value = ''
+          applyChatMessages(chatMessages.value)
+          engine.processMessageResult?.(messageId, createSuggestionContent(event.items))
+          return
+        }
+        if (event.type === 'form' && event.form?.fields?.length) {
+          currentAssistantLoadingText.value = ''
+          applyChatMessages(chatMessages.value)
+          engine.processMessageResult?.(messageId, createFormActivityContent(event.form))
+          return
+        }
+        if (event.type === 'memory_status') {
+          currentMemoryStatusText.value = event.text
+          applyChatMessages(chatMessages.value)
+          return
+        }
+        if (event.type === 'usage') {
+          applySessionUsage(event.usage)
+          return
+        }
+        if (event.type === 'numeric_state_updated') {
+          applyNumericState(event.state)
+          return
+        }
+        if (event.type === 'structured_memory') {
+          applyStructuredMemory(event.memory)
+        }
+      },
+    )
+
+    currentAssistantLoadingText.value = ''
+    currentMemoryStatusText.value = ''
+    applyChatMessages(chatMessages.value)
+    engine.setMessageStatus?.(messageId, 'complete')
+    finalizeChatResponse({
+      refreshSession: currentSessionMemory.persistToServer,
+    })
+    emitEvent('request:complete', { messageID: messageId })
+  } catch (error) {
+    engine.setMessageStatus?.(messageId, 'error')
+    finalizeChatResponse()
+    emitEvent('request:error', error)
+    throw error
+  }
+}
+
 useChatbotRuntime({
   chatbotRef,
+  shouldUseBrowserDirect: isBrowserDirectModel,
   isChatResponding,
   pendingChatMessages,
   applyChatMessages,
+  runBrowserDirectRequest,
 })
 const chatbotRuntimeKey = computed(() => `${chatInstanceKey.value}`)
 const { chatMessageProps, agentCardActionOptions, modelCardActionOptions } =
@@ -656,6 +859,10 @@ function finalizeChatResponse(options?: { refreshSession?: boolean }) {
   if (options?.refreshSession) {
     refreshCurrentSessionState().catch(() => {})
     refreshSessionHistory().catch(() => {})
+  } else {
+    putLocalSession(buildCurrentSessionDetail())
+      .then(() => refreshSessionHistory())
+      .catch(() => {})
   }
 }
 const { chatServiceConfig } = useChatStreaming({
@@ -663,11 +870,18 @@ const { chatServiceConfig } = useChatStreaming({
   activeModelConfig,
   currentModelLabel,
   sessionRobot,
+  currentSessionMemory,
+  currentMemorySchema,
+  currentStructuredMemory,
+  currentNumericState,
+  rawChatMessages,
   effectiveStream,
   effectiveThinking,
   cloneNumericComputationItems,
+  applyNumericState,
   applySessionUsage,
   applyStructuredMemory,
+  serializeChatMessages,
   finalizeChatResponse,
   currentAssistantLoadingText,
   currentMemoryStatusText,

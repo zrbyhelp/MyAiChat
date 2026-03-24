@@ -204,7 +204,7 @@ export async function deleteSessionRecord(user, sessionId) {
 export async function readModelConfigs(user) {
   const { modelConfigsFile } = await ensureUserStorage(user)
   const raw = await readFile(modelConfigsFile, 'utf8')
-  return normalizeModelConfigsPayload(safeJsonParse(raw, DEFAULT_MODEL_CONFIGS))
+  return normalizeModelConfigsPayload(safeJsonParse(raw, { configs: [], activeModelConfigId: '' }))
 }
 
 export async function writeModelConfigs(user, payload) {

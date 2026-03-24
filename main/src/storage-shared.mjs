@@ -49,6 +49,10 @@ export function normalizeModelConfig(input, index = 0) {
     id: String(input?.id || `model-${index + 1}`),
     name: String(input?.name || `模型配置 ${index + 1}`),
     provider,
+    accessMode:
+      input?.accessMode === 'browser-direct' || input?.access_mode === 'browser-direct'
+        ? 'browser-direct'
+        : 'server',
     baseUrl: String(input?.baseUrl || defaults.baseUrl).trim(),
     apiKey: String(input?.apiKey || '').trim(),
     model: String(input?.model || '').trim(),
@@ -59,15 +63,16 @@ export function normalizeModelConfig(input, index = 0) {
       .filter((item, tagIndex, list) => list.indexOf(item) === tagIndex),
     temperature:
       typeof input?.temperature === 'number' && Number.isFinite(input.temperature) ? input.temperature : defaults.temperature,
+    persistToServer: Boolean(input?.persistToServer ?? input?.persist_to_server ?? true),
   }
 }
 
 export function normalizeModelConfigsPayload(input) {
   const list = Array.isArray(input?.configs) ? input.configs : Array.isArray(input) ? input : []
-  const configs = list.length ? list.map((item, index) => normalizeModelConfig(item, index)) : [normalizeModelConfig(DEFAULT_MODEL_CONFIG, 0)]
+  const configs = list.map((item, index) => normalizeModelConfig(item, index))
   const activeModelConfigId = configs.some((item) => item.id === input?.activeModelConfigId)
     ? input.activeModelConfigId
-    : configs[0].id
+    : configs[0]?.id || ''
 
   return {
     configs,
@@ -115,6 +120,7 @@ export function normalizeRobots(input) {
     name: String(robot?.name || `智能体 ${index + 1}`),
     description: String(robot?.description || ''),
     avatar: String(robot?.avatar || '').trim(),
+    persistToServer: Boolean(robot?.persistToServer ?? robot?.persist_to_server ?? true),
     commonPrompt: String(robot?.commonPrompt || robot?.common_prompt || '').trim(),
     systemPrompt: String(robot?.systemPrompt || ''),
     numericComputationEnabled: Boolean(robot?.numericComputationEnabled ?? robot?.imageFetchEnabled),
@@ -265,6 +271,7 @@ export function normalizeSessionMemory(input) {
       typeof input?.sourceMessageCount === 'number' && Number.isInteger(input.sourceMessageCount) && input.sourceMessageCount >= 0
         ? input.sourceMessageCount
         : 0,
+    persistToServer: Boolean(input?.persistToServer ?? input?.persist_to_server ?? true),
     threshold,
     recentMessageLimit,
     prompt: typeof input?.prompt === 'string' && input.prompt.trim() ? input.prompt : DEFAULT_MEMORY_PROMPT,
@@ -377,6 +384,13 @@ export function normalizeSession(input, index = 0) {
     preview,
     createdAt,
     updatedAt,
+    persistToServer: Boolean(
+      input?.persistToServer
+        ?? input?.persist_to_server
+        ?? input?.memory?.persistToServer
+        ?? input?.memory?.persist_to_server
+        ?? true,
+    ),
     robot: normalizeSessionRobot(input?.robot),
     modelConfigId: String(input?.modelConfigId || ''),
     modelLabel: String(input?.modelLabel || ''),
@@ -410,6 +424,7 @@ export function buildSessionSummary(session) {
     preview: session.preview,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
+    persistToServer: Boolean(session.persistToServer ?? session.memory?.persistToServer ?? true),
     robotName: session.robot?.name || DEFAULT_SESSION_ROBOT.name,
     modelConfigId: session.modelConfigId || '',
     modelLabel: session.modelLabel || '',
