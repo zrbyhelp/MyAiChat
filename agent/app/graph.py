@@ -640,12 +640,12 @@ async def numeric_agent_node(state: AgentState) -> dict:
                         "不要输出 summary、explanation 或任何额外字段。"
                         f"\n\n用户配置的数值计算提示词：\n{state.get('numeric_computation_prompt') or '未配置'}"
                     ),
-                    state["system_prompt"],
                 ),
             },
             {
                 "role": "user",
                 "content": (
+                    f"主要故事设定：\n{state['system_prompt']}\n\n"
                     f"结构化记忆：\n{memory_text(structured_memory)}\n\n"
                     f"数值字段定义：\n{numeric_items_description_text(numeric_items)}\n\n"
                     f"数值结构体：\n{json.dumps(numeric_schema, ensure_ascii=False)}\n\n"
@@ -702,12 +702,12 @@ async def ui_agent_node(state: AgentState) -> dict:
                         "form 和 suggestions 不能同时出现。"
                         "如果没有明显交互需求，也必须返回一个 suggestions，内容只能有一个继续。"
                     ),
-                    state["system_prompt"],
                 ),
             },
             {
                 "role": "user",
                 "content": (
+                    f"主要故事设定：\n{state['system_prompt']}\n\n"
                     f"结构化记忆：\n{memory_text(structured_memory)}\n\n"
                     f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
                     f"用户最新输入：{state['prompt']}\n\n"
@@ -751,12 +751,12 @@ async def memory_node(state: AgentState) -> dict:
                         "除非本轮明确要求删除或纠正错误记忆，否则不要输出 delete。"
                         "不要输出没有任何字段值的 add item，不要输出缺少 id 的 update/delete item。"
                     ),
-                    state["system_prompt"],
                 ),
             },
             {
                 "role": "user",
                 "content": (
+                    f"主要故事设定：\n{state['system_prompt']}\n\n"
                     f"当前记忆 schema：\n{schema_text(schema)}\n\n"
                     f"现有结构化记忆：\n{json.dumps(current_memory.model_dump(), ensure_ascii=False)}\n\n"
                     "你需要根据现有记忆的 id 决定执行 add、update 还是 delete。\n\n"
