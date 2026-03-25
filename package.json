@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "launcher": "node ./tools/launcher/launcher.mjs",
-    "launcher:open": "node ./tools/launcher/launcher.mjs open all",
-    "launcher:status": "node ./tools/launcher/launcher.mjs status",
-    "launcher:close": "node ./tools/launcher/launcher.mjs close all",
-    "launcher:restart": "node ./tools/launcher/launcher.mjs restart all"
+    "console": "node ./tools/console-manager/manager.mjs",
+    "console:start": "node ./tools/console-manager/manager.mjs start all",
+    "console:status": "node ./tools/console-manager/manager.mjs status",
+    "console:stop": "node ./tools/console-manager/manager.mjs stop all",
+    "console:restart": "node ./tools/console-manager/manager.mjs restart all",
+    "console:install-env": "node ./tools/console-manager/manager.mjs install-env",
+    "console:wizard-config": "node ./tools/console-manager/manager.mjs wizard-config",
+    "console:config-check": "node ./tools/console-manager/manager.mjs config-check",
+    "console:init-config": "node ./tools/console-manager/manager.mjs init-config"
   }
 }

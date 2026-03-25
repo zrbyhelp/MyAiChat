@@ -50,7 +50,7 @@ flowchart LR
 ├─ main/                  # Node.js + Express API gateway
 ├─ agent/                 # Python FastAPI + LangGraph agent service
 ├─ upload/                # Node.js upload service (MinIO)
-├─ tools/launcher/        # local multi-service launcher
+├─ tools/console-manager/ # Chinese-friendly console management platform
 ├─ docker-compose.yml
 └─ .env.example
 ```
@@ -64,7 +64,7 @@ flowchart LR
 - Docker (optional)
 - A valid Clerk app (required)
 
-## 5-Minute Local Start (Recommended)
+## Console-Based Local Start (Recommended)
 
 1. Prepare environment files
 
@@ -84,22 +84,20 @@ cd ../upload && npm install
 cd ../agent && python -m pip install -r requirements.txt
 ```
 
-3. Start services (`file` storage)
+3. Initialize config files and launch the console manager
 
 ```bash
-# Terminal A
-cd agent
-AGENT_STORAGE_DRIVER=file AGENT_FILE_STORE_DIR="$PWD/.state" uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-
-# Terminal B
-cd main && npm run dev
-
-# Terminal C
-cd chat && pnpm dev
-
-# Terminal D (optional: avatar/image upload)
-cd upload && npm run dev
+npm run console:init-config
+npm run console
 ```
+
+Inside the console manager you can:
+
+- start all `chat/main/agent/upload` services
+- use a guided config wizard for required and optional settings
+- batch start, restart, or stop selected service roles
+- edit grouped `.env` configuration in Chinese prompts
+- run config validation and inspect recent logs
 
 4. Access URLs
 
@@ -147,15 +145,24 @@ cd upload
 npm run dev
 ```
 
-### launcher (manage chat/main/agent)
+### console manager (manage chat/main/agent/upload)
 
 ```bash
-npm run launcher
-npm run launcher:open
-npm run launcher:status
-npm run launcher:close
-npm run launcher:restart
+npm run console
+npm run console:start
+npm run console:status
+npm run console:stop
+npm run console:restart
+npm run console:wizard-config
+npm run console:config-check
+npm run console:init-config
 ```
+
+Config entry points:
+
+- `console:init-config`: create missing `.env` files only
+- `console:wizard-config`: guided Chinese wizard for required settings, then optional settings
+- interactive `管理配置分组`: targeted edits for one config category at a time
 
 ## Key Configuration
 

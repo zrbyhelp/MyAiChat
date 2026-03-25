@@ -33,6 +33,6 @@ agent/.run/
 agent/.state/
 agent/.tmp/
 agent/.venv/
-.launcher/
+.console-manager/
 **/__pycache__/
 *.pyc

@@ -50,7 +50,7 @@ flowchart LR
 ├─ main/                  # Node.js + Express API 网关
 ├─ agent/                 # Python FastAPI + LangGraph 智能体
 ├─ upload/                # Node.js 上传服务（MinIO）
-├─ tools/launcher/        # 本地多服务启动器
+├─ tools/console-manager/ # 中文控制台管理平台
 ├─ docker-compose.yml
 └─ .env.example
 ```
@@ -64,7 +64,7 @@ flowchart LR
 - Docker（可选）
 - 可用 Clerk 应用（必需）
 
-## 5 分钟本地启动（推荐）
+## 控制台本地启动（推荐）
 
 1. 准备环境变量
 
@@ -84,22 +84,20 @@ cd ../upload && npm install
 cd ../agent && python -m pip install -r requirements.txt
 ```
 
-3. 启动服务（file 存储）
+3. 初始化配置并启动控制台管理平台
 
 ```bash
-# 终端 A
-cd agent
-AGENT_STORAGE_DRIVER=file AGENT_FILE_STORE_DIR="$PWD/.state" uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
-
-# 终端 B
-cd main && npm run dev
-
-# 终端 C
-cd chat && pnpm dev
-
-# 终端 D（可选：头像上传）
-cd upload && npm run dev
+npm run console:init-config
+npm run console
 ```
+
+进入平台后可直接：
+
+- 全部启动 `chat/main/agent/upload`
+- 使用一键配置向导顺序填写关键项与可选项
+- 按服务功能位批量启动、重启、停止
+- 按分组编辑 `.env` 配置并同步写回
+- 执行配置校验并查看日志摘要
 
 4. 访问地址
 
@@ -147,15 +145,24 @@ cd upload
 npm run dev
 ```
 
-### 启动器（管理 chat/main/agent）
+### 控制台管理平台（管理 chat/main/agent/upload）
 
 ```bash
-npm run launcher
-npm run launcher:open
-npm run launcher:status
-npm run launcher:close
-npm run launcher:restart
+npm run console
+npm run console:start
+npm run console:status
+npm run console:stop
+npm run console:restart
+npm run console:wizard-config
+npm run console:config-check
+npm run console:init-config
 ```
+
+配置相关入口区别：
+
+- `console:init-config`：只创建缺失的 `.env`
+- `console:wizard-config`：按中文向导顺序引导填写关键配置，再可选填写附加项
+- 控制台“管理配置分组”：适合只改某一类现有配置
 
 ## 关键配置
 

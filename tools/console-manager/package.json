@@ -1,0 +1,12 @@
+{
+  "name": "myaichat-console-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node manager.mjs"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}
