@@ -1,25 +1,28 @@
 import {
+  getConfigFieldDefinitions,
   readCurrentConfig,
   getConfigGroupsWithValues,
   getEnvFileMap,
   initializeEnvFiles,
   updateConfigGroup,
   validateConfig,
+  validateConfigValue,
 } from './config.mjs'
 import { installEnvironment } from './installer.mjs'
 import {
+  createOperationAnimator,
   createConsoleUi,
-  printActionResults,
-  printAccessAddresses,
   printBanner,
-  printConfigGroupDetail,
-  printConfigGroups,
-  printInstallResults,
-  printLog,
   printMainMenu,
-  printStatusTable,
-  printValidationResult,
-  printWizardResult,
+  renderActionResults,
+  renderAccessAddresses,
+  renderConfigGroupDetail,
+  renderInstallProgress,
+  renderInstallResults,
+  renderLog,
+  renderStatusTable,
+  renderValidationResult,
+  renderWizardResult,
 } from './ui.mjs'
 import {
   getServiceDefinitions,
@@ -126,137 +129,175 @@ async function shutdownInteractiveSession(ui, reason = '退出控制台') {
   ui.print(`\n${reason}，正在同步关闭受管服务...\n`)
   const { results } = await shutdownManagedServices()
   if (results.length > 0) {
-    printActionResults('关闭结果', results)
+    ui.print(renderActionResults('关闭结果', results))
   }
 }
 
 async function promptServiceSelection(ui, actionLabel) {
   const services = getServiceDefinitions()
-  ui.print(`\n请选择要${actionLabel}的服务，可输入 all / 全部 或逗号分隔的编号。`)
-  services.forEach((service, index) => {
-    ui.print(`${index + 1}. ${service.label} (${service.id})`)
-  })
-  ui.print('')
-  const answer = await ui.ask(`${actionLabel}目标: `)
-  if (!answer) {
+  const selections = await ui.chooseMany(`请选择要${actionLabel}的服务`, [
+    { name: '全部服务', value: '__ALL__' },
+    ...services.map((service) => ({
+      name: `${service.label} (${service.id})`,
+      value: service.id,
+    })),
+    { name: '返回上一级', value: '__BACK__' },
+  ])
+
+  if (!Array.isArray(selections) || selections.length === 0 || selections.includes('__BACK__')) {
     return []
   }
-  if (['all', '全部'].includes(answer.toLowerCase())) {
+
+  if (selections.includes('__ALL__')) {
     return services.map((service) => service.id)
   }
-
-  const numericSelection = answer
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-  if (numericSelection.every((item) => /^\d+$/.test(item))) {
-    const ids = numericSelection.map((item) => services[Number(item) - 1]?.id).filter(Boolean)
-    return [...new Set(ids)]
-  }
-
-  return parseServiceTarget(answer)
+  return [...new Set(selections)]
 }
 
-async function handleStart(ui) {
+async function runWithOperationAnimation(setLastOutput, actionLabel, targetLabel, task) {
+  const animator = createOperationAnimator(actionLabel, targetLabel)
+  animator.start()
+  const startedAt = Date.now()
+
+  try {
+    const result = await Promise.resolve().then(task)
+    const elapsed = Date.now() - startedAt
+    if (elapsed < 700) {
+      await new Promise((resolve) => setTimeout(resolve, 700 - elapsed))
+    }
+    animator.succeed(`正在${actionLabel}：${targetLabel}`)
+    return result
+  } catch (error) {
+    animator.fail(`${actionLabel}失败：${targetLabel}`)
+    throw error
+  } finally {
+    animator.stop()
+    if (typeof setLastOutput === 'function') {
+      setLastOutput('')
+    }
+  }
+}
+
+async function handleStart(ui, setLastOutput) {
   const ids = await promptServiceSelection(ui, '启动')
   if (ids.length === 0) {
-    ui.print('\n未选择任何服务。\n')
-    return
+    return '\n未选择任何服务。\n'
   }
-  const { results } = startServices(ids, loadState())
-  printActionResults(`已执行启动：${getServiceSelectionSummary(ids)}`, results)
-  printAccessAddresses(buildAccessAddresses(ids))
+  const targetLabel = getServiceSelectionSummary(ids)
+  const { results } = await runWithOperationAnimation(setLastOutput, '启动', targetLabel, () =>
+    startServices(ids, loadState()),
+  )
+  return `${renderActionResults(`已执行启动：${getServiceSelectionSummary(ids)}`, results)}${renderAccessAddresses(buildAccessAddresses(ids))}`
 }
 
-async function handleRestart(ui) {
+async function handleRestart(ui, setLastOutput) {
   const ids = await promptServiceSelection(ui, '重启')
   if (ids.length === 0) {
-    ui.print('\n未选择任何服务。\n')
-    return
+    return '\n未选择任何服务。\n'
   }
-  const { results } = await restartServices(ids, loadState())
-  printActionResults(`已执行重启：${getServiceSelectionSummary(ids)}`, results)
-  printAccessAddresses(buildAccessAddresses(ids))
+  const targetLabel = getServiceSelectionSummary(ids)
+  const { results } = await runWithOperationAnimation(setLastOutput, '重启', targetLabel, () =>
+    restartServices(ids, loadState()),
+  )
+  return `${renderActionResults(`已执行重启：${getServiceSelectionSummary(ids)}`, results)}${renderAccessAddresses(buildAccessAddresses(ids))}`
 }
 
-async function handleStop(ui) {
+async function handleStop(ui, setLastOutput) {
   const ids = await promptServiceSelection(ui, '停止')
   if (ids.length === 0) {
-    ui.print('\n未选择任何服务。\n')
-    return
+    return '\n未选择任何服务。\n'
   }
-  const { results } = await stopServices(ids, loadState())
-  printActionResults(`已执行停止：${getServiceSelectionSummary(ids)}`, results)
+  const targetLabel = getServiceSelectionSummary(ids)
+  const { results } = await runWithOperationAnimation(setLastOutput, '停止', targetLabel, () =>
+    stopServices(ids, loadState()),
+  )
+  return renderActionResults(`已执行停止：${getServiceSelectionSummary(ids)}`, results)
 }
 
 async function handleLogs(ui) {
-  const ids = await promptServiceSelection(ui, '查看日志')
-  if (ids.length !== 1) {
-    ui.print('\n查看日志时请只选择一个服务。\n')
-    return
+  const services = getServiceDefinitions()
+  const selected = await ui.choose('请选择要查看日志的服务', [
+    ...services.map((service) => ({
+      name: `${service.label} (${service.id})`,
+      value: service.id,
+    })),
+    { name: '返回上一级', value: '__BACK__' },
+  ])
+  if (!selected || selected === '__BACK__') {
+    return ''
   }
-  const id = ids[0]
-  printLog(id, getServiceLabel(id), readRecentLog(id))
+  return renderLog(selected, getServiceLabel(selected), readRecentLog(selected))
 }
 
 async function handleInitConfig(ui) {
   const results = initializeEnvFiles()
   const envFiles = getEnvFileMap()
-  ui.print('\n配置初始化结果')
+  const lines = ['\n配置初始化结果']
   for (const result of results) {
-    ui.print(`- ${result.created ? '已创建' : '已存在'}: ${envFiles[result.fileKey]}`)
+    lines.push(`- ${result.created ? '已创建' : '已存在'}: ${envFiles[result.fileKey]}`)
   }
-  ui.print('')
+  lines.push('')
+  return lines.join('\n')
 }
 
-async function handleInstallEnvironment(ui) {
-  ui.print('\n开始执行一键安装环境，请稍候...\n')
-  const result = await installEnvironment()
-  printInstallResults(result)
+async function handleConfigWizard(ui, onUpdate) {
+  const result = await runConfigWizard(ui, { onUpdate })
+  return result.output || renderWizardResult(result)
 }
 
-async function handleConfigWizard(ui) {
-  ui.print('\n开始执行配置向导，请按提示填写。\n')
-  const result = await runConfigWizard(ui)
-  printWizardResult(result)
-}
+async function handleConfigManagement(ui, onUpdate) {
+  const fieldDefinitions = Object.fromEntries(getConfigFieldDefinitions().map((field) => [field.key, field]))
 
-async function handleConfigManagement(ui) {
   while (true) {
     const groups = getConfigGroupsWithValues()
-    printConfigGroups(groups)
-    const answer = await ui.ask('选择配置分组编号，或输入 back 返回: ')
-    if (!answer || answer.toLowerCase() === 'back') {
-      ui.print('')
-      return
+    const selected = await ui.choose('请选择配置分组', [
+      ...groups.map((group) => ({
+        name: `${group.label} - ${group.description}`,
+        value: group.id,
+      })),
+      { name: '返回上一级', value: '__BACK__' },
+    ])
+    if (!selected || selected === '__BACK__') {
+      return ''
     }
-
-    const index = Number(answer)
-    const group = groups[index - 1]
+    const group = groups.find((item) => item.id === selected)
     if (!group) {
-      ui.print('\n无效的配置分组编号。\n')
-      continue
+      return ''
     }
 
-    printConfigGroupDetail(group)
+    const detailOutput = renderConfigGroupDetail(group)
+    if (typeof onUpdate === 'function') {
+      onUpdate(detailOutput)
+    }
     const updates = {}
     for (const field of group.fields) {
-      const currentValue = field.value || ''
-      const prompt = `${field.label} [当前: ${field.sensitive ? '已隐藏' : currentValue || '(空)'}]，留空保持不变: `
-      const nextValue = await ui.ask(prompt)
-      if (nextValue !== '') {
+      const currentValue = String(field.value || '')
+      const definition = fieldDefinitions[field.key]
+      const nextValue = await ui.input(
+        `${field.label}\n当前值：${field.sensitive ? '已隐藏' : currentValue || '(空)'}\n直接回车保留当前值`,
+        currentValue,
+        (value) => {
+          const validation = validateConfigValue(definition?.validate || 'any', value)
+          return validation.ok ? true : `输入无效：${validation.message}`
+        },
+      )
+      if (nextValue !== currentValue) {
         updates[field.key] = nextValue
       }
     }
 
     if (Object.keys(updates).length === 0) {
-      ui.print('\n未修改任何配置项。\n')
-      continue
+      return '\n未修改任何配置项。\n'
     }
 
     const updatedGroup = updateConfigGroup(group.id, updates)
-    ui.print('\n配置已更新。')
-    printConfigGroupDetail(updatedGroup)
+    const lines = ['\n配置已更新。', '', updatedGroup.label]
+    for (const field of updatedGroup.fields) {
+      const value = field.sensitive ? '已隐藏' : field.value || '(空)'
+      lines.push(`- ${field.label} [${field.key}] = ${value}`)
+    }
+    lines.push('')
+    return lines.join('\n')
   }
 }
 
@@ -264,22 +305,22 @@ async function runDirectCommand(action, target) {
   switch (action) {
     case 'status':
       printBanner()
-      printStatusTable(getStatusRows(loadState()))
+      console.log(renderStatusTable(getStatusRows(loadState())))
       return true
     case 'start': {
       const ids = parseServiceTarget(target)
       printBanner()
       const { results } = startServices(ids, loadState(), { detachedMode: true })
-      printActionResults(`已执行启动：${getServiceSelectionSummary(ids)}`, results)
-      printAccessAddresses(buildAccessAddresses(ids))
+      console.log(renderActionResults(`已执行启动：${getServiceSelectionSummary(ids)}`, results))
+      console.log(renderAccessAddresses(buildAccessAddresses(ids)))
       return true
     }
     case 'restart': {
       const ids = parseServiceTarget(target)
       printBanner()
       const { results } = await restartServicesDetached(ids, loadState())
-      printActionResults(`已执行重启：${getServiceSelectionSummary(ids)}`, results)
-      printAccessAddresses(buildAccessAddresses(ids))
+      console.log(renderActionResults(`已执行重启：${getServiceSelectionSummary(ids)}`, results))
+      console.log(renderAccessAddresses(buildAccessAddresses(ids)))
       return true
     }
     case 'stop':
@@ -287,7 +328,7 @@ async function runDirectCommand(action, target) {
       const ids = parseServiceTarget(target)
       printBanner()
       const { results } = await stopServices(ids, loadState())
-      printActionResults(`已执行停止：${getServiceSelectionSummary(ids)}`, results)
+      console.log(renderActionResults(`已执行停止：${getServiceSelectionSummary(ids)}`, results))
       return true
     }
     case 'logs': {
@@ -296,7 +337,7 @@ async function runDirectCommand(action, target) {
         throw new Error('logs 命令只能查看单个服务日志')
       }
       printBanner()
-      printLog(ids[0], getServiceLabel(ids[0]), readRecentLog(ids[0]))
+      console.log(renderLog(ids[0], getServiceLabel(ids[0]), readRecentLog(ids[0])))
       return true
     }
     case 'init-config': {
@@ -313,7 +354,7 @@ async function runDirectCommand(action, target) {
     case 'install-env': {
       printBanner()
       const result = await installEnvironment()
-      printInstallResults(result)
+      console.log(renderInstallResults(result))
       return true
     }
     case 'wizard-config': {
@@ -321,7 +362,7 @@ async function runDirectCommand(action, target) {
       const ui = createConsoleUi()
       try {
         const result = await runConfigWizard(ui)
-        printWizardResult(result)
+        console.log(renderWizardResult(result))
       } finally {
         ui.close()
       }
@@ -329,7 +370,7 @@ async function runDirectCommand(action, target) {
     }
     case 'config-check':
       printBanner()
-      printValidationResult(validateConfig())
+      console.log(renderValidationResult(validateConfig()))
       return true
     default:
       return false
@@ -338,8 +379,21 @@ async function runDirectCommand(action, target) {
 
 async function runInteractiveMode() {
   const ui = createConsoleUi()
-  printBanner()
   let shuttingDown = false
+  let lastOutput = ''
+
+  const redraw = () => {
+    printBanner()
+    if (lastOutput) {
+      ui.print(lastOutput)
+    }
+    printMainMenu()
+  }
+
+  const setLastOutput = (value) => {
+    lastOutput = value
+    redraw()
+  }
 
   const performShutdown = async (reason) => {
     if (shuttingDown) {
@@ -368,47 +422,61 @@ async function runInteractiveMode() {
 
   try {
     while (true) {
-      printMainMenu()
-      const answer = await ui.ask('请输入菜单编号: ')
+      redraw()
+      const answer = await ui.choose('请选择操作', [
+        { name: '查看服务状态', value: '1' },
+        { name: '启动服务', value: '2' },
+        { name: '重启服务', value: '3' },
+        { name: '停止服务', value: '4' },
+        { name: '查看服务日志', value: '5' },
+        { name: '一键安装环境', value: '6' },
+        { name: '初始化配置文件', value: '7' },
+        { name: '一键引导填写配置文件', value: '8' },
+        { name: '管理配置分组', value: '9' },
+        { name: '校验配置', value: '10' },
+        { name: '退出', value: '11' },
+      ])
 
-      if (isExitAnswer(answer)) {
+      if (isExitAnswer(String(answer))) {
         await performShutdown('已退出控制台管理平台')
         return
       }
 
       switch (answer) {
         case '1':
-          printStatusTable(getStatusRows(loadState()))
+          lastOutput = renderStatusTable(getStatusRows(loadState()))
           break
         case '2':
-          await handleStart(ui)
+          lastOutput = await handleStart(ui, setLastOutput)
           break
         case '3':
-          await handleRestart(ui)
+          lastOutput = await handleRestart(ui, setLastOutput)
           break
         case '4':
-          await handleStop(ui)
+          lastOutput = await handleStop(ui, setLastOutput)
           break
         case '5':
-          await handleLogs(ui)
+          lastOutput = await handleLogs(ui)
           break
         case '6':
-          await handleInstallEnvironment(ui)
+          lastOutput = await installEnvironment(({ steps, activeStepId }) => {
+            setLastOutput(renderInstallProgress(steps, activeStepId))
+          }).then((result) => renderInstallResults(result))
           break
         case '7':
-          await handleInitConfig(ui)
+          lastOutput = await handleInitConfig(ui)
           break
         case '8':
-          await handleConfigWizard(ui)
+          lastOutput = await handleConfigWizard(ui, setLastOutput)
           break
         case '9':
-          await handleConfigManagement(ui)
+          lastOutput = await handleConfigManagement(ui, setLastOutput)
           break
         case '10':
-          printValidationResult(validateConfig())
+          lastOutput = renderValidationResult(validateConfig())
           break
         default:
-          ui.print('\n无效输入，请重新选择。\n')
+          lastOutput = '\n无效输入，请重新选择。\n'
           break
       }
     }

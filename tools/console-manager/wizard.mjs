@@ -6,38 +6,14 @@ import {
   updateConfigValues,
   validateConfigValue,
 } from './config.mjs'
+import { renderWizardResult } from './ui.mjs'
 
 function formatValue(field, value) {
-  const text = String(value ?? '')
+  const text = String(value ?? '').trim()
   if (!text) {
     return '(空)'
   }
   return field.sensitive ? maskValue(text) : text
-}
-
-async function askField(ui, field, updates) {
-  while (true) {
-    ui.print(`\n${field.label}`)
-    ui.print(`说明: ${field.description}`)
-    ui.print(`当前值: ${formatValue(field, field.currentValue)}`)
-    if (field.defaultValue && field.defaultValue !== field.currentValue) {
-      ui.print(`示例默认值: ${formatValue(field, field.defaultValue)}`)
-    }
-
-    const answer = await ui.ask('输入新值，直接回车保留当前值: ')
-    if (answer === '') {
-      updates[field.key] = field.currentValue ?? ''
-      return
-    }
-
-    const validation = validateConfigValue(field.validate, answer)
-    if (validation.ok) {
-      updates[field.key] = answer.trim()
-      return
-    }
-
-    ui.print(`输入无效：${validation.message}\n`)
-  }
 }
 
 function buildSummary(fields, updates) {
@@ -50,48 +26,85 @@ function buildSummary(fields, updates) {
     }))
 }
 
-export async function runConfigWizard(ui) {
+async function promptField(ui, field) {
+  const hintParts = [
+    field.description,
+    `当前值：${formatValue(field, field.currentValue)}`,
+  ]
+  if (field.defaultValue && field.defaultValue !== field.currentValue) {
+    hintParts.push(`示例默认值：${formatValue(field, field.defaultValue)}`)
+  }
+
+  const defaultValue = String(field.currentValue ?? '')
+  return ui.input(`${field.label}\n${hintParts.join('\n')}`, defaultValue, (value) => {
+    const validation = validateConfigValue(field.validate, value)
+    return validation.ok ? true : `输入无效：${validation.message}`
+  })
+}
+
+export async function runConfigWizard(ui, options = {}) {
+  const { onUpdate } = options
+  const emit = (text) => {
+    if (typeof onUpdate === 'function') {
+      onUpdate(text)
+    }
+  }
+
   const initResults = initializeEnvFiles()
   const envFiles = getEnvFileMap()
-  ui.print('\n配置文件检查结果')
+  const initLines = ['配置文件检查结果']
   for (const result of initResults) {
-    ui.print(`- ${result.created ? '已创建' : '已存在'}: ${envFiles[result.fileKey]}`)
+    initLines.push(`- ${result.created ? '已创建' : '已存在'}: ${envFiles[result.fileKey]}`)
   }
+  emit(`\n${initLines.join('\n')}\n`)
 
   const updates = {}
   const requiredFields = getConfigWizardFields('required')
   for (const field of requiredFields) {
-    await askField(ui, field, updates)
+    const answer = await promptField(ui, field)
+    updates[field.key] = answer === '' ? String(field.currentValue ?? '') : answer
   }
 
-  const optionalAnswer = await ui.ask('\n关键项已完成，是否继续填写可选项？(y/N): ')
+  const includeOptional = await ui.confirm('关键项已完成，是否继续填写可选项？', false)
   let optionalFields = []
-  if (['y', 'yes', '是'].includes(optionalAnswer.trim().toLowerCase())) {
+  if (includeOptional) {
     optionalFields = getConfigWizardFields('optional')
     for (const field of optionalFields) {
-      await askField(ui, field, updates)
+      const answer = await promptField(ui, field)
+      updates[field.key] = answer === '' ? String(field.currentValue ?? '') : answer
     }
   }
 
   const summary = buildSummary([...requiredFields, ...optionalFields], updates)
-  ui.print('\n本次将写入以下配置')
+  const summaryLines = ['本次将写入以下配置']
   for (const item of summary) {
-    ui.print(`- ${item.label} [${item.key}] = ${item.value}`)
+    summaryLines.push(`- ${item.label} [${item.key}] = ${item.value}`)
   }
+  emit(`\n${summaryLines.join('\n')}\n`)
 
-  const confirm = await ui.ask('\n确认保存以上配置吗？(y/N): ')
-  if (!['y', 'yes', '是'].includes(confirm.trim().toLowerCase())) {
+  const shouldSave = await ui.confirm('确认保存以上配置吗？', false)
+  if (!shouldSave) {
     return {
       saved: false,
       summary,
       updatedFiles: [],
+      output: renderWizardResult({
+        saved: false,
+        summary,
+        updatedFiles: [],
+      }),
     }
   }
 
   const result = updateConfigValues(updates)
-  return {
+  const finalResult = {
     saved: true,
     summary,
     updatedFiles: result.updatedFiles,
+  }
+
+  return {
+    ...finalResult,
+    output: renderWizardResult(finalResult),
   }
 }

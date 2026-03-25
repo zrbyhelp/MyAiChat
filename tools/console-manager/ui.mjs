@@ -1,92 +1,177 @@
-import readline from 'node:readline/promises'
-import { stdin as input, stdout as output } from 'node:process'
+import figlet from 'figlet'
+import { checkbox, confirm, input, select } from '@inquirer/prompts'
+import logUpdate from 'log-update'
+import ora from 'ora'
 
 import { maskValue } from './config.mjs'
 
-export function createConsoleUi() {
-  const rl = readline.createInterface({ input, output })
+const bannerText = figlet.textSync('MyAiChat', {
+  font: 'Standard',
+  horizontalLayout: 'default',
+  verticalLayout: 'default',
+  whitespaceBreak: true,
+})
+const bannerColors = [
+  '\x1b[38;5;225m',
+  '\x1b[38;5;219m',
+  '\x1b[38;5;213m',
+  '\x1b[38;5;207m',
+  '\x1b[38;5;213m',
+  '\x1b[38;5;219m',
+]
+const reset = '\x1b[0m'
+const animalAnimations = [
+  {
+    name: 'cat',
+    frames: ['=^.^=', '=^o^=', '=^_^='],
+  },
+  {
+    name: 'rabbit',
+    frames: ['(\\_/)', '(/_\\)', '(\\_/)'],
+  },
+  {
+    name: 'bear',
+    frames: ['ʕ•ᴥ•ʔ', 'ʕ •ᴥ•ʔ'],
+  },
+  {
+    name: 'dog',
+    frames: ['U^ェ^U', 'U＾ェ＾U'],
+  },
+  {
+    name: 'duck',
+    frames: ['>(o )___', '>( o)___', '>(o  )___'],
+  },
+  {
+    name: 'fish',
+    frames: ['><(((°>', '><((°>'],
+  },
+  {
+    name: 'hamster',
+    frames: ['(•ㅅ•)', '( •ㅅ•)', '(•ㅅ• )'],
+  },
+]
 
+export function createConsoleUi() {
   return {
-    async ask(question) {
-      return (await rl.question(question)).trim()
+    async choose(message, choices) {
+      return select({
+        message,
+        choices,
+        pageSize: Math.min(Math.max(choices.length, 6), 12),
+      })
+    },
+    async chooseMany(message, choices) {
+      return checkbox({
+        message,
+        choices,
+        pageSize: Math.min(Math.max(choices.length, 8), 14),
+      })
+    },
+    async input(message, defaultValue = '', validate) {
+      const answer = await input({
+        message,
+        default: defaultValue,
+        validate,
+      })
+      return String(answer ?? '').trim()
+    },
+    async confirm(message, defaultValue = false) {
+      return confirm({
+        message,
+        default: defaultValue,
+      })
     },
     print(message = '') {
       console.log(message)
     },
     close() {
-      rl.close()
+      return undefined
     },
   }
 }
 
 export function printBanner() {
   console.clear()
-  console.log('========================================')
-  console.log(' MyAiChat 控制台管理平台')
-  console.log(' 中文友好 | 批量启动 | 配置分组管理')
-  console.log('========================================')
+  const bannerLines = bannerText.split('\n')
+  bannerLines.forEach((line, index) => {
+    const color = bannerColors[index % bannerColors.length]
+    console.log(`${color}${line}${reset}`)
+  })
   console.log('')
 }
 
 export function printMainMenu() {
-  console.log('主菜单')
-  console.log('1. 查看服务状态')
-  console.log('2. 启动服务')
-  console.log('3. 重启服务')
-  console.log('4. 停止服务')
-  console.log('5. 查看服务日志')
-  console.log('6. 一键安装环境')
-  console.log('7. 初始化配置文件')
-  console.log('8. 一键引导填写配置文件')
-  console.log('9. 管理配置分组')
-  console.log('10. 校验配置')
-  console.log('11. 退出')
+  console.log('使用 ↑ ↓ 选择，回车确认；多选场景使用空格勾选')
   console.log('')
+}
+
+export function renderConfigGroupDetail(group) {
+  const lines = ['', group.label, `${group.description}`]
+  for (const field of group.fields) {
+    const value = field.sensitive ? maskValue(field.value) : field.value || '(空)'
+    lines.push(`- ${field.label} [${field.key}] = ${value}`)
+  }
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function renderStatusTable(rows) {
+  const lines = ['', '当前服务状态']
+  for (const row of rows) {
+    lines.push(`- ${row.label}(${row.id}) | 状态: ${row.status} | PID: ${row.pid ?? '-'} | 启动时间: ${row.startedAt || '-'}`)
+  }
+  lines.push('')
+  return lines.join('\n')
 }
 
 export function printStatusTable(rows) {
-  console.log('')
-  console.log('当前服务状态')
-  for (const row of rows) {
-    console.log(
-      `- ${row.label}(${row.id}) | 状态: ${row.status} | PID: ${row.pid ?? '-'} | 启动时间: ${row.startedAt || '-'}`,
-    )
+  console.log(renderStatusTable(rows))
+}
+
+export function renderActionResults(title, results) {
+  const lines = [``, title]
+  for (const result of results) {
+    lines.push(`- ${result.message}`)
   }
-  console.log('')
+  lines.push('')
+  return lines.join('\n')
 }
 
 export function printActionResults(title, results) {
-  console.log(`\n${title}`)
-  for (const result of results) {
-    console.log(`- ${result.message}`)
-  }
-  console.log('')
+  console.log(renderActionResults(title, results))
 }
 
-export function printAccessAddresses(addresses) {
-  console.log('访问地址')
+export function renderAccessAddresses(addresses) {
+  const lines = ['访问地址']
   if (addresses.length === 0) {
-    console.log('- 当前所选服务没有可展示的访问地址')
-    console.log('')
-    return
+    lines.push('- 当前所选服务没有可展示的访问地址', '')
+    return lines.join('\n')
   }
 
   for (const item of addresses) {
-    console.log(`- ${item.label}(${item.id}): ${item.url}`)
+    lines.push(`- ${item.label}(${item.id}): ${item.url}`)
   }
-  console.log('')
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function printAccessAddresses(addresses) {
+  console.log(renderAccessAddresses(addresses))
+}
+
+export function renderLog(id, label, lines) {
+  const output = [``, `${label}(${id}) 最近日志`]
+  if (lines.length === 0) {
+    output.push('- 暂无日志')
+  } else {
+    output.push(...lines)
+  }
+  output.push('')
+  return output.join('\n')
 }
 
 export function printLog(id, label, lines) {
-  console.log(`\n${label}(${id}) 最近日志`)
-  if (lines.length === 0) {
-    console.log('- 暂无日志')
-  } else {
-    for (const line of lines) {
-      console.log(line)
-    }
-  }
-  console.log('')
+  console.log(renderLog(id, label, lines))
 }
 
 export function printConfigGroups(groups) {
@@ -98,52 +183,190 @@ export function printConfigGroups(groups) {
 }
 
 export function printConfigGroupDetail(group) {
-  console.log(`\n${group.label}`)
-  for (const field of group.fields) {
-    const value = field.sensitive ? maskValue(field.value) : field.value || '(空)'
-    console.log(`- ${field.label} [${field.key}] = ${value}`)
+  console.log(renderConfigGroupDetail(group))
+}
+
+export function renderValidationResult(result) {
+  const lines = ['']
+  if (result.issues.length === 0) {
+    lines.push('配置校验通过，未发现问题。', '')
+    return lines.join('\n')
   }
-  console.log('')
+
+  lines.push(result.ok ? '配置校验完成，存在警告：' : '配置校验失败，请先处理以下问题：')
+  for (const issue of result.issues) {
+    lines.push(`- [${issue.level}] ${issue.key}: ${issue.message}`)
+  }
+  lines.push('')
+  return lines.join('\n')
 }
 
 export function printValidationResult(result) {
-  console.log('')
-  if (result.issues.length === 0) {
-    console.log('配置校验通过，未发现问题。')
-    console.log('')
-    return
+  console.log(renderValidationResult(result))
+}
+
+export function renderInstallResults(result) {
+  const lines = ['', '环境安装结果']
+  for (const item of result.results) {
+    const status = item.ok ? '成功' : '失败'
+    lines.push(`- ${item.label}: ${status}，${item.summary}`)
+    if (item.logFile) {
+      lines.push(`  日志: ${item.logFile}`)
+    }
+  }
+  lines.push('')
+  return lines.join('\n')
+}
+
+export function renderInstallProgress(steps, activeStepId = '') {
+  const total = steps.length || 1
+  const completed = steps.filter((step) => step.status === 'success' || step.status === 'failed').length
+  const filled = Math.min(24, Math.round((completed / total) * 24))
+  const bar = `${'█'.repeat(filled)}${'░'.repeat(24 - filled)}`
+  const lines = ['', `安装进度 [${bar}] ${completed}/${total}`]
+
+  for (const step of steps) {
+    let marker = '·'
+    if (step.status === 'running') {
+      marker = '>'
+    } else if (step.status === 'success') {
+      marker = '√'
+    } else if (step.status === 'failed') {
+      marker = '×'
+    }
+
+    let line = `${marker} ${step.label}`
+    if (step.status === 'running') {
+      line += '：安装中...'
+    } else if (step.status === 'success') {
+      line += '：已完成'
+    } else if (step.status === 'failed') {
+      line += '：失败'
+    } else {
+      line += '：等待中'
+    }
+
+    if (step.summary && (step.status === 'success' || step.status === 'failed')) {
+      line += `，${step.summary}`
+    }
+    if (activeStepId && step.id === activeStepId && step.status === 'running') {
+      line += ' 请稍候'
+    }
+    lines.push(`- ${line}`)
   }
 
-  console.log(result.ok ? '配置校验完成，存在警告：' : '配置校验失败，请先处理以下问题：')
-  for (const issue of result.issues) {
-    console.log(`- [${issue.level}] ${issue.key}: ${issue.message}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
+function createSeededRandom(seed) {
+  let state = Math.abs(Number(seed) || 1) % 2147483647
+  if (state === 0) {
+    state = 1
   }
-  console.log('')
+  return () => {
+    state = (state * 48271) % 2147483647
+    return state / 2147483647
+  }
+}
+
+function buildAnimalParty(seed) {
+  const random = createSeededRandom(seed)
+  const animals = [...animalAnimations]
+    .sort(() => random() - 0.5)
+    .slice(0, 2 + Math.floor(random() * 3))
+  if (animals.length === 0) {
+    return animalAnimations.slice(0, 2)
+  }
+  return animals
+}
+
+function renderAnimalFrame(animals, frameIndex) {
+  const topLine = animals
+    .map((animal, index) => {
+      const frame = animal.frames[(frameIndex + index) % animal.frames.length]
+      return `${' '.repeat((frameIndex + index * 2) % 6)}${frame}`
+    })
+    .join('   ')
+
+  const bottomLine = animals
+    .map((_, index) => `${' '.repeat((frameIndex + index) % 8)}˙⋆✦`)
+    .join('   ')
+
+  return ['', '小动物正在忙碌中...', topLine, bottomLine, ''].join('\n')
+}
+
+export function createOperationAnimator(actionLabel, targetLabel) {
+  const seed = Date.now()
+  const animals = buildAnimalParty(seed)
+  const spinner = ora({
+    text: `正在${actionLabel}：${targetLabel}`,
+    spinner: 'dots12',
+    discardStdin: false,
+    hideCursor: false,
+  })
+  let frameIndex = 0
+  let timer = null
+
+  return {
+    start() {
+      printBanner()
+      spinner.start()
+      logUpdate(renderAnimalFrame(animals, frameIndex))
+      timer = setInterval(() => {
+        frameIndex += 1
+        logUpdate(renderAnimalFrame(animals, frameIndex))
+      }, 120)
+    },
+    stop() {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+      spinner.stop()
+      logUpdate.clear()
+      logUpdate.done()
+    },
+    succeed(text) {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+      logUpdate.clear()
+      spinner.succeed(text)
+      logUpdate.done()
+    },
+    fail(text) {
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+      logUpdate.clear()
+      spinner.fail(text)
+      logUpdate.done()
+    },
+  }
 }
 
 export function printInstallResults(result) {
-  console.log('\n环境安装结果')
-  for (const item of result.results) {
-    const status = item.ok ? '成功' : '失败'
-    console.log(`- ${item.label}: ${status}，${item.summary}`)
-    if (item.logFile) {
-      console.log(`  日志: ${item.logFile}`)
-    }
+  console.log(renderInstallResults(result))
+}
+
+export function renderWizardResult(result) {
+  const lines = ['']
+  if (!result.saved) {
+    lines.push('配置向导已取消，未写入任何文件。', '')
+    return lines.join('\n')
   }
-  console.log('')
+
+  lines.push('配置向导已完成，已写入文件：')
+  for (const file of result.updatedFiles) {
+    lines.push(`- ${file}`)
+  }
+  lines.push('')
+  return lines.join('\n')
 }
 
 export function printWizardResult(result) {
-  console.log('')
-  if (!result.saved) {
-    console.log('配置向导已取消，未写入任何文件。')
-    console.log('')
-    return
-  }
-
-  console.log('配置向导已完成，已写入文件：')
-  for (const file of result.updatedFiles) {
-    console.log(`- ${file}`)
-  }
-  console.log('')
+  console.log(renderWizardResult(result))
 }

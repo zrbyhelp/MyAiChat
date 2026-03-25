@@ -154,25 +154,62 @@ function runCommandStep(step) {
   })
 }
 
-export async function installEnvironment() {
+export async function installEnvironment(onProgress) {
+  return installEnvironmentWithProgress(onProgress)
+}
+
+export async function installEnvironmentWithProgress(onProgress) {
   const results = []
+  const steps = stepDefinitions().map((step) => ({
+    id: step.id,
+    label: step.label,
+    status: 'pending',
+    summary: '',
+  }))
+  const emitProgress = (activeStepId = '') => {
+    if (typeof onProgress === 'function') {
+      onProgress({
+        steps: steps.map((step) => ({ ...step })),
+        activeStepId,
+      })
+    }
+  }
+
+  emitProgress()
   for (const step of stepDefinitions()) {
+    const progressStep = steps.find((item) => item.id === step.id)
+    if (progressStep) {
+      progressStep.status = 'running'
+      progressStep.summary = ''
+    }
+    emitProgress(step.id)
+
     if (typeof step.run === 'function') {
       const result = await step.run()
+      if (progressStep) {
+        progressStep.status = result.ok ? 'success' : 'failed'
+        progressStep.summary = result.summary
+      }
       results.push({
         id: step.id,
         label: step.label,
         ...result,
       })
+      emitProgress()
       continue
     }
 
     const result = await runCommandStep(step)
+    if (progressStep) {
+      progressStep.status = result.ok ? 'success' : 'failed'
+      progressStep.summary = result.summary
+    }
     results.push({
       id: step.id,
       label: step.label,
       ...result,
     })
+    emitProgress()
   }
 
   return {
