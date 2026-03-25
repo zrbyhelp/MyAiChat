@@ -99,6 +99,12 @@ npm run console
 - 按分组编辑 `.env` 配置并同步写回
 - 执行配置校验并查看日志摘要
 
+控制台演示：
+
+<p align="center">
+  <img src="./image/npmrunconsole演示图片.png" alt="控制台管理平台演示" width="92%" />
+</p>
+
 4. 访问地址
 
 - chat：`http://localhost:5173`
