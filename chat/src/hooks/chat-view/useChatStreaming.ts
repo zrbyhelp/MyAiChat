@@ -184,12 +184,10 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       }
       if (payload.type === 'ui_loading' && payload.message) {
         options.currentAssistantLoadingText.value = payload.message || '正在生成交互 UI'
-        options.applyChatMessages(options.chatMessages.value)
         return null
       }
       if (payload.type === 'suggestion' && payload.items?.length) {
         options.currentAssistantLoadingText.value = ''
-        options.applyChatMessages(options.chatMessages.value)
         options.pendingAssistantSuggestions.value = payload.items
         options.pendingAssistantForm.value = null
         nextTick(() => {
@@ -199,7 +197,6 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       }
       if (payload.type === 'form' && payload.form?.fields?.length) {
         options.currentAssistantLoadingText.value = ''
-        options.applyChatMessages(options.chatMessages.value)
         if (!options.pendingAssistantSuggestions.value?.length) {
           options.pendingAssistantForm.value = payload.form
         }
@@ -214,8 +211,8 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
           text: payload.message,
         }
         options.currentMemoryStatusText.value = payload.message
-        options.applyChatMessages(options.chatMessages.value)
         nextTick(() => {
+          options.applyChatMessages(options.chatMessages.value)
           options.flushPendingAssistantMemoryStatus()
         })
         return null

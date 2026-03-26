@@ -84,38 +84,6 @@ class StructuredMemory(CompatibleModel):
     categories: list[StructuredMemoryCategory] = Field(default_factory=list)
 
 
-class StructuredMemoryPatchItem(CompatibleModel):
-    op: Literal["add", "update", "delete"] = "add"
-    id: str = ""
-    summary: str = ""
-    source_turn_id: str = Field(
-        default="",
-        validation_alias=AliasChoices("source_turn_id", "sourceTurnId"),
-    )
-    updated_at: str = Field(
-        default="",
-        validation_alias=AliasChoices("updated_at", "updatedAt"),
-    )
-    values: dict[str, Any] = Field(default_factory=dict)
-
-
-class StructuredMemoryPatchCategory(CompatibleModel):
-    category_id: str = Field(validation_alias=AliasChoices("category_id", "categoryId"))
-    updated_at: str = Field(
-        default="",
-        validation_alias=AliasChoices("updated_at", "updatedAt"),
-    )
-    items: list[StructuredMemoryPatchItem] = Field(default_factory=list)
-
-
-class StructuredMemoryPatch(CompatibleModel):
-    updated_at: str = Field(
-        default="",
-        validation_alias=AliasChoices("updated_at", "updatedAt"),
-    )
-    categories: list[StructuredMemoryPatchCategory] = Field(default_factory=list)
-
-
 class ChatMessage(CompatibleModel):
     role: Literal["user", "assistant", "system"]
     content: str

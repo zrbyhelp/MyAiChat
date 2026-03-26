@@ -15,8 +15,9 @@ from .schemas import (
     MemorySchemaField,
     RunRequest,
     StructuredMemory,
-    StructuredMemoryPatch,
-    )
+)
+
+
 class AgentState(TypedDict):
     thread_id: str
     prompt: str
@@ -484,121 +485,6 @@ def normalize_structured_memory(schema: MemorySchema, payload: dict) -> Structur
     })
 
 
-def default_structured_memory_patch(schema: MemorySchema) -> StructuredMemoryPatch:
-    return StructuredMemoryPatch(
-        updated_at="",
-        categories=[{"category_id": category.id, "updated_at": "", "items": []} for category in schema.categories],
-    )
-
-
-def normalize_structured_memory_patch(schema: MemorySchema, payload: dict) -> StructuredMemoryPatch:
-    category_map = {
-        str(item.get("category_id") or item.get("categoryId") or ""): item
-        for item in (payload.get("categories") or [])
-        if isinstance(item, dict)
-    }
-    categories: list[dict] = []
-
-    for category in schema.categories:
-        raw_category = category_map.get(category.id, {})
-        raw_items = raw_category.get("items") if isinstance(raw_category, dict) else []
-        items: list[dict] = []
-
-        for item_index, raw_item in enumerate(raw_items if isinstance(raw_items, list) else []):
-            op = str(raw_item.get("op") or "add").strip().lower()
-            if op not in {"add", "update", "delete"}:
-                op = "add"
-            item_id = str(raw_item.get("id") or "").strip()
-            if op in {"update", "delete"} and not item_id:
-                continue
-
-            raw_values = raw_item.get("values") if isinstance(raw_item, dict) else {}
-            raw_values = raw_values if isinstance(raw_values, dict) else {}
-            values: dict = {}
-            if op != "delete":
-                for field in category.fields:
-                    normalized = normalize_field_value(field, raw_values.get(field.name))
-                    if normalized is not None:
-                        values[field.name] = normalized
-                if op == "add" and not values:
-                    continue
-                if op == "update" and not values and not str(raw_item.get("summary") or "").strip():
-                    continue
-
-            items.append({
-                "op": op,
-                "id": item_id or f"{category.id}_{item_index + 1}_{int(datetime.now(timezone.utc).timestamp())}",
-                "summary": str(raw_item.get("summary") or "").strip(),
-                "source_turn_id": str(raw_item.get("source_turn_id") or raw_item.get("sourceTurnId") or ""),
-                "updated_at": str(raw_item.get("updated_at") or raw_item.get("updatedAt") or utc_now()),
-                "values": values,
-            })
-
-        categories.append({
-            "category_id": category.id,
-            "updated_at": str(raw_category.get("updated_at") or raw_category.get("updatedAt") or (utc_now() if items else "")),
-            "items": items,
-        })
-
-    return StructuredMemoryPatch.model_validate({
-        "updated_at": str(payload.get("updated_at") or payload.get("updatedAt") or utc_now()),
-        "categories": categories,
-    })
-
-
-def merge_structured_memory(schema: MemorySchema, current_memory: StructuredMemory, patch_memory: StructuredMemoryPatch) -> StructuredMemory:
-    current_map = {category.category_id: category for category in current_memory.categories}
-    merged_categories: list[dict] = []
-
-    for category in schema.categories:
-        current_category = current_map.get(category.id)
-        next_category = next((item for item in patch_memory.categories if item.category_id == category.id), None)
-        current_items = [item.model_dump() for item in current_category.items] if current_category else []
-        next_items = [item.model_dump() for item in next_category.items] if next_category else []
-
-        merged_items = [*current_items]
-        for next_item in next_items:
-            op = str(next_item.get("op") or "add")
-            target_id = str(next_item.get("id") or "").strip()
-            match_index = next(
-                (index for index, current_item in enumerate(merged_items) if str(current_item.get("id") or "").strip() == target_id),
-                -1,
-            )
-            if op == "delete":
-                if match_index >= 0:
-                    merged_items.pop(match_index)
-                continue
-            if op == "update":
-                if match_index < 0:
-                    continue
-                merged_items[match_index] = {
-                    **merged_items[match_index],
-                    **next_item,
-                    "values": {
-                        **(merged_items[match_index].get("values") or {}),
-                        **(next_item.get("values") or {}),
-                    },
-                }
-                merged_items[match_index].pop("op", None)
-                continue
-            item_to_add = {**next_item}
-            item_to_add.pop("op", None)
-            merged_items.append(item_to_add)
-
-        merged_categories.append({
-            "category_id": category.id,
-            "label": category.label,
-            "description": category.description,
-            "updated_at": utc_now() if next_items else (current_category.updated_at if current_category and current_category.items else ""),
-            "items": merged_items,
-        })
-
-    return StructuredMemory.model_validate({
-        "updated_at": utc_now() if any(category.items for category in patch_memory.categories) or any(category.items for category in current_memory.categories) else current_memory.updated_at,
-        "categories": merged_categories,
-    })
-
-
 async def answerer_node(state: AgentState) -> dict:
     model = build_model(state["model_config"])
     structured_memory = StructuredMemory.model_validate(state["structured_memory"])
@@ -760,20 +646,18 @@ async def memory_node(state: AgentState) -> dict:
                     (
                         "你负责把当前对话整理成结构化长期记忆。"
                         "你必须严格遵循给定 schema，只输出 JSON。"
-                        "你输出的是增量 patch，不是完整重写后的全部记忆。"
+                        "你输出的是最终完整 structured_memory，不是增量 patch。"
                         "顶层结构固定为："
-                        '{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","items":[{"op":"add|update|delete","id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}]}]}。'
+                        '{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","items":[{"id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}]}]}。'
                         "categories 里只能使用 schema 中声明的 category_id。"
                         "values 里只能写该分类 schema 声明过的字段。"
-                        "每个 item 必须显式声明 op，只允许 add、update、delete。"
-                        "只输出本轮新增或发生变化的记忆项；未变化的旧记忆不要重复输出。"
-                        "如果某个分类本轮没有新增或变化，items 输出空数组即可。"
-                        "如果要修改已有记忆，必须使用 op=update，并提供现有记录的 id。"
-                        "如果要删除已有记忆，必须使用 op=delete，并提供现有记录的 id。"
-                        "delete 时不要输出 values。"
-                        "add 时必须提供有效 values；update 时只需要输出要修改的字段。"
-                        "除非本轮明确要求删除或纠正错误记忆，否则不要输出 delete。"
-                        "不要输出没有任何字段值的 add item，不要输出缺少 id 的 update/delete item。"
+                        "每个 category 都要输出；没有内容时 items 输出空数组。"
+                        "每个 item 必须包含 id、summary、source_turn_id、updated_at、values。"
+                        "values 必须是完整结果，不要只输出局部字段。"
+                        "你需要基于现有结构化记忆和历史消息，重建当前这份最终完整记忆。"
+                        "如果旧记忆不再成立，就不要出现在最终结果里。"
+                        "不要输出 op、patch、diff、delete 之类字段。"
+                        "不要输出没有任何有效字段值的 item。"
                     ),
                 ),
             },
@@ -783,7 +667,6 @@ async def memory_node(state: AgentState) -> dict:
                     f"主要故事设定：\n{state['system_prompt']}\n\n"
                     f"当前记忆 schema：\n{schema_text(schema)}\n\n"
                     f"现有结构化记忆：\n{json.dumps(current_memory.model_dump(), ensure_ascii=False)}\n\n"
-                    "你需要根据现有记忆的 id 决定执行 add、update 还是 delete。\n\n"
                     f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
                     f"用户最新输入：{state['prompt']}\n\n"
                     f"助手最终回复：{state.get('final_response', '')}"
@@ -793,9 +676,8 @@ async def memory_node(state: AgentState) -> dict:
     )
     usage = extract_usage(response)
     raw = response.content if isinstance(response.content, str) else str(response.content)
-    parsed = parse_json_object(raw, default_structured_memory_patch(schema).model_dump())
-    patch_memory = normalize_structured_memory_patch(schema, parsed)
-    memory = merge_structured_memory(schema, current_memory, patch_memory).model_dump()
+    parsed = parse_json_object(raw, default_structured_memory(schema).model_dump())
+    memory = normalize_structured_memory(schema, parsed).model_dump()
     return {"structured_memory": memory, "usage": usage}
 
 
