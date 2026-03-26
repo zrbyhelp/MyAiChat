@@ -152,7 +152,7 @@ export const PROVIDER_DEFAULTS = {
     temperature: 0.7,
   },
   ollama: {
-    baseUrl: 'http://127.0.0.1:11434',
+    baseUrl: 'http://127.0.0.1:11434/v1',
     temperature: 0.7,
   },
 }

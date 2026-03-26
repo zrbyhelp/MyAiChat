@@ -20,6 +20,15 @@ export function sanitizeBaseUrl(baseUrl) {
   return String(baseUrl || '').replace(/\/+$/, '')
 }
 
+function getOllamaChatBaseUrl(baseUrl) {
+  const sanitized = sanitizeBaseUrl(baseUrl)
+  return /\/v1$/i.test(sanitized) ? sanitized : `${sanitized}/v1`
+}
+
+function getOllamaApiBaseUrl(baseUrl) {
+  return sanitizeBaseUrl(baseUrl).replace(/\/v1$/i, '')
+}
+
 function getAgentServiceUrl() {
   return sanitizeBaseUrl(DEFAULT_AGENT_SERVICE_URL)
 }
@@ -119,7 +128,10 @@ function buildAgentRequest(payload, user, session) {
     },
     model_config: {
       provider: String(payload.provider || 'openai'),
-      base_url: sanitizeBaseUrl(payload.baseUrl),
+      base_url:
+        String(payload.provider || 'openai') === 'ollama'
+          ? getOllamaChatBaseUrl(payload.baseUrl)
+          : sanitizeBaseUrl(payload.baseUrl),
       api_key: String(payload.apiKey || ''),
       model: String(payload.model || ''),
       temperature: typeof payload.temperature === 'number' ? payload.temperature : 0.7,
@@ -161,7 +173,10 @@ function buildAgentRequest(payload, user, session) {
         return {
           model_config_id: String(robot?.memoryModelConfigId || ''),
           provider: config.provider,
-          base_url: sanitizeBaseUrl(config.baseUrl),
+          base_url:
+            config.provider === 'ollama'
+              ? getOllamaChatBaseUrl(config.baseUrl)
+              : sanitizeBaseUrl(config.baseUrl),
           api_key: String(config.apiKey || ''),
           model: String(config.model || ''),
           temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
@@ -172,7 +187,10 @@ function buildAgentRequest(payload, user, session) {
         return {
           model_config_id: String(robot?.numericComputationModelConfigId || ''),
           provider: config.provider,
-          base_url: sanitizeBaseUrl(config.baseUrl),
+          base_url:
+            config.provider === 'ollama'
+              ? getOllamaChatBaseUrl(config.baseUrl)
+              : sanitizeBaseUrl(config.baseUrl),
           api_key: String(config.apiKey || ''),
           model: String(config.model || ''),
           temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
@@ -183,7 +201,10 @@ function buildAgentRequest(payload, user, session) {
         return {
           model_config_id: String(robot?.formOptionModelConfigId || ''),
           provider: config.provider,
-          base_url: sanitizeBaseUrl(config.baseUrl),
+          base_url:
+            config.provider === 'ollama'
+              ? getOllamaChatBaseUrl(config.baseUrl)
+              : sanitizeBaseUrl(config.baseUrl),
           api_key: String(config.apiKey || ''),
           model: String(config.model || ''),
           temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
@@ -518,6 +539,14 @@ export async function handleChatStream(payload, res, user) {
     })
 
     sendUsageSSE(res, result.session)
+    sendSSE(res, {
+      type: 'structured_memory',
+      memory: result.memory,
+    })
+    sendSSE(res, {
+      type: 'numeric_state_updated',
+      state: result.numericState,
+    })
     sendSSE(res, { type: 'done' })
   } catch (error) {
     sendSSE(res, {
@@ -532,7 +561,7 @@ export async function handleChatStream(payload, res, user) {
 export async function fetchModels(config) {
   const normalized = normalizeModelConfig(config, 0)
   const isOllama = normalized.provider === 'ollama'
-  const baseUrl = isOllama ? sanitizeBaseUrl(normalized.baseUrl) : getOpenAIBaseUrl(normalized.baseUrl)
+  const baseUrl = isOllama ? getOllamaApiBaseUrl(normalized.baseUrl) : getOpenAIBaseUrl(normalized.baseUrl)
 
   try {
     const response = await fetch(isOllama ? `${baseUrl}/api/tags` : `${baseUrl}/v1/models`, {

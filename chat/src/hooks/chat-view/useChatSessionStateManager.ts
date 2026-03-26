@@ -427,41 +427,16 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   }
 
   function openSessionRobotDialog() {
-    sessionRobotDraft.name = sessionRobot.name
-    sessionRobotDraft.avatar = sessionRobot.avatar
-    sessionRobotDraft.commonPrompt = sessionRobot.commonPrompt
-    sessionRobotDraft.systemPrompt = sessionRobot.systemPrompt
     sessionRobotDraft.memoryModelConfigId = sessionRobot.memoryModelConfigId
     sessionRobotDraft.numericComputationModelConfigId = sessionRobot.numericComputationModelConfigId
     sessionRobotDraft.formOptionModelConfigId = sessionRobot.formOptionModelConfigId
-    sessionRobotDraft.numericComputationEnabled = sessionRobot.numericComputationEnabled
-    sessionRobotDraft.numericComputationPrompt = sessionRobot.numericComputationPrompt
-    sessionRobotDraft.numericComputationItems = options.cloneNumericComputationItems(
-      sessionRobot.numericComputationItems,
-    )
-    sessionRobotDraft.structuredMemoryInterval = sessionRobot.structuredMemoryInterval
-    sessionRobotDraft.structuredMemoryHistoryLimit = sessionRobot.structuredMemoryHistoryLimit
     sessionRobotVisible.value = true
   }
 
   async function applySessionRobot() {
-    const itemsValidation = options.validateNumericComputationItems(sessionRobotDraft.numericComputationItems)
-    if (!itemsValidation.ok && sessionRobotDraft.numericComputationEnabled) {
-      MessagePlugin.error(itemsValidation.message)
-      return
-    }
-    sessionRobot.name = sessionRobotDraft.name.trim() || '当前智能体'
-    sessionRobot.avatar = sessionRobotDraft.avatar.trim()
-    sessionRobot.commonPrompt = sessionRobotDraft.commonPrompt.trim()
-    sessionRobot.systemPrompt = sessionRobotDraft.systemPrompt
     sessionRobot.memoryModelConfigId = String(sessionRobotDraft.memoryModelConfigId || '').trim()
     sessionRobot.numericComputationModelConfigId = String(sessionRobotDraft.numericComputationModelConfigId || '').trim()
     sessionRobot.formOptionModelConfigId = String(sessionRobotDraft.formOptionModelConfigId || '').trim()
-    sessionRobot.numericComputationEnabled = Boolean(sessionRobotDraft.numericComputationEnabled)
-    sessionRobot.numericComputationPrompt = sessionRobotDraft.numericComputationPrompt.trim()
-    sessionRobot.numericComputationItems = itemsValidation.ok ? itemsValidation.normalized : []
-    sessionRobot.structuredMemoryInterval = sessionRobotDraft.structuredMemoryInterval
-    sessionRobot.structuredMemoryHistoryLimit = sessionRobotDraft.structuredMemoryHistoryLimit
     sessionRobotVisible.value = false
     await options.onSyncCurrentSessionMeta()
   }

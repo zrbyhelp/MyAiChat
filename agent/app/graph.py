@@ -50,11 +50,27 @@ def sanitize_base_url(base_url: str) -> str:
     return str(base_url or "").rstrip("/")
 
 
+def resolve_model_base_url(config: dict) -> str:
+    base_url = sanitize_base_url(config.get("base_url", ""))
+    if str(config.get("provider") or "openai").strip() == "ollama" and not base_url.endswith("/v1"):
+        return f"{base_url}/v1"
+    return base_url
+
+
+def resolve_model_api_key(config: dict) -> str:
+    api_key = str(config.get("api_key") or "").strip()
+    if api_key:
+      return api_key
+    if str(config.get("provider") or "openai").strip() == "ollama":
+      return "ollama"
+    return ""
+
+
 def build_model(config: dict) -> ChatOpenAI:
     return ChatOpenAI(
         model=config["model"],
-        api_key=config["api_key"],
-        base_url=sanitize_base_url(config["base_url"]),
+        api_key=resolve_model_api_key(config),
+        base_url=resolve_model_base_url(config),
         temperature=config.get("temperature", 0.7) or 0.7,
         stream_usage=True,
     )
