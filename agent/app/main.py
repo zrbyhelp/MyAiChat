@@ -11,6 +11,7 @@ from .graph import (
     build_model,
     build_initial_state,
     chunk_text,
+    normalize_structured_memory,
     numeric_agent_node,
     numeric_payload_for_answerer,
     extract_usage,
@@ -31,6 +32,14 @@ def sse(payload: dict) -> str:
 
 def has_schema_categories(schema) -> bool:
     return bool(getattr(schema, "categories", None))
+
+
+def should_use_request_schema(thread, request: RunRequest) -> bool:
+    if not has_schema_categories(request.memory_schema):
+        return False
+    if not thread or not has_schema_categories(thread.memory_schema):
+        return True
+    return thread.memory_schema.model_dump() != request.memory_schema.model_dump()
 
 
 def normalize_positive_int(value: int | None, fallback: int) -> int:
@@ -68,8 +77,12 @@ async def run_stream(request: RunRequest):
 
     thread = store.load(request.thread_id)
     history = thread.messages if thread else request.history
-    memory_schema = thread.memory_schema if thread and has_schema_categories(thread.memory_schema) else request.memory_schema
-    structured_memory = thread.structured_memory if thread else request.structured_memory
+    use_request_schema = should_use_request_schema(thread, request)
+    memory_schema = request.memory_schema if use_request_schema else (
+        thread.memory_schema if thread and has_schema_categories(thread.memory_schema) else request.memory_schema
+    )
+    raw_structured_memory = thread.structured_memory if thread and not use_request_schema else request.structured_memory
+    structured_memory = normalize_structured_memory(memory_schema, raw_structured_memory.model_dump())
     if thread:
         request.numeric_state = thread.numeric_state
     print(

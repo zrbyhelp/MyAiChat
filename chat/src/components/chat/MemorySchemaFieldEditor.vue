@@ -169,23 +169,11 @@ function removeFieldFromList(fields: MemorySchemaField[], fieldId: string): bool
     fields.splice(index, 1)
     return true
   }
-  for (const field of fields) {
-    if (field.type === 'object' && removeFieldFromList(field.fields || [], fieldId)) {
-      return true
-    }
-    if (field.type === 'array' && field.itemType === 'object' && removeFieldFromList(field.itemFields || [], fieldId)) {
-      return true
-    }
-  }
   return false
 }
 
 function handleFieldTypeChange(field: MemorySchemaField) {
   field.options = []
-  field.fields = []
-  field.itemType = 'text'
-  field.itemOptions = []
-  field.itemFields = []
 }
 
 function addOption(field: MemorySchemaField) {

@@ -174,7 +174,7 @@ function normalizeMemorySchemaFieldOption(input, index = 0) {
 }
 
 function normalizeMemorySchemaField(input, index = 0) {
-  const type = ['text', 'number', 'enum', 'boolean', 'object', 'array'].includes(String(input?.type))
+  const type = ['text', 'number', 'enum', 'boolean'].includes(String(input?.type))
     ? String(input.type)
     : 'text'
   const field = {
@@ -189,29 +189,6 @@ function normalizeMemorySchemaField(input, index = 0) {
     return {
       ...field,
       options: (Array.isArray(input?.options) ? input.options : []).map((item, optionIndex) => normalizeMemorySchemaFieldOption(item, optionIndex)),
-    }
-  }
-
-  if (type === 'object') {
-    return {
-      ...field,
-      fields: (Array.isArray(input?.fields) ? input.fields : []).map((item, fieldIndex) => normalizeMemorySchemaField(item, fieldIndex)),
-    }
-  }
-
-  if (type === 'array') {
-    const itemType = ['text', 'number', 'enum', 'boolean', 'object'].includes(String(input?.itemType))
-      ? String(input.itemType)
-      : 'text'
-    return {
-      ...field,
-      itemType,
-      itemOptions: itemType === 'enum'
-        ? (Array.isArray(input?.itemOptions) ? input.itemOptions : []).map((item, optionIndex) => normalizeMemorySchemaFieldOption(item, optionIndex))
-        : [],
-      itemFields: itemType === 'object'
-        ? (Array.isArray(input?.itemFields) ? input.itemFields : []).map((item, fieldIndex) => normalizeMemorySchemaField(item, fieldIndex))
-        : [],
     }
   }
 

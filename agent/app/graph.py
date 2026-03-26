@@ -309,17 +309,6 @@ def field_type_text(field: MemorySchemaField) -> str:
     if field.type == "enum":
         options = ", ".join([option.value for option in field.options]) or "无"
         return f"enum({options})"
-    if field.type == "object":
-        child = ", ".join([sub.name for sub in field.fields]) or "无子字段"
-        return f"object({child})"
-    if field.type == "array":
-        if field.item_type == "enum":
-            options = ", ".join([option.value for option in field.item_options]) or "无"
-            return f"array(enum:{options})"
-        if field.item_type == "object":
-            child = ", ".join([sub.name for sub in field.item_fields]) or "无子字段"
-            return f"array(object:{child})"
-        return f"array({field.item_type or 'text'})"
     return field.type
 
 
@@ -417,38 +406,6 @@ def normalize_scalar(value, field_type: str, enum_options: set[str] | None = Non
 
 
 def normalize_field_value(field: MemorySchemaField, value):
-    if field.type == "object":
-        source = value if isinstance(value, dict) else {}
-        result: dict = {}
-        for child in field.fields:
-            child_value = normalize_field_value(child, source.get(child.name))
-            if child_value is not None:
-                result[child.name] = child_value
-        return result or None
-
-    if field.type == "array":
-        items = value if isinstance(value, list) else []
-        normalized_items: list = []
-        for item in items[:20]:
-            if field.item_type == "object":
-                source = item if isinstance(item, dict) else {}
-                child_result: dict = {}
-                for child in field.item_fields:
-                    child_value = normalize_field_value(child, source.get(child.name))
-                    if child_value is not None:
-                        child_result[child.name] = child_value
-                if child_result:
-                    normalized_items.append(child_result)
-            else:
-                normalized = normalize_scalar(
-                    item,
-                    field.item_type or "text",
-                    {option.value for option in field.item_options} if field.item_type == "enum" else None,
-                )
-                if normalized is not None:
-                    normalized_items.append(normalized)
-        return normalized_items or None
-
     return normalize_scalar(
         value,
         field.type,
@@ -533,6 +490,13 @@ def compact_category_memory_payload(category_memory: dict) -> dict:
     }
 
 
+def compact_memory_payload(memory: StructuredMemory) -> dict:
+    return {
+        "updated_at": memory.updated_at,
+        "categories": [compact_category_memory_payload(category.model_dump()) for category in memory.categories],
+    }
+
+
 def build_category_schema_text(category: MemoryCategorySchema) -> str:
     lines = [f"- {category.id} | {category.label}"]
     if category.description:
@@ -571,6 +535,22 @@ def normalize_category_memory_patch(
         "updated_at": str(payload.get("updated_at") or payload.get("updatedAt") or utc_now()),
         "upserts": upserts,
         "deletes": deletes,
+    }
+
+
+def normalize_memory_patch(schema: MemorySchema, payload: dict | None) -> dict:
+    payload = payload if isinstance(payload, dict) else {}
+    category_map = {
+        str(item.get("category_id") or item.get("categoryId") or ""): item
+        for item in (payload.get("categories") or [])
+        if isinstance(item, dict)
+    }
+    return {
+        "updated_at": str(payload.get("updated_at") or payload.get("updatedAt") or utc_now()),
+        "categories": [
+            normalize_category_memory_patch(category, category_map.get(category.id))
+            for category in schema.categories
+        ],
     }
 
 
@@ -615,11 +595,44 @@ def merge_category_memory_patch(category: MemoryCategorySchema, current_category
     }
 
 
-async def update_category_memory_patch(
+def merge_memory_patch(schema: MemorySchema, current_memory: StructuredMemory, patch: dict) -> dict:
+    current_memory_map = {
+        category.category_id: category.model_dump()
+        for category in current_memory.categories
+    }
+    categories: list[dict] = []
+    patch_categories = {
+        str(item.get("category_id") or item.get("categoryId") or ""): item
+        for item in (patch.get("categories") or [])
+        if isinstance(item, dict)
+    }
+
+    for category in schema.categories:
+        current_category_memory = current_memory_map.get(
+            category.id,
+            {
+                "category_id": category.id,
+                "label": category.label,
+                "description": category.description,
+                "updated_at": "",
+                "items": [],
+            },
+        )
+        categories.append(
+            merge_category_memory_patch(category, current_category_memory, patch_categories.get(category.id) or {})
+        )
+
+    return normalize_structured_memory(schema, {
+        "updated_at": str(patch.get("updated_at") or patch.get("updatedAt") or utc_now()),
+        "categories": categories,
+    }).model_dump()
+
+
+async def update_memory_patch(
     model: ChatOpenAI,
     state: AgentState,
-    category: MemoryCategorySchema,
-    current_category_memory: dict,
+    schema: MemorySchema,
+    current_memory: StructuredMemory,
 ) -> tuple[dict, dict]:
     response = await model.ainvoke(
         [
@@ -628,16 +641,17 @@ async def update_category_memory_patch(
                 "content": compose_system_prompt(
                     state["common_prompt"],
                     (
-                        "你负责把当前对话整理成结构化长期记忆中的单个分类。"
+                        "你负责把当前对话整理成结构化长期记忆的增量 patch。"
                         "你必须严格遵循给定 schema，只输出 JSON。"
-                        "你输出的是当前分类的增量 patch，不是完整结果。"
+                        "你输出的是所有分类的增量 patch，不是完整结果。"
                         "顶层结构固定为："
-                        '{"category_id":"分类ID","updated_at":"ISO时间","upserts":[{"id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}],"deletes":["要删除的记录ID"]}。'
+                        '{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","upserts":[{"id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}],"deletes":["要删除的记录ID"]}]}。'
                         "upserts 表示新增或覆盖同 id 的记录；deletes 表示删除指定 id 的记录。"
                         "如果某条旧记录没有变化，不要放进 upserts，也不要放进 deletes。"
                         "对于你在输入中没有看到的旧记录，默认视为保留，绝对不要因为没看到就删除。"
-                        "values 里只能写该分类 schema 声明过的字段。"
-                        "除了 category_id、updated_at、upserts、deletes 之外，不要输出任何额外字段。"
+                        "categories 里只能使用 schema 中声明的 category_id。"
+                        "values 里只能写对应分类 schema 声明过的字段。"
+                        "除了 updated_at、categories、category_id、upserts、deletes 之外，不要输出任何额外字段。"
                         "不要输出没有任何有效字段值的 item。"
                         "只有当当前对话明确表明某条记忆失效、被更正、或应被移除时，才把它的 id 放入 deletes。"
                     ),
@@ -646,8 +660,8 @@ async def update_category_memory_patch(
             {
                 "role": "user",
                 "content": (
-                    f"当前分类 schema：\n{build_category_schema_text(category)}\n\n"
-                    f"当前分类已有记忆（已裁剪）：\n{json.dumps(compact_category_memory_payload(current_category_memory), ensure_ascii=False)}\n\n"
+                    f"当前记忆 schema：\n{schema_text(schema)}\n\n"
+                    f"当前已有记忆（已裁剪）：\n{json.dumps(compact_memory_payload(current_memory), ensure_ascii=False)}\n\n"
                     f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
                     f"用户最新输入：{state['prompt']}\n\n"
                     f"助手最终回复：{state.get('final_response', '')}"
@@ -658,12 +672,10 @@ async def update_category_memory_patch(
     usage = extract_usage(response)
     raw = response.content if isinstance(response.content, str) else str(response.content)
     parsed = parse_json_object(raw, {
-        "category_id": category.id,
         "updated_at": utc_now(),
-        "upserts": [],
-        "deletes": [],
+        "categories": [],
     })
-    patch = normalize_category_memory_patch(category, parsed)
+    patch = normalize_memory_patch(schema, parsed)
     return patch, usage
 
 
@@ -819,37 +831,8 @@ async def memory_node(state: AgentState) -> dict:
     model = build_model(resolve_node_model_config(state, "memory"))
     schema = MemorySchema.model_validate(state["memory_schema"])
     current_memory = StructuredMemory.model_validate(state["structured_memory"])
-    current_memory_map = {
-        category.category_id: category.model_dump()
-        for category in current_memory.categories
-    }
-    categories: list[dict] = []
-    usage = {"prompt_tokens": 0, "completion_tokens": 0}
-
-    for category in schema.categories:
-        current_category_memory = current_memory_map.get(
-            category.id,
-            {
-                "category_id": category.id,
-                "label": category.label,
-                "description": category.description,
-                "updated_at": "",
-                "items": [],
-            },
-        )
-        category_patch, category_usage = await update_category_memory_patch(
-            model,
-            state,
-            category,
-            current_category_memory,
-        )
-        categories.append(merge_category_memory_patch(category, current_category_memory, category_patch))
-        usage = add_usage(usage, category_usage)
-
-    memory = normalize_structured_memory(schema, {
-        "updated_at": utc_now(),
-        "categories": categories,
-    }).model_dump()
+    patch, usage = await update_memory_patch(model, state, schema, current_memory)
+    memory = merge_memory_patch(schema, current_memory, patch)
     return {"structured_memory": memory, "usage": usage}
 
 

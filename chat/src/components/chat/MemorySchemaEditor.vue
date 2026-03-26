@@ -162,10 +162,6 @@ function createField(): MemorySchemaField {
     type: 'text',
     required: false,
     options: [],
-    fields: [],
-    itemType: 'text',
-    itemOptions: [],
-    itemFields: [],
   }
 }
 

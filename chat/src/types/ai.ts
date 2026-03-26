@@ -13,9 +13,8 @@ export interface AIModelConfigItem {
   persistToServer: boolean
 }
 
-export type MemoryFieldType = 'text' | 'number' | 'enum' | 'boolean' | 'object' | 'array'
-export type MemoryArrayItemType = 'text' | 'number' | 'enum' | 'boolean' | 'object'
-export type StructuredMemoryValue = string | number | boolean | null | unknown[] | Record<string, unknown>
+export type MemoryFieldType = 'text' | 'number' | 'enum' | 'boolean'
+export type StructuredMemoryValue = string | number | boolean | null
 
 export interface MemorySchemaOption {
   label: string
@@ -29,10 +28,6 @@ export interface MemorySchemaField {
   type: MemoryFieldType
   required: boolean
   options?: MemorySchemaOption[]
-  fields?: MemorySchemaField[]
-  itemType?: MemoryArrayItemType
-  itemOptions?: MemorySchemaOption[]
-  itemFields?: MemorySchemaField[]
 }
 
 export interface MemorySchemaCategory {

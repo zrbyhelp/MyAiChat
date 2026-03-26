@@ -119,9 +119,6 @@ function cloneMemorySchemaField(field: MemorySchemaField): MemorySchemaField {
   return {
     ...field,
     options: field.options?.map((item) => ({ ...item })),
-    fields: field.fields?.map((item) => cloneMemorySchemaField(item)),
-    itemOptions: field.itemOptions?.map((item) => ({ ...item })),
-    itemFields: field.itemFields?.map((item) => cloneMemorySchemaField(item)),
   }
 }
 
@@ -175,35 +172,21 @@ export function normalizeStructuredMemory(memory?: Partial<StructuredMemoryState
 }
 
 function normalizeMemorySchemaField(field: Partial<MemorySchemaField>, fieldIndex = 0): MemorySchemaField {
+  const type = ['text', 'number', 'enum', 'boolean'].includes(String(field?.type))
+    ? (field.type as MemorySchemaField['type'])
+    : 'text'
   return {
     id: String(field?.id || `field_${fieldIndex + 1}`).trim(),
     name: String(field?.name || `field_${fieldIndex + 1}`).trim(),
     label: String(field?.label || `字段 ${fieldIndex + 1}`).trim(),
-    type: ['text', 'number', 'enum', 'boolean', 'object', 'array'].includes(String(field?.type))
-      ? (field.type as MemorySchemaField['type'])
-      : 'text',
+    type,
     required: Boolean(field?.required),
-    options: Array.isArray(field?.options)
+    options: type === 'enum' && Array.isArray(field?.options)
       ? field.options.map((option, optionIndex) => ({
           label: String(option?.label || `选项 ${optionIndex + 1}`),
           value: String(option?.value || `option_${optionIndex + 1}`),
         }))
       : [],
-    fields: (Array.isArray(field?.fields) ? field.fields : []).map((child, childIndex) =>
-      normalizeMemorySchemaField(child, childIndex),
-    ),
-    itemType: ['text', 'number', 'enum', 'boolean', 'object'].includes(String(field?.itemType))
-      ? (field.itemType as MemorySchemaField['itemType'])
-      : 'text',
-    itemOptions: Array.isArray(field?.itemOptions)
-      ? field.itemOptions.map((option, optionIndex) => ({
-          label: String(option?.label || `选项 ${optionIndex + 1}`),
-          value: String(option?.value || `option_${optionIndex + 1}`),
-        }))
-      : [],
-    itemFields: (Array.isArray(field?.itemFields) ? field.itemFields : []).map((child, childIndex) =>
-      normalizeMemorySchemaField(child, childIndex),
-    ),
   }
 }
 

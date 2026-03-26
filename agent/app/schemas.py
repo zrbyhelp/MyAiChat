@@ -18,22 +18,9 @@ class MemorySchemaField(CompatibleModel):
     id: str
     name: str
     label: str
-    type: Literal["text", "number", "enum", "boolean", "object", "array"] = "text"
+    type: Literal["text", "number", "enum", "boolean"] = "text"
     required: bool = False
     options: list[MemorySchemaOption] = Field(default_factory=list)
-    fields: list["MemorySchemaField"] = Field(default_factory=list)
-    item_type: Literal["text", "number", "enum", "boolean", "object"] | None = Field(
-        default=None,
-        validation_alias=AliasChoices("item_type", "itemType"),
-    )
-    item_options: list[MemorySchemaOption] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("item_options", "itemOptions"),
-    )
-    item_fields: list["MemorySchemaField"] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("item_fields", "itemFields"),
-    )
 
 
 class MemoryCategorySchema(CompatibleModel):
