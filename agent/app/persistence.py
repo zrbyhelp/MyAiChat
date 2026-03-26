@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy import Column, MetaData, String, Table, Text, create_engine, inspect, select, text
+from sqlalchemy.dialects.mysql import LONGTEXT
 
 from .schemas import MemorySchema, StructuredMemory, ThreadState
 
@@ -17,6 +18,7 @@ class ThreadStore:
         self.table = None
 
         if self.mode == "mysql":
+            large_text = Text().with_variant(LONGTEXT(), "mysql")
             password = os.getenv("DB_PASSWORD", "myaichat")
             user = os.getenv("DB_USER", "myaichat")
             host = os.getenv("DB_HOST", "127.0.0.1")
@@ -29,10 +31,10 @@ class ThreadStore:
                 "agent_threads",
                 metadata,
                 Column("thread_id", String(160), primary_key=True),
-                Column("messages_json", Text, nullable=False),
-                Column("memory_schema_json", Text, nullable=False),
-                Column("structured_memory_json", Text, nullable=False),
-                Column("numeric_state_json", Text, nullable=False),
+                Column("messages_json", large_text, nullable=False),
+                Column("memory_schema_json", large_text, nullable=False),
+                Column("structured_memory_json", large_text, nullable=False),
+                Column("numeric_state_json", large_text, nullable=False),
             )
             metadata.create_all(self.engine)
             inspector = inspect(self.engine)
@@ -45,6 +47,11 @@ class ThreadStore:
                 with self.engine.begin() as conn:
                     conn.execute(text("ALTER TABLE agent_threads ADD COLUMN numeric_state_json TEXT NOT NULL"))
                     conn.execute(text("UPDATE agent_threads SET numeric_state_json='{}' WHERE numeric_state_json IS NULL OR numeric_state_json = ''"))
+            with self.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN messages_json LONGTEXT NOT NULL"))
+                conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN memory_schema_json LONGTEXT NOT NULL"))
+                conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN structured_memory_json LONGTEXT NOT NULL"))
+                conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN numeric_state_json LONGTEXT NOT NULL"))
         else:
             self.file_dir.mkdir(parents=True, exist_ok=True)
 

@@ -41,6 +41,9 @@ class AgentState(TypedDict):
 
 DEFAULT_STRUCTURED_MEMORY_INTERVAL = 3
 DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT = 12
+MAX_MEMORY_CONTEXT_ITEMS_PER_CATEGORY = 12
+MAX_MEMORY_SUMMARY_LENGTH = 280
+MAX_MEMORY_VALUE_TEXT_LENGTH = 500
 
 
 def utc_now() -> str:
@@ -99,6 +102,13 @@ def parse_json_object(raw: str, fallback: dict) -> dict:
         return json.loads(text)
     except Exception:
         return fallback
+
+
+def truncate_text(value, limit: int) -> str:
+    text = str(value or "").strip()
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)].rstrip() + "…"
 
 
 def normalize_ui_suggestions(input_value) -> list[dict]:
@@ -336,12 +346,18 @@ def memory_text(memory: StructuredMemory) -> str:
     parts: list[str] = []
     for category in memory.categories:
         parts.append(f"{category.label or category.category_id}：")
-        for item in category.items[:8]:
-            value_text = ", ".join([f"{key}={json.dumps(value, ensure_ascii=False)}" for key, value in item.values.items()])
+        hidden_count = max(len(category.items) - MAX_MEMORY_CONTEXT_ITEMS_PER_CATEGORY, 0)
+        for item in category.items[:MAX_MEMORY_CONTEXT_ITEMS_PER_CATEGORY]:
+            value_text = ", ".join([
+                f"{key}={truncate_text(json.dumps(value, ensure_ascii=False), MAX_MEMORY_VALUE_TEXT_LENGTH)}"
+                for key, value in item.values.items()
+            ])
             summary = item.summary.strip()
-            parts.append(f"- {summary or value_text or item.id}")
+            parts.append(f"- {truncate_text(summary or value_text or item.id, MAX_MEMORY_SUMMARY_LENGTH)}")
             if value_text and summary != value_text:
-                parts.append(f"  {value_text}")
+                parts.append(f"  {truncate_text(value_text, MAX_MEMORY_VALUE_TEXT_LENGTH)}")
+        if hidden_count:
+            parts.append(f"- 其余 {hidden_count} 条已省略")
     return "\n".join(parts) if parts else "暂无结构化记忆。"
 
 
@@ -440,6 +456,44 @@ def normalize_field_value(field: MemorySchemaField, value):
     )
 
 
+def normalize_memory_item(category: MemoryCategorySchema, raw_item: dict, item_index: int) -> dict | None:
+    raw_values = raw_item.get("values") if isinstance(raw_item, dict) else {}
+    raw_values = raw_values if isinstance(raw_values, dict) else {}
+    values: dict = {}
+    for field in category.fields:
+        normalized = normalize_field_value(field, raw_values.get(field.name))
+        if normalized is not None:
+            values[field.name] = normalized
+    if not values:
+        return None
+    return {
+        "id": str(raw_item.get("id") or f"{category.id}_{item_index + 1}"),
+        "summary": truncate_text(raw_item.get("summary") or "", MAX_MEMORY_SUMMARY_LENGTH),
+        "source_turn_id": str(raw_item.get("source_turn_id") or raw_item.get("sourceTurnId") or ""),
+        "updated_at": str(raw_item.get("updated_at") or raw_item.get("updatedAt") or utc_now()),
+        "values": values,
+    }
+
+
+def normalize_structured_memory_category(category: MemoryCategorySchema, raw_category: dict | None) -> dict:
+    raw_category = raw_category if isinstance(raw_category, dict) else {}
+    raw_items = raw_category.get("items") if isinstance(raw_category.get("items"), list) else []
+    items: list[dict] = []
+
+    for item_index, raw_item in enumerate(raw_items):
+        normalized_item = normalize_memory_item(category, raw_item if isinstance(raw_item, dict) else {}, item_index)
+        if normalized_item:
+            items.append(normalized_item)
+
+    return {
+        "category_id": category.id,
+        "label": category.label,
+        "description": category.description,
+        "updated_at": str(raw_category.get("updated_at") or raw_category.get("updatedAt") or utc_now()) if items else "",
+        "items": items,
+    }
+
+
 def normalize_structured_memory(schema: MemorySchema, payload: dict) -> StructuredMemory:
     category_map = {
         str(item.get("category_id") or item.get("categoryId") or ""): item
@@ -449,40 +503,168 @@ def normalize_structured_memory(schema: MemorySchema, payload: dict) -> Structur
     categories: list[dict] = []
 
     for category in schema.categories:
-        raw_category = category_map.get(category.id, {})
-        raw_items = raw_category.get("items") if isinstance(raw_category, dict) else []
-        items: list[dict] = []
-
-        for item_index, raw_item in enumerate(raw_items if isinstance(raw_items, list) else []):
-            raw_values = raw_item.get("values") if isinstance(raw_item, dict) else {}
-            raw_values = raw_values if isinstance(raw_values, dict) else {}
-            values: dict = {}
-            for field in category.fields:
-                normalized = normalize_field_value(field, raw_values.get(field.name))
-                if normalized is not None:
-                    values[field.name] = normalized
-            if not values:
-                continue
-            items.append({
-                "id": str(raw_item.get("id") or f"{category.id}_{item_index + 1}"),
-                "summary": str(raw_item.get("summary") or "").strip(),
-                "source_turn_id": str(raw_item.get("source_turn_id") or raw_item.get("sourceTurnId") or ""),
-                "updated_at": str(raw_item.get("updated_at") or raw_item.get("updatedAt") or utc_now()),
-                "values": values,
-            })
-
-        categories.append({
-            "category_id": category.id,
-            "label": category.label,
-            "description": category.description,
-            "updated_at": str(raw_category.get("updated_at") or raw_category.get("updatedAt") or utc_now()) if items else "",
-            "items": items,
-        })
+        categories.append(normalize_structured_memory_category(category, category_map.get(category.id)))
 
     return StructuredMemory.model_validate({
         "updated_at": str(payload.get("updated_at") or payload.get("updatedAt") or utc_now()),
         "categories": categories,
     })
+
+
+def compact_category_memory_payload(category_memory: dict) -> dict:
+    items = category_memory.get("items") if isinstance(category_memory.get("items"), list) else []
+    compact_items: list[dict] = []
+    for item in items[:MAX_MEMORY_CONTEXT_ITEMS_PER_CATEGORY]:
+        values = item.get("values") if isinstance(item.get("values"), dict) else {}
+        compact_items.append({
+            "id": str(item.get("id") or ""),
+            "summary": truncate_text(item.get("summary") or "", MAX_MEMORY_SUMMARY_LENGTH),
+            "source_turn_id": str(item.get("source_turn_id") or item.get("sourceTurnId") or ""),
+            "updated_at": str(item.get("updated_at") or item.get("updatedAt") or ""),
+            "values": values,
+        })
+    return {
+        "category_id": str(category_memory.get("category_id") or category_memory.get("categoryId") or ""),
+        "label": str(category_memory.get("label") or ""),
+        "description": str(category_memory.get("description") or ""),
+        "updated_at": str(category_memory.get("updated_at") or category_memory.get("updatedAt") or ""),
+        "items": compact_items,
+        "truncated_item_count": max(len(items) - len(compact_items), 0),
+    }
+
+
+def build_category_schema_text(category: MemoryCategorySchema) -> str:
+    lines = [f"- {category.id} | {category.label}"]
+    if category.description:
+        lines.append(f"  描述：{category.description}")
+    if category.extraction_instructions:
+        lines.append(f"  抽取说明：{category.extraction_instructions}")
+    for field in category.fields:
+        required = "必填" if field.required else "可选"
+        lines.append(f"  字段：{field.name} ({field.label}) / {field_type_text(field)} / {required}")
+    return "\n".join(lines)
+
+
+def normalize_category_memory_patch(
+    category: MemoryCategorySchema,
+    payload: dict | None,
+) -> dict:
+    payload = payload if isinstance(payload, dict) else {}
+    raw_upserts = payload.get("upserts") if isinstance(payload.get("upserts"), list) else []
+    upserts: list[dict] = []
+    for item_index, raw_item in enumerate(raw_upserts):
+        normalized_item = normalize_memory_item(category, raw_item if isinstance(raw_item, dict) else {}, item_index)
+        if normalized_item:
+            upserts.append(normalized_item)
+
+    raw_deletes = payload.get("deletes") if isinstance(payload.get("deletes"), list) else []
+    deletes: list[str] = []
+    seen_delete_ids: set[str] = set()
+    for raw_delete in raw_deletes:
+        delete_id = str(raw_delete or "").strip()
+        if delete_id and delete_id not in seen_delete_ids:
+            seen_delete_ids.add(delete_id)
+            deletes.append(delete_id)
+
+    return {
+        "category_id": category.id,
+        "updated_at": str(payload.get("updated_at") or payload.get("updatedAt") or utc_now()),
+        "upserts": upserts,
+        "deletes": deletes,
+    }
+
+
+def merge_category_memory_patch(category: MemoryCategorySchema, current_category_memory: dict, patch: dict) -> dict:
+    current_items = current_category_memory.get("items") if isinstance(current_category_memory.get("items"), list) else []
+    delete_ids = set(patch.get("deletes") or [])
+    upserts = patch.get("upserts") if isinstance(patch.get("upserts"), list) else []
+    upsert_map = {
+        str(item.get("id") or ""): item
+        for item in upserts
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
+
+    merged_items: list[dict] = []
+    seen_ids: set[str] = set()
+
+    for item_index, current_item in enumerate(current_items):
+        item_id = str(current_item.get("id") or "").strip()
+        if not item_id or item_id in delete_ids:
+            continue
+        if item_id in upsert_map:
+            merged_items.append(upsert_map[item_id])
+            seen_ids.add(item_id)
+            continue
+        normalized_item = normalize_memory_item(category, current_item if isinstance(current_item, dict) else {}, item_index)
+        if normalized_item:
+            merged_items.append(normalized_item)
+            seen_ids.add(item_id)
+
+    for upsert in upserts:
+        upsert_id = str(upsert.get("id") or "").strip()
+        if upsert_id and upsert_id not in seen_ids and upsert_id not in delete_ids:
+            merged_items.append(upsert)
+            seen_ids.add(upsert_id)
+
+    return {
+        "category_id": category.id,
+        "label": category.label,
+        "description": category.description,
+        "updated_at": str(patch.get("updated_at") or patch.get("updatedAt") or current_category_memory.get("updated_at") or current_category_memory.get("updatedAt") or utc_now()) if merged_items else "",
+        "items": merged_items,
+    }
+
+
+async def update_category_memory_patch(
+    model: ChatOpenAI,
+    state: AgentState,
+    category: MemoryCategorySchema,
+    current_category_memory: dict,
+) -> tuple[dict, dict]:
+    response = await model.ainvoke(
+        [
+            {
+                "role": "system",
+                "content": compose_system_prompt(
+                    state["common_prompt"],
+                    (
+                        "你负责把当前对话整理成结构化长期记忆中的单个分类。"
+                        "你必须严格遵循给定 schema，只输出 JSON。"
+                        "你输出的是当前分类的增量 patch，不是完整结果。"
+                        "顶层结构固定为："
+                        '{"category_id":"分类ID","updated_at":"ISO时间","upserts":[{"id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}],"deletes":["要删除的记录ID"]}。'
+                        "upserts 表示新增或覆盖同 id 的记录；deletes 表示删除指定 id 的记录。"
+                        "如果某条旧记录没有变化，不要放进 upserts，也不要放进 deletes。"
+                        "对于你在输入中没有看到的旧记录，默认视为保留，绝对不要因为没看到就删除。"
+                        "values 里只能写该分类 schema 声明过的字段。"
+                        "除了 category_id、updated_at、upserts、deletes 之外，不要输出任何额外字段。"
+                        "不要输出没有任何有效字段值的 item。"
+                        "只有当当前对话明确表明某条记忆失效、被更正、或应被移除时，才把它的 id 放入 deletes。"
+                    ),
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"当前分类 schema：\n{build_category_schema_text(category)}\n\n"
+                    f"当前分类已有记忆（已裁剪）：\n{json.dumps(compact_category_memory_payload(current_category_memory), ensure_ascii=False)}\n\n"
+                    f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
+                    f"用户最新输入：{state['prompt']}\n\n"
+                    f"助手最终回复：{state.get('final_response', '')}"
+                ),
+            },
+        ]
+    )
+    usage = extract_usage(response)
+    raw = response.content if isinstance(response.content, str) else str(response.content)
+    parsed = parse_json_object(raw, {
+        "category_id": category.id,
+        "updated_at": utc_now(),
+        "upserts": [],
+        "deletes": [],
+    })
+    patch = normalize_category_memory_patch(category, parsed)
+    return patch, usage
 
 
 async def answerer_node(state: AgentState) -> dict:
@@ -637,47 +819,37 @@ async def memory_node(state: AgentState) -> dict:
     model = build_model(resolve_node_model_config(state, "memory"))
     schema = MemorySchema.model_validate(state["memory_schema"])
     current_memory = StructuredMemory.model_validate(state["structured_memory"])
-    response = await model.ainvoke(
-        [
+    current_memory_map = {
+        category.category_id: category.model_dump()
+        for category in current_memory.categories
+    }
+    categories: list[dict] = []
+    usage = {"prompt_tokens": 0, "completion_tokens": 0}
+
+    for category in schema.categories:
+        current_category_memory = current_memory_map.get(
+            category.id,
             {
-                "role": "system",
-                "content": compose_system_prompt(
-                    state["common_prompt"],
-                    (
-                        "你负责把当前对话整理成结构化长期记忆。"
-                        "你必须严格遵循给定 schema，只输出 JSON。"
-                        "你输出的是最终完整 structured_memory，不是增量 patch。"
-                        "顶层结构固定为："
-                        '{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","items":[{"id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}]}]}。'
-                        "categories 里只能使用 schema 中声明的 category_id。"
-                        "values 里只能写该分类 schema 声明过的字段。"
-                        "每个 category 都要输出；没有内容时 items 输出空数组。"
-                        "每个 item 必须包含 id、summary、source_turn_id、updated_at、values。"
-                        "values 必须是完整结果，不要只输出局部字段。"
-                        "你需要基于现有结构化记忆和历史消息，重建当前这份最终完整记忆。"
-                        "如果旧记忆不再成立，就不要出现在最终结果里。"
-                        "不要输出 op、patch、diff、delete 之类字段。"
-                        "不要输出没有任何有效字段值的 item。"
-                    ),
-                ),
+                "category_id": category.id,
+                "label": category.label,
+                "description": category.description,
+                "updated_at": "",
+                "items": [],
             },
-            {
-                "role": "user",
-                "content": (
-                    f"主要故事设定：\n{state['system_prompt']}\n\n"
-                    f"当前记忆 schema：\n{schema_text(schema)}\n\n"
-                    f"现有结构化记忆：\n{json.dumps(current_memory.model_dump(), ensure_ascii=False)}\n\n"
-                    f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
-                    f"用户最新输入：{state['prompt']}\n\n"
-                    f"助手最终回复：{state.get('final_response', '')}"
-                ),
-            },
-        ]
-    )
-    usage = extract_usage(response)
-    raw = response.content if isinstance(response.content, str) else str(response.content)
-    parsed = parse_json_object(raw, default_structured_memory(schema).model_dump())
-    memory = normalize_structured_memory(schema, parsed).model_dump()
+        )
+        category_patch, category_usage = await update_category_memory_patch(
+            model,
+            state,
+            category,
+            current_category_memory,
+        )
+        categories.append(merge_category_memory_patch(category, current_category_memory, category_patch))
+        usage = add_usage(usage, category_usage)
+
+    memory = normalize_structured_memory(schema, {
+        "updated_at": utc_now(),
+        "categories": categories,
+    }).model_dump()
     return {"structured_memory": memory, "usage": usage}
 
 
