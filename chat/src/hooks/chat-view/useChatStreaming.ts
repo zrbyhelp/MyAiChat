@@ -64,6 +64,21 @@ function createThinkingChunk(text: string, done = false): AIMessageContent {
 }
 
 export function useChatStreaming(options: UseChatStreamingOptions) {
+  function formatChatErrorMessage(error?: unknown) {
+    const robotName = String(options.sessionRobot.name || '').trim() || '当前智能体'
+    const rawMessage = error instanceof Error ? String(error.message || '').trim() : ''
+    if (/连接中断|请求失败/.test(rawMessage) && rawMessage.includes(`智能体「${robotName}」`)) {
+      return rawMessage.startsWith('聊天失败：') ? rawMessage : `聊天失败：${rawMessage}`
+    }
+    if (/terminated|abort|aborted|UND_ERR_SOCKET|socket|stream/i.test(rawMessage)) {
+      return `聊天失败：智能体「${robotName}」连接中断`
+    }
+    if (rawMessage) {
+      return `聊天失败：智能体「${robotName}」请求失败`
+    }
+    return `聊天失败：智能体「${robotName}」请求失败`
+  }
+
   function resolveModelConfig(modelConfigId?: string | null) {
     const targetId = String(modelConfigId || '').trim()
     if (!targetId) {
@@ -246,7 +261,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
     },
     onError: (error) => {
       options.finalizeChatResponse()
-      MessagePlugin.error(error instanceof Error ? error.message : '聊天失败')
+      MessagePlugin.error(formatChatErrorMessage(error))
     },
   }))
 

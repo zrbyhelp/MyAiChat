@@ -47,6 +47,60 @@ function buildHeaders(config) {
   return headers
 }
 
+function resolveChatRobotName(payload, session) {
+  const candidates = [
+    session?.robot?.name,
+    payload?.robot?.name,
+    payload?.sessionSnapshot?.robot?.name,
+    payload?.robotName,
+  ]
+  const resolved = candidates.find((item) => typeof item === 'string' && item.trim())
+  return resolved ? String(resolved).trim() : '当前智能体'
+}
+
+function getChatErrorReason(error) {
+  if (!(error instanceof Error)) {
+    return '请求失败'
+  }
+
+  const message = String(error.message || '').trim()
+  if (!message) {
+    return '请求失败'
+  }
+
+  if (
+    message === 'terminated' ||
+    /terminated|abort|aborted|UND_ERR_SOCKET|other side closed|socket|stream ended unexpectedly/i.test(message)
+  ) {
+    return '连接中断'
+  }
+
+  if (message === 'fetch failed') {
+    return '请求失败'
+  }
+
+  if (/ECONNREFUSED|actively refused|积极拒绝|connect/i.test(message)) {
+    return '请求失败'
+  }
+
+  if (message.includes('聊天失败：')) {
+    return message.replace(/^聊天失败：/, '').trim() || '请求失败'
+  }
+
+  if (/智能体「.+?」/.test(message)) {
+    return message
+  }
+
+  return message
+}
+
+function formatChatErrorMessage(payload, session, error) {
+  const robotName = resolveChatRobotName(payload, session)
+  const reason = getChatErrorReason(error)
+  const normalizedReason = reason.startsWith(`智能体「${robotName}」`) ? reason : `智能体「${robotName}」${reason}`
+  return `聊天失败：${normalizedReason}`
+}
+
 function describeFetchError(error, endpoint, actionLabel) {
   if (!(error instanceof Error)) {
     return `${actionLabel}失败`
@@ -247,7 +301,7 @@ async function requestAgentRun(payload, user) {
 
     return { response, session }
   } catch (error) {
-    throw new Error(describeFetchError(error, endpoint, '智能体请求'))
+    throw new Error(formatChatErrorMessage(payload, session, new Error(describeFetchError(error, endpoint, '请求失败'))))
   }
 }
 
@@ -342,7 +396,7 @@ function sendUsageSSE(res, session) {
 async function runAgentAndCollect(payload, user, onEvent) {
   const { response, session } = await requestAgentRun(payload, user)
   if (!response.body) {
-    throw new Error('Agent 流式请求失败')
+    throw new Error(formatChatErrorMessage(payload, session, new Error('连接中断')))
   }
 
   const reader = response.body.getReader()
@@ -356,73 +410,89 @@ async function runAgentAndCollect(payload, user, onEvent) {
   let finalForm = null
   let finalNumericState = session?.numericState || {}
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) {
-      break
+  try {
+    while (true) {
+      let readResult
+      try {
+        readResult = await reader.read()
+      } catch (error) {
+        throw new Error(formatChatErrorMessage(payload, session, error))
+      }
+
+      const { value, done } = readResult
+      if (done) {
+        break
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      const { complete, rest } = parseSseParts(buffer)
+      buffer = rest
+
+      for (const part of complete) {
+        const parsed = parseSseData(part)
+        if (!parsed) {
+          continue
+        }
+
+        if (parsed.type === 'message_delta' && parsed.text) {
+          finalMessage += String(parsed.text)
+        }
+        if (parsed.type === 'message_done' && parsed.text) {
+          finalMessage = String(parsed.text)
+        }
+        if (parsed.type === 'memory_updated' && parsed.memory) {
+          finalMemory = normalizeStructuredMemory(parsed.memory)
+        }
+        if (parsed.type === 'suggestion') {
+          finalSuggestions = normalizeSuggestionItems(parsed.items)
+          finalForm = null
+        }
+        if (parsed.type === 'form') {
+          finalForm = normalizeFormSchema(parsed.form)
+          finalSuggestions = []
+        }
+        if (parsed.type === 'usage') {
+          finalUsage = normalizeUsage(parsed)
+        }
+        if (parsed.type === 'numeric_state_updated' && parsed.state) {
+          finalNumericState = parsed.state
+        }
+        if (parsed.type === 'run_completed') {
+          finalThreadId = String(parsed.threadId || finalThreadId)
+          finalMessage = String(parsed.message || finalMessage)
+          finalSuggestions = normalizeSuggestionItems(parsed.suggestions || finalSuggestions)
+          finalForm = normalizeFormSchema(parsed.form || finalForm)
+          finalMemory = normalizeStructuredMemory(parsed.memory || finalMemory)
+          finalNumericState =
+            typeof parsed.numeric_state === 'object' && parsed.numeric_state !== null
+              ? parsed.numeric_state
+              : typeof parsed.numericState === 'object' && parsed.numericState !== null
+                ? parsed.numericState
+                : finalNumericState
+          finalUsage = normalizeUsage(parsed.usage || finalUsage)
+        }
+
+        await onEvent?.(parsed)
+      }
     }
-
-    buffer += decoder.decode(value, { stream: true })
-    const { complete, rest } = parseSseParts(buffer)
-    buffer = rest
-
-    for (const part of complete) {
-      const parsed = parseSseData(part)
-      if (!parsed) {
-        continue
-      }
-
-      if (parsed.type === 'message_delta' && parsed.text) {
-        finalMessage += String(parsed.text)
-      }
-      if (parsed.type === 'message_done' && parsed.text) {
-        finalMessage = String(parsed.text)
-      }
-      if (parsed.type === 'memory_updated' && parsed.memory) {
-        finalMemory = normalizeStructuredMemory(parsed.memory)
-      }
-      if (parsed.type === 'suggestion') {
-        finalSuggestions = normalizeSuggestionItems(parsed.items)
-        finalForm = null
-      }
-      if (parsed.type === 'form') {
-        finalForm = normalizeFormSchema(parsed.form)
-        finalSuggestions = []
-      }
-      if (parsed.type === 'usage') {
-        finalUsage = normalizeUsage(parsed)
-      }
-      if (parsed.type === 'numeric_state_updated' && parsed.state) {
-        finalNumericState = parsed.state
-      }
-      if (parsed.type === 'run_completed') {
-        finalThreadId = String(parsed.threadId || finalThreadId)
-        finalMessage = String(parsed.message || finalMessage)
-        finalSuggestions = normalizeSuggestionItems(parsed.suggestions || finalSuggestions)
-        finalForm = normalizeFormSchema(parsed.form || finalForm)
-        finalMemory = normalizeStructuredMemory(parsed.memory || finalMemory)
-        finalNumericState =
-          typeof parsed.numeric_state === 'object' && parsed.numeric_state !== null
-            ? parsed.numeric_state
-            : typeof parsed.numericState === 'object' && parsed.numericState !== null
-              ? parsed.numericState
-              : finalNumericState
-        finalUsage = normalizeUsage(parsed.usage || finalUsage)
-      }
-
-      await onEvent?.(parsed)
-    }
+  } catch (error) {
+    throw new Error(formatChatErrorMessage(payload, session, error))
   }
 
-  const savedSession = await commitSession(payload, user, {
-    threadId: finalThreadId,
-    message: finalMessage,
-    suggestions: finalSuggestions,
-    form: finalForm,
-    numericState: finalNumericState,
-    memory: finalMemory,
-    usage: finalUsage,
-  }, session)
+  let savedSession
+  try {
+    savedSession = await commitSession(payload, user, {
+      threadId: finalThreadId,
+      message: finalMessage,
+      suggestions: finalSuggestions,
+      form: finalForm,
+      numericState: finalNumericState,
+      memory: finalMemory,
+      usage: finalUsage,
+    }, session)
+  } catch (error) {
+    throw new Error(formatChatErrorMessage(payload, session, error))
+  }
 
   return {
     message: finalMessage,
