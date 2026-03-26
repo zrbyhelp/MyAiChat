@@ -93,6 +93,17 @@ function getAdminTableNames() {
 }
 
 async function resetLegacyAdminSchemaIfNeeded(sequelize) {
+  const [legacyRoleTables] = await sequelize.query("SHOW TABLES LIKE 'admin_roles'")
+  const [legacyUserTables] = await sequelize.query("SHOW TABLES LIKE 'admin_users'")
+  const [legacyUserRoleTables] = await sequelize.query("SHOW TABLES LIKE 'admin_user_roles'")
+
+  const hasLegacySchemaTables =
+    legacyRoleTables.length > 0 && legacyUserTables.length > 0 && legacyUserRoleTables.length > 0
+
+  if (!hasLegacySchemaTables) {
+    return
+  }
+
   const [roleIdRows] = await sequelize.query("SHOW COLUMNS FROM `admin_roles` LIKE 'id'")
   const [userIdRows] = await sequelize.query("SHOW COLUMNS FROM `admin_users` LIKE 'id'")
   const [userRoleRows] = await sequelize.query("SHOW COLUMNS FROM `admin_user_roles` LIKE 'role_id'")
