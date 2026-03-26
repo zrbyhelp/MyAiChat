@@ -1,5 +1,6 @@
 import express from 'express'
 
+import { attachAdminBackoffice } from './admin-backoffice.mjs'
 import { attachClerkAuth, requireApiAuth } from './auth.mjs'
 import {
   detectReasoningSupport,
@@ -27,8 +28,7 @@ import {
 export function createApp() {
   const app = express()
 
-  app.use(express.json({ limit: '2mb' }))
-  app.use(attachClerkAuth)
+  app.use(express.json({ limit: process.env.API_BODY_LIMIT || '20mb' }))
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
@@ -39,6 +39,8 @@ export function createApp() {
     }
     next()
   })
+  attachAdminBackoffice(app)
+  app.use(attachClerkAuth)
   app.use('/api', requireApiAuth)
 
   app.get('/api/model-configs', async (req, res, next) => {

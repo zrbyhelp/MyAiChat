@@ -1,0 +1,55 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const sequelize_1 = require("sequelize");
+const database_1 = __importDefault(require("../database"));
+class ResourceSystemStorageQiniu extends sequelize_1.Model {
+}
+ResourceSystemStorageQiniu.init({
+    id: {
+        type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
+        autoIncrement: true,
+        primaryKey: true
+    },
+    name: {
+        type: sequelize_1.DataTypes.STRING(120),
+        allowNull: false
+    },
+    bucket: {
+        type: sequelize_1.DataTypes.STRING(180),
+        allowNull: false
+    },
+    domain: {
+        type: sequelize_1.DataTypes.STRING(300),
+        allowNull: false
+    },
+    accessKey: {
+        type: sequelize_1.DataTypes.STRING(300),
+        allowNull: false
+    },
+    secretKey: {
+        type: sequelize_1.DataTypes.STRING(300),
+        allowNull: false
+    },
+    zone: {
+        type: sequelize_1.DataTypes.STRING(80),
+        allowNull: false,
+        defaultValue: "z0"
+    },
+    remark: {
+        type: sequelize_1.DataTypes.STRING(500),
+        allowNull: false,
+        defaultValue: ""
+    },
+    isEnabled: {
+        type: sequelize_1.DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false
+    }
+}, {
+    sequelize: database_1.default,
+    tableName: "resource_system_storage_qiniu_configs"
+});
+exports.default = ResourceSystemStorageQiniu;

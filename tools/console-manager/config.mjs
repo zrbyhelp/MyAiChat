@@ -10,6 +10,7 @@ const envFiles = {
   main: join(repoRoot, 'main', '.env'),
   chat: join(repoRoot, 'chat', '.env'),
   upload: join(repoRoot, 'upload', '.env'),
+  admin: join(repoRoot, 'admin', '.env'),
 }
 
 const envExamples = {
@@ -17,6 +18,7 @@ const envExamples = {
   main: join(repoRoot, 'main', '.env.example'),
   chat: join(repoRoot, 'chat', '.env.example'),
   upload: join(repoRoot, 'upload', '.env.example'),
+  admin: join(repoRoot, 'admin', '.env.example'),
 }
 
 const variableTargets = {
@@ -35,8 +37,20 @@ const variableTargets = {
   AGENT_FILE_STORE_DIR: ['root'],
   PORT: ['root', 'main'],
   CHAT_PORT: ['root'],
+  ADMIN_PORT: ['root', 'admin'],
+  ADMIN_API_BASE_URL: ['root', 'main'],
+  VITE_ADMIN_API_BASE_URL: ['root', 'admin'],
   UPLOAD_PORT: ['root', 'upload'],
   VITE_UPLOAD_BASE_URL: ['chat'],
+  JWT_SECRET: ['root', 'main'],
+  JWT_ALGO: ['root', 'main'],
+  LOG_LEVEL: ['root', 'main'],
+  LOG_MAX_DAYS: ['root', 'main'],
+  AGENDA_DB_COLLECTION: ['root', 'main'],
+  AGENDA_POOL_TIME: ['root', 'main'],
+  AGENDA_CONCURRENCY: ['root', 'main'],
+  API_BODY_LIMIT: ['root', 'main'],
+  DB_SYNC_ALTER: ['root', 'main'],
   MINIO_ENDPOINT: ['root', 'upload'],
   MINIO_PORT: ['root', 'upload'],
   MINIO_USE_SSL: ['root', 'upload'],
@@ -62,10 +76,24 @@ export const configGroups = [
   {
     id: 'frontend',
     label: '前端配置',
-    description: '前端端口与上传服务地址',
+    description: '前端与管理后台端口配置',
     fields: [
       { key: 'CHAT_PORT', label: 'Docker 前端端口' },
+      { key: 'ADMIN_PORT', label: '管理后台前端端口' },
+      { key: 'VITE_ADMIN_API_BASE_URL', label: '管理后台 API 地址' },
       { key: 'VITE_UPLOAD_BASE_URL', label: '上传服务基地址' },
+    ],
+  },
+  {
+    id: 'adminApi',
+    label: '后台接口配置',
+    description: 'main 内集成的后台接口与鉴权参数',
+    fields: [
+      { key: 'ADMIN_API_BASE_URL', label: '后台接口基地址' },
+      { key: 'JWT_SECRET', label: '后台接口 JWT 密钥', sensitive: true },
+      { key: 'JWT_ALGO', label: '后台接口 JWT 算法' },
+      { key: 'API_BODY_LIMIT', label: '后台接口请求体限制' },
+      { key: 'DB_SYNC_ALTER', label: '后台接口数据库 alter 开关' },
     ],
   },
   {
@@ -90,7 +118,7 @@ export const configGroups = [
   {
     id: 'database',
     label: '数据库配置',
-    description: 'MySQL 连接参数',
+    description: 'chat 主业务使用的 MySQL 连接参数',
     fields: [
       { key: 'DB_HOST', label: '数据库主机' },
       { key: 'DB_PORT', label: '数据库端口' },
@@ -107,6 +135,18 @@ export const configGroups = [
     fields: [
       { key: 'UPLOAD_PORT', label: '上传服务端口' },
       { key: 'UPLOAD_MAX_FILE_SIZE_MB', label: '上传大小限制(MB)' },
+    ],
+  },
+  {
+    id: 'adminApiAdvanced',
+    label: '后台接口高级配置',
+    description: '日志与任务调度参数',
+    fields: [
+      { key: 'LOG_LEVEL', label: '日志级别' },
+      { key: 'LOG_MAX_DAYS', label: '日志保留天数' },
+      { key: 'AGENDA_DB_COLLECTION', label: 'Agenda 集合名' },
+      { key: 'AGENDA_POOL_TIME', label: 'Agenda 轮询间隔(ms)' },
+      { key: 'AGENDA_CONCURRENCY', label: 'Agenda 并发数' },
     ],
   },
   {
@@ -158,6 +198,30 @@ export const configFieldDefinitions = [
     sensitive: false,
     category: 'required',
     validate: 'port',
+  },
+  {
+    key: 'ADMIN_PORT',
+    label: '管理后台前端端口',
+    description: 'admin 本地与 Docker 对外端口',
+    sensitive: false,
+    category: 'required',
+    validate: 'port',
+  },
+  {
+    key: 'VITE_ADMIN_API_BASE_URL',
+    label: '管理后台 API 地址',
+    description: 'admin 开发代理指向的 main 地址',
+    sensitive: false,
+    category: 'required',
+    validate: 'url',
+  },
+  {
+    key: 'ADMIN_API_BASE_URL',
+    label: '管理后台 API 根地址',
+    description: 'main 暴露的后台接口地址',
+    sensitive: false,
+    category: 'optional',
+    validate: 'urlOrEmpty',
   },
   {
     key: 'AGENT_SERVICE_URL',
@@ -222,6 +286,78 @@ export const configFieldDefinitions = [
     sensitive: false,
     category: 'required',
     validate: 'port',
+  },
+  {
+    key: 'JWT_SECRET',
+    label: '后台接口 JWT 密钥',
+    description: 'main 内后台接口的 JWT Secret',
+    sensitive: true,
+    category: 'required',
+    validate: 'nonEmpty',
+  },
+  {
+    key: 'JWT_ALGO',
+    label: '后台接口 JWT 算法',
+    description: 'main 内后台接口的 JWT 算法',
+    sensitive: false,
+    category: 'optional',
+    validate: 'nonEmpty',
+  },
+  {
+    key: 'LOG_LEVEL',
+    label: '后台接口日志级别',
+    description: 'main 内后台接口日志输出级别',
+    sensitive: false,
+    category: 'optional',
+    validate: 'nonEmpty',
+  },
+  {
+    key: 'LOG_MAX_DAYS',
+    label: '后台接口日志保留天数',
+    description: '可留空或填写正整数',
+    sensitive: false,
+    category: 'optional',
+    validate: 'positiveIntegerOrEmpty',
+  },
+  {
+    key: 'AGENDA_DB_COLLECTION',
+    label: 'Agenda 集合名',
+    description: '后台任务集合名称',
+    sensitive: false,
+    category: 'optional',
+    validate: 'nonEmpty',
+  },
+  {
+    key: 'AGENDA_POOL_TIME',
+    label: 'Agenda 轮询间隔',
+    description: '可留空或填写正整数毫秒值',
+    sensitive: false,
+    category: 'optional',
+    validate: 'positiveIntegerOrEmpty',
+  },
+  {
+    key: 'AGENDA_CONCURRENCY',
+    label: 'Agenda 并发数',
+    description: '可留空或填写正整数',
+    sensitive: false,
+    category: 'optional',
+    validate: 'positiveIntegerOrEmpty',
+  },
+  {
+    key: 'API_BODY_LIMIT',
+    label: '后台接口请求体限制',
+    description: '如 20mb',
+    sensitive: false,
+    category: 'optional',
+    validate: 'nonEmpty',
+  },
+  {
+    key: 'DB_SYNC_ALTER',
+    label: '后台接口数据库 alter 开关',
+    description: '填写 true 或 false',
+    sensitive: false,
+    category: 'optional',
+    validate: 'booleanOrEmpty',
   },
   {
     key: 'MINIO_ENDPOINT',
@@ -538,6 +674,9 @@ export function validateConfig() {
     'CLERK_PUBLISHABLE_KEY',
     'VITE_CLERK_PUBLISHABLE_KEY',
     'AGENT_SERVICE_URL',
+    'ADMIN_PORT',
+    'VITE_ADMIN_API_BASE_URL',
+    'JWT_SECRET',
   ]
   for (const key of requiredKeys) {
     if (!String(values[key] || '').trim()) {
@@ -545,14 +684,14 @@ export function validateConfig() {
     }
   }
 
-  for (const key of ['PORT', 'CHAT_PORT', 'UPLOAD_PORT', 'DB_PORT', 'MINIO_PORT']) {
+  for (const key of ['PORT', 'CHAT_PORT', 'ADMIN_PORT', 'UPLOAD_PORT', 'DB_PORT', 'MINIO_PORT']) {
     const value = values[key]
     if (value && !isValidPort(value)) {
       issues.push({ level: 'error', key, message: `${key} 必须是 1-65535 之间的端口号` })
     }
   }
 
-  const localPorts = ['PORT', 'UPLOAD_PORT']
+  const localPorts = ['PORT', 'CHAT_PORT', 'UPLOAD_PORT', 'ADMIN_PORT']
     .map((key) => ({ key, value: String(values[key] || '').trim() }))
     .filter((item) => item.value)
   const duplicates = localPorts.filter(
@@ -570,6 +709,14 @@ export function validateConfig() {
     issues.push({ level: 'error', key: 'VITE_UPLOAD_BASE_URL', message: 'VITE_UPLOAD_BASE_URL 不是合法 URL' })
   }
 
+  if (values.VITE_ADMIN_API_BASE_URL && !isValidUrl(values.VITE_ADMIN_API_BASE_URL)) {
+    issues.push({ level: 'error', key: 'VITE_ADMIN_API_BASE_URL', message: 'VITE_ADMIN_API_BASE_URL 不是合法 URL' })
+  }
+
+  if (values.ADMIN_API_BASE_URL && !isValidUrl(values.ADMIN_API_BASE_URL)) {
+    issues.push({ level: 'error', key: 'ADMIN_API_BASE_URL', message: 'ADMIN_API_BASE_URL 不是合法 URL' })
+  }
+
   if (values.STORAGE_DRIVER && !['file', 'mysql'].includes(values.STORAGE_DRIVER)) {
     issues.push({ level: 'error', key: 'STORAGE_DRIVER', message: 'STORAGE_DRIVER 只能是 file 或 mysql' })
   }
@@ -578,7 +725,7 @@ export function validateConfig() {
     issues.push({ level: 'error', key: 'AGENT_STORAGE_DRIVER', message: 'AGENT_STORAGE_DRIVER 只能是 file 或 mysql' })
   }
 
-  for (const key of ['MINIO_USE_SSL', 'MINIO_PUBLIC_READ', 'DB_LOGGING']) {
+  for (const key of ['MINIO_USE_SSL', 'MINIO_PUBLIC_READ', 'DB_LOGGING', 'DB_SYNC_ALTER']) {
     const value = String(values[key] || '').trim().toLowerCase()
     if (value && !['true', 'false'].includes(value)) {
       issues.push({ level: 'warning', key, message: `${key} 建议使用 true 或 false` })
