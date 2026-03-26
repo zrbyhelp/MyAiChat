@@ -226,7 +226,6 @@
     :agent-editor-step="agentEditorStep"
     :mobile-agent-draft="mobileAgentDraft"
     :saving-mobile-agent="savingMobileAgent"
-    :aux-model-options="auxModelOptions"
     :agent-card-action-options="agentCardActionOptions"
     @confirm-start-new-chat="confirmStartNewChat"
     @open-mobile-agent-edit-dialog="openMobileAgentEditDialog"

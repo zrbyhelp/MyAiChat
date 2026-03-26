@@ -162,9 +162,9 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.avatar = robot.avatar || ''
       options.sessionRobot.commonPrompt = robot.commonPrompt
       options.sessionRobot.systemPrompt = robot.systemPrompt
-      options.sessionRobot.memoryModelConfigId = robot.memoryModelConfigId || ''
-      options.sessionRobot.numericComputationModelConfigId = robot.numericComputationModelConfigId || ''
-      options.sessionRobot.formOptionModelConfigId = robot.formOptionModelConfigId || ''
+      options.sessionRobot.memoryModelConfigId = ''
+      options.sessionRobot.numericComputationModelConfigId = ''
+      options.sessionRobot.formOptionModelConfigId = ''
       options.sessionRobot.numericComputationEnabled = Boolean(robot.numericComputationEnabled)
       options.sessionRobot.numericComputationPrompt = robot.numericComputationPrompt
       options.sessionRobot.numericComputationItems = options.cloneNumericComputationItems(

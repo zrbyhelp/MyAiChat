@@ -107,9 +107,9 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.persistToServer = Boolean(source?.persistToServer ?? true)
     mobileAgentDraft.commonPrompt = String(source?.commonPrompt || '')
     mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
-    mobileAgentDraft.memoryModelConfigId = String(source?.memoryModelConfigId || '')
-    mobileAgentDraft.numericComputationModelConfigId = String(source?.numericComputationModelConfigId || '')
-    mobileAgentDraft.formOptionModelConfigId = String(source?.formOptionModelConfigId || '')
+    mobileAgentDraft.memoryModelConfigId = ''
+    mobileAgentDraft.numericComputationModelConfigId = ''
+    mobileAgentDraft.formOptionModelConfigId = ''
     mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
     mobileAgentDraft.numericComputationPrompt = String(source?.numericComputationPrompt || '')
     mobileAgentDraft.numericComputationItems = cloneNumericComputationItems(source?.numericComputationItems)
@@ -132,14 +132,21 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       avatar: item.avatar.trim(),
       persistToServer: Boolean(item.persistToServer),
       commonPrompt: item.commonPrompt.trim(),
-      memoryModelConfigId: String(item.memoryModelConfigId || '').trim(),
-      numericComputationModelConfigId: String(item.numericComputationModelConfigId || '').trim(),
-      formOptionModelConfigId: String(item.formOptionModelConfigId || '').trim(),
+      systemPrompt: item.systemPrompt,
+      memoryModelConfigId: '',
+      numericComputationModelConfigId: '',
+      formOptionModelConfigId: '',
       numericComputationEnabled: Boolean(item.numericComputationEnabled),
       numericComputationPrompt: item.numericComputationPrompt.trim(),
       numericComputationItems: cloneNumericComputationItems(item.numericComputationItems),
-      structuredMemoryInterval: Math.max(1, Math.round(item.structuredMemoryInterval || options.defaultStructuredMemoryInterval)),
-      structuredMemoryHistoryLimit: Math.max(1, Math.round(item.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit)),
+      structuredMemoryInterval: Math.max(
+        1,
+        Math.round(item.structuredMemoryInterval || options.defaultStructuredMemoryInterval),
+      ),
+      structuredMemoryHistoryLimit: Math.max(
+        1,
+        Math.round(item.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit),
+      ),
       memorySchema: options.normalizeMemorySchema(item.memorySchema),
     }
   }
@@ -268,14 +275,22 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         avatar: mobileAgentDraft.avatar.trim(),
         commonPrompt: mobileAgentDraft.commonPrompt.trim(),
         systemPrompt: mobileAgentDraft.systemPrompt,
-        memoryModelConfigId: String(mobileAgentDraft.memoryModelConfigId || '').trim(),
-        numericComputationModelConfigId: String(mobileAgentDraft.numericComputationModelConfigId || '').trim(),
-        formOptionModelConfigId: String(mobileAgentDraft.formOptionModelConfigId || '').trim(),
+        memoryModelConfigId: '',
+        numericComputationModelConfigId: '',
+        formOptionModelConfigId: '',
         numericComputationEnabled: Boolean(mobileAgentDraft.numericComputationEnabled),
         numericComputationPrompt: mobileAgentDraft.numericComputationPrompt.trim(),
         numericComputationItems: itemsValidation.ok ? itemsValidation.normalized : [],
-        structuredMemoryInterval: Math.max(1, Math.round(mobileAgentDraft.structuredMemoryInterval || options.defaultStructuredMemoryInterval)),
-        structuredMemoryHistoryLimit: Math.max(1, Math.round(mobileAgentDraft.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit)),
+        structuredMemoryInterval: Math.max(
+          1,
+          Math.round(mobileAgentDraft.structuredMemoryInterval || options.defaultStructuredMemoryInterval),
+        ),
+        structuredMemoryHistoryLimit: Math.max(
+          1,
+          Math.round(
+            mobileAgentDraft.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit,
+          ),
+        ),
         memorySchema: options.normalizeMemorySchema(mobileAgentDraft.memorySchema),
       }
       const previousAgent =

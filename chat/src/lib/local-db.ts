@@ -10,6 +10,10 @@ type StoreName = typeof MODEL_CONFIGS_STORE | typeof ROBOTS_STORE | typeof SESSI
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
+function toPlainIndexedDbValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 function openDatabase() {
   if (dbPromise) {
     return dbPromise
@@ -100,10 +104,10 @@ export async function listLocalModelConfigs() {
 
 export async function putLocalModelConfig(config: AIModelConfigItem) {
   return withStore<void>(MODEL_CONFIGS_STORE, 'readwrite', (store, resolve, reject) => {
-    const request = store.put({
+    const request = store.put(toPlainIndexedDbValue({
       ...config,
       persistToServer: false,
-    })
+    }))
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error || new Error('保存本地模型配置失败'))
   })
@@ -129,10 +133,10 @@ export async function getLocalRobot(id: string) {
 
 export async function putLocalRobot(robot: AIRobotCard) {
   return withStore<void>(ROBOTS_STORE, 'readwrite', (store, resolve, reject) => {
-    const request = store.put({
+    const request = store.put(toPlainIndexedDbValue({
       ...robot,
       persistToServer: false,
-    })
+    }))
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error || new Error('保存本地智能体失败'))
   })
@@ -193,14 +197,14 @@ export async function getLocalSession(id: string) {
 
 export async function putLocalSession(session: ChatSessionDetail) {
   return withStore<void>(SESSIONS_STORE, 'readwrite', (store, resolve, reject) => {
-    const request = store.put({
+    const request = store.put(toPlainIndexedDbValue({
       ...session,
       persistToServer: false,
       memory: {
         ...session.memory,
         persistToServer: false,
       },
-    })
+    }))
     request.onsuccess = () => resolve()
     request.onerror = () => reject(request.error || new Error('保存本地会话失败'))
   })

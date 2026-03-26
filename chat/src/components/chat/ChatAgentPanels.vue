@@ -235,34 +235,8 @@
               placeholder="填写会统一加到本智能体所有生成节点顶部的通用要求。"
             />
           </TFormItem>
-          <div class="form-grid-2">
-            <TFormItem label="记忆模型">
-              <TSelect
-                v-model="mobileAgentDraft.memoryModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
-            <TFormItem label="表单选项生成模型">
-              <TSelect
-                v-model="mobileAgentDraft.formOptionModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
-          </div>
           <TFormItem label="启用数值计算">
             <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
-          </TFormItem>
-          <TFormItem label="数值计算模型">
-            <TSelect
-              v-model="mobileAgentDraft.numericComputationModelConfigId"
-              :options="auxModelOptions"
-              placeholder="未单独配置，默认跟随正文模型"
-              clearable
-            />
           </TFormItem>
           <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值计算提示词">
             <TTextarea
@@ -513,34 +487,8 @@
               placeholder="填写会统一加到本智能体所有生成节点顶部的通用要求。"
             />
           </TFormItem>
-          <div class="form-grid-2">
-            <TFormItem label="记忆模型">
-              <TSelect
-                v-model="mobileAgentDraft.memoryModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
-            <TFormItem label="表单选项生成模型">
-              <TSelect
-                v-model="mobileAgentDraft.formOptionModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
-          </div>
           <TFormItem label="启用数值计算">
             <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
-          </TFormItem>
-          <TFormItem label="数值计算模型">
-            <TSelect
-              v-model="mobileAgentDraft.numericComputationModelConfigId"
-              :options="auxModelOptions"
-              placeholder="未单独配置，默认跟随正文模型"
-              clearable
-            />
           </TFormItem>
           <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值计算提示词">
             <TTextarea
@@ -666,7 +614,6 @@ import {
   Input as TInput,
   InputNumber as TInputNumber,
   Popup as TPopup,
-  Select as TSelect,
   StepItem as TStepItem,
   Steps as TSteps,
   Switch as TSwitch,
@@ -728,10 +675,6 @@ const props = defineProps({
     type: Boolean,
     required: true,
   },
-  auxModelOptions: {
-    type: Array as PropType<Array<{ label: string; value: string }>>,
-    required: true,
-  },
   agentCardActionOptions: {
     type: Array as PropType<Array<Record<string, unknown>>>,
     required: true,
@@ -749,7 +692,6 @@ const {
   agentEditorStep,
   mobileAgentDraft,
   savingMobileAgent,
-  auxModelOptions,
   agentCardActionOptions,
 } = toRefs(props)
 
