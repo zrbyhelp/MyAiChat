@@ -69,6 +69,15 @@ function extractAddressFromLog(id) {
     return match?.[0] || ''
   }
 
+  if (id === 'admin') {
+    const line = [...lines].reverse().find((item) => item.includes('Local:') && item.includes('http'))
+    if (!line) {
+      return ''
+    }
+    const match = line.match(/https?:\/\/[^\s/]+(?::\d+)?\/?/i)
+    return match?.[0]?.replace(/\/$/, '') || ''
+  }
+
   return ''
 }
 
@@ -76,6 +85,7 @@ function buildAccessAddresses(ids) {
   const config = readCurrentConfig()
   const port = String(config.PORT || '3000').trim() || '3000'
   const uploadPort = String(config.UPLOAD_PORT || '3001').trim() || '3001'
+  const adminPort = String(config.ADMIN_PORT || '8081').trim() || '8081'
   let agentServiceUrl = String(config.AGENT_SERVICE_URL || 'http://127.0.0.1:8000').trim() || 'http://127.0.0.1:8000'
   try {
     const parsed = new URL(agentServiceUrl)
@@ -86,7 +96,6 @@ function buildAccessAddresses(ids) {
   } catch {
     agentServiceUrl = 'http://127.0.0.1:8000'
   }
-
   const addressMap = {
     chat: {
       id: 'chat',
@@ -107,6 +116,11 @@ function buildAccessAddresses(ids) {
       id: 'upload',
       label: '上传',
       url: extractAddressFromLog('upload') || `http://127.0.0.1:${uploadPort}`,
+    },
+    admin: {
+      id: 'admin',
+      label: '后台前端',
+      url: extractAddressFromLog('admin') || `http://127.0.0.1:${adminPort}`,
     },
   }
 

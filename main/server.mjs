@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 
 import { createApp } from './src/app.mjs'
+import { initializeAdminBackoffice } from './src/admin-backoffice.mjs'
 import { initializeStorage } from './src/storage.mjs'
 
 const currentDir = dirname(fileURLToPath(import.meta.url))
@@ -17,6 +18,7 @@ const PORT = Number(process.env.PORT || 3000)
 const app = createApp()
 
 initializeStorage()
+  .then(() => initializeAdminBackoffice())
   .then(() => {
     createServer(app).listen(PORT, () => {
       console.log(`AI server running at http://127.0.0.1:${PORT}`)

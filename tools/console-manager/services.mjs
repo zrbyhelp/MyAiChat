@@ -2,6 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 
+import { readCurrentConfig } from './config.mjs'
 import { getManagerPaths, getServiceIds, loadState, logPathFor, saveState, updateServiceState } from './state.mjs'
 
 const { repoRoot } = getManagerPaths()
@@ -83,6 +84,20 @@ const serviceDefinitions = {
     args: ['run', 'dev'],
     env: {},
   },
+  admin: {
+    id: 'admin',
+    label: '后台前端',
+    cwd: join(repoRoot, 'admin'),
+    command: pnpmCommand,
+    args: ['dev'],
+    env: {},
+  },
+}
+
+function getConfiguredPort(key, fallback) {
+  const config = readCurrentConfig()
+  const value = Number(String(config[key] || '').trim())
+  return Number.isInteger(value) && value > 0 ? value : fallback
 }
 
 function listServiceResidualPids(id) {
@@ -110,15 +125,19 @@ function listServiceResidualPids(id) {
   }
 
   if (id === 'main') {
-    return listListeningPidsByPort(3000)
+    return listListeningPidsByPort(getConfiguredPort('PORT', 3000))
   }
 
   if (id === 'upload') {
-    return listListeningPidsByPort(3001)
+    return listListeningPidsByPort(getConfiguredPort('UPLOAD_PORT', 3001))
   }
 
   if (id === 'agent') {
     return listListeningPidsByPort(8000)
+  }
+
+  if (id === 'admin') {
+    return listListeningPidsByPort(getConfiguredPort('ADMIN_PORT', 8081))
   }
 
   return []
@@ -261,6 +280,8 @@ export function parseServiceTarget(input) {
     智能体: 'agent',
     upload: 'upload',
     上传: 'upload',
+    admin: 'admin',
+    后台前端: 'admin',
   }
 
   const ids = []

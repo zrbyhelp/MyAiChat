@@ -70,6 +70,13 @@ function stepDefinitions() {
       cwd: join(repoRoot, 'upload'),
     },
     {
+      id: 'admin-install',
+      label: '安装 admin 前台依赖',
+      command: pnpmCommand,
+      args: ['install'],
+      cwd: join(repoRoot, 'admin'),
+    },
+    {
       id: 'agent-install',
       label: '安装 agent Python 依赖',
       run: async () => {

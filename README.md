@@ -10,7 +10,7 @@
 <h1 align="center">MyAiChat</h1>
 
 <p align="center">
-  面向聊天产品场景的多服务 AI 对话系统（Chat + Gateway + Agent + Upload）
+  面向聊天产品场景的多服务 AI 对话系统（Chat + Gateway + Agent + Upload + Admin）
 </p>
 
 <p align="center">
@@ -50,6 +50,7 @@ flowchart LR
 ├─ main/                  # Node.js + Express API 网关
 ├─ agent/                 # Python FastAPI + LangGraph 智能体
 ├─ upload/                # Node.js 上传服务（MinIO）
+├─ admin/                 # Vue 3 管理后台前端
 ├─ tools/console-manager/ # 中文控制台管理平台
 ├─ docker-compose.yml
 └─ .env.example
@@ -73,6 +74,7 @@ cp .env.example .env
 cp main/.env.example main/.env
 cp chat/.env.example chat/.env
 cp upload/.env.example upload/.env
+cp admin/.env.example admin/.env
 ```
 
 2. 安装依赖
@@ -81,7 +83,8 @@ cp upload/.env.example upload/.env
 cd main && npm install
 cd ../chat && pnpm install
 cd ../upload && npm install
-cd ../agent && python -m pip install -r requirements.txt
+cd ../admin && pnpm install
+cd ../../agent && python -m pip install -r requirements.txt
 ```
 
 3. 初始化配置并启动控制台管理平台
@@ -93,7 +96,7 @@ npm run console
 
 进入平台后可直接：
 
-- 全部启动 `chat/main/agent/upload`
+- 全部启动 `chat/main/agent/upload/admin`
 - 使用一键配置向导顺序填写关键项与可选项
 - 按服务功能位批量启动、重启、停止
 - 按分组编辑 `.env` 配置并同步写回
@@ -111,6 +114,8 @@ npm run console
 - main：`http://127.0.0.1:3000`
 - agent：`http://127.0.0.1:8000`
 - upload：`http://127.0.0.1:3001`
+- admin：`http://127.0.0.1:8081`
+- admin-api：`http://127.0.0.1:3000/admin-api`
 
 ## Docker 启动
 
@@ -118,7 +123,7 @@ npm run console
 docker compose up --build
 ```
 
-默认端口：chat `8080`，main `3000`，mysql `3306`，minio `9000/9001`，upload `3001`。
+默认端口：chat `8080`，main `3000`，admin `8081`，mysql `3306`，minio `9000/9001`，upload `3001`。后台接口由 `main` 的 `/admin-api/*` 提供。
 
 ## 常用开发命令
 
@@ -151,7 +156,14 @@ cd upload
 npm run dev
 ```
 
-### 控制台管理平台（管理 chat/main/agent/upload）
+### admin
+
+```bash
+cd admin
+pnpm dev
+```
+
+### 控制台管理平台（管理 chat/main/agent/upload/admin）
 
 ```bash
 npm run console
@@ -175,7 +187,11 @@ npm run console:init-config
 - `STORAGE_DRIVER`：`file` / `mysql`（`main`）
 - `AGENT_STORAGE_DRIVER`：`file` / `mysql`（`agent`）
 - `AGENT_SERVICE_URL`：`main -> agent` 地址
-- `DB_*`：MySQL 连接参数
+- `ADMIN_PORT`：管理后台前端端口
+- `VITE_ADMIN_API_BASE_URL`：管理后台前端开发代理地址，默认指向 `main`
+- `ADMIN_API_BASE_URL`：管理后台接口根地址，默认是 `main` 的 `/admin-api`
+- `DB_*`：chat 与后台共用的 MySQL 连接参数
+- `JWT_SECRET` / `JWT_ALGO`：管理后台接口鉴权配置
 - `CLERK_SECRET_KEY` / `VITE_CLERK_PUBLISHABLE_KEY`：鉴权配置
 
 MySQL 模式启用后，先执行：
@@ -190,6 +206,7 @@ cd main && npm run migrate
 - 会话管理：`/api/sessions`
 - 智能体管理：`/api/robots`
 - 流式聊天：`POST /api/chat/stream`
+- 后台接口：`/admin-api/*`
 
 ## 调试建议
 

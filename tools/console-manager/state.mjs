@@ -7,7 +7,7 @@ const repoRoot = resolve(currentDir, '..', '..')
 const managerHome = join(repoRoot, '.console-manager')
 const logsDir = join(managerHome, 'logs')
 const stateFile = join(managerHome, 'state.json')
-const serviceIds = ['chat', 'main', 'agent', 'upload']
+const serviceIds = ['chat', 'main', 'agent', 'upload', 'admin']
 
 mkdirSync(logsDir, { recursive: true })
 
