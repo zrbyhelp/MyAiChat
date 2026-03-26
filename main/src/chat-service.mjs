@@ -409,6 +409,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
   let finalSuggestions = []
   let finalForm = null
   let finalNumericState = session?.numericState || {}
+  let receivedRunCompleted = false
 
   try {
     while (true) {
@@ -432,6 +433,10 @@ async function runAgentAndCollect(payload, user, onEvent) {
         const parsed = parseSseData(part)
         if (!parsed) {
           continue
+        }
+
+        if (parsed.type === 'error') {
+          throw new Error(typeof parsed.message === 'string' && parsed.message.trim() ? parsed.message.trim() : '聊天失败')
         }
 
         if (parsed.type === 'message_delta' && parsed.text) {
@@ -458,6 +463,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
           finalNumericState = parsed.state
         }
         if (parsed.type === 'run_completed') {
+          receivedRunCompleted = true
           finalThreadId = String(parsed.threadId || finalThreadId)
           finalMessage = String(parsed.message || finalMessage)
           finalSuggestions = normalizeSuggestionItems(parsed.suggestions || finalSuggestions)
@@ -477,6 +483,10 @@ async function runAgentAndCollect(payload, user, onEvent) {
     }
   } catch (error) {
     throw new Error(formatChatErrorMessage(payload, session, error))
+  }
+
+  if (!receivedRunCompleted) {
+    throw new Error(formatChatErrorMessage(payload, session, new Error('连接中断')))
   }
 
   let savedSession
@@ -528,6 +538,14 @@ export async function requestNonStreamChat(payload, user) {
 }
 
 function forwardAgentEvent(res, payload) {
+  if (payload.type === 'error') {
+    sendSSE(res, {
+      type: 'error',
+      message: typeof payload.message === 'string' && payload.message.trim() ? payload.message.trim() : '聊天失败',
+    })
+    return
+  }
+
   if (payload.type === 'message_delta' && payload.text) {
     sendSSE(res, { type: 'text', text: payload.text })
     return

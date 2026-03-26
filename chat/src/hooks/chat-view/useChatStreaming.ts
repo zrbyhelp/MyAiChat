@@ -199,6 +199,9 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       }
       if (payload.type === 'ui_loading' && payload.message) {
         options.currentAssistantLoadingText.value = payload.message || '正在生成交互 UI'
+        nextTick(() => {
+          options.applyChatMessages(options.chatMessages.value)
+        })
         return null
       }
       if (payload.type === 'suggestion' && payload.items?.length) {
