@@ -59,7 +59,6 @@
       <t-chatbot
         :key="chatbotRuntimeKey"
         ref="chatbotRef"
-        class="chatbot-instance"
         layout="both"
         :message-props="chatMessageProps"
         :sender-props="chatSenderProps"
