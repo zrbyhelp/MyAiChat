@@ -5,6 +5,7 @@ import { ref, watch, onBeforeMount, type Ref } from "vue";
 import {
   getI18nLanguageOptions,
   loadRemoteI18nMessageByLocale,
+  normalizeLocale,
   type I18nLanguageOption
 } from "@/plugins/i18n";
 
@@ -15,28 +16,16 @@ export function useTranslationLang(menuRef?: Ref) {
   const languageOptions = ref<I18nLanguageOption[]>(getI18nLanguageOptions());
 
   const resolveStoredLocale = (value: string) => {
-    const normalized = String(value || "").trim();
+    const normalized = normalizeLocale(value);
     if (!normalized) return "zh";
     if (languageOptions.value.some(item => item.locale === normalized)) {
       return normalized;
-    }
-    if (normalized === "zh") {
-      return (
-        languageOptions.value.find(item => item.locale.toLowerCase().startsWith("zh"))?.locale ||
-        normalized
-      );
-    }
-    if (normalized === "en") {
-      return (
-        languageOptions.value.find(item => item.locale.toLowerCase().startsWith("en"))?.locale ||
-        normalized
-      );
     }
     return normalized;
   };
 
   async function switchLanguage(nextLocale: string, force = true) {
-    const targetLocale = String(nextLocale || "").trim();
+    const targetLocale = resolveStoredLocale(nextLocale);
     if (!targetLocale) return;
     await loadRemoteI18nMessageByLocale(targetLocale, force);
     $storage.locale = { locale: targetLocale };

@@ -56,7 +56,7 @@ const syncDatabase = async () => {
     try {
         console.log(`数据库同步模式: alter=${config_1.default.database.syncAlter}`);
         await database_1.default.sync({ alter: config_1.default.database.syncAlter });
-        await (0, seedRunner_1.runSeedOnce)("menu_seed_v14", menuSeed_1.initMenuSeedData);
+        await (0, seedRunner_1.runSeedOnce)("menu_seed_v15", menuSeed_1.initMenuSeedData);
         await (0, seedRunner_1.runSeedOnce)("role_seed_v7", roleSeed_1.initRoleSeedData);
         await (0, seedRunner_1.runSeedOnce)("dept_seed_v1", deptSeed_1.initDeptSeedData);
         await (0, seedRunner_1.runSeedOnce)("user_seed_v1", userSeed_1.initUserSeedData);

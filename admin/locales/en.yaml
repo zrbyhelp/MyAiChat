@@ -74,9 +74,6 @@ menus:
   pureSystemMenu: Menu Manage
   pureDept: Dept Manage
   pureSystemBasic: Basic Info
-  pureSystemI18n: I18n Manage
-  pureSystemI18nLanguage: Language Manage
-  pureSystemI18nCategory: Category Manage
   pureSysMonitor: System Monitor
   pureOnlineUser: Online User
   pureLoginLog: Login Log
@@ -323,4 +320,3 @@ monitor:
   forceOfflineSuccess: has been forced offline
   forceOfflineFailed: Failed to force offline
   system: System
-

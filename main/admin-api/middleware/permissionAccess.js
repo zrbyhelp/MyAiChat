@@ -14,7 +14,6 @@ const API_PERMISSION_RULES = [
     { path: /^\/dept(?:\/|$)/, menuPath: "/system/dept/index" },
     { path: /^\/user(?:\/|$)/, menuPath: "/system/user/index" },
     { path: /^\/system\/basic-info(?:\/|$)/, menuPath: "/system/basic/index" },
-    { path: /^\/system\/i18n(?:\/|$)/, menuPath: "/system/i18n/language" },
     { path: /^\/monitor\/online-logs(?:\/|$)/, menuPath: "/monitor/online-user" },
     { path: /^\/monitor\/offline(?:\/|$)/, menuPath: "/monitor/online-user" },
     { path: /^\/monitor\/login-logs(?:\/|$)/, menuPath: "/monitor/login-logs" },

@@ -74,9 +74,6 @@ menus:
   pureSystemMenu: 菜单管理
   pureDept: 部门管理
   pureSystemBasic: 基本信息
-  pureSystemI18n: 多语言管理
-  pureSystemI18nLanguage: 语言管理
-  pureSystemI18nCategory: 分类管理
   pureSysMonitor: 系统监控
   pureOnlineUser: 在线用户
   pureLoginLog: 登录日志

@@ -146,43 +146,6 @@ export const deleteThirdPartyConfig = (data?: object) => {
   return http.request<Result>("post", "/api/system/third-party/config/delete", { data });
 };
 
-export const getI18nFileList = (data?: object) => {
-  return http.request<Result>("post", "/api/system/i18n/list", { data });
-};
-
-export const getI18nFileContent = (data?: object) => {
-  return http.request<Result>("post", "/api/system/i18n/get", { data });
-};
-
-export const saveI18nFileContent = (data?: object) => {
-  return http.request<Result>("post", "/api/system/i18n/save", { data });
-};
-
-export const uploadI18nFile = (data?: object) => {
-  return http.request<Result>("post", "/api/system/i18n/upload", { data });
-};
-
-export const downloadI18nFile = (data?: object) => {
-  return http.request<Blob>(
-    "get",
-    "/api/system/i18n/download",
-    { params: data },
-    { responseType: "blob" }
-  );
-};
-
-export const getI18nCategoryList = (data?: object) => {
-  return http.request<Result>("post", "/api/system/i18n/category/list", { data });
-};
-
-export const saveI18nCategory = (data?: object) => {
-  return http.request<Result>("post", "/api/system/i18n/category/save", { data });
-};
-
-export const deleteI18nCategory = (data?: object) => {
-  return http.request<Result>("post", "/api/system/i18n/category/delete", { data });
-};
-
 export const getOnlineLogsList = (data?: object) => {
   return http.request<ResultTable>("post", "/api/monitor/online-logs", { data });
 };

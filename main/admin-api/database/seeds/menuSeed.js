@@ -31,7 +31,7 @@ const updatableFields = [
     "showParent"
 ];
 const initMenuSeedData = async () => {
-    await menu_1.default.destroy({ where: { id: { [sequelize_1.Op.in]: [622] } } });
+    await menu_1.default.destroy({ where: { id: { [sequelize_1.Op.in]: [306, 307, 309, 622] } } });
     const existing = await menu_1.default.findAll();
     const existingMap = new Map(existing.map(item => [Number(item.id), item]));
     const missing = menuData_1.menuSeedData.filter(item => !existingMap.has(item.id));
