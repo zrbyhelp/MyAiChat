@@ -5,6 +5,7 @@ langchain==0.3.27
 langchain-openai==0.3.32
 langgraph==0.6.7
 pydantic==2.11.9
+PyYAML==6.0.2
 pymysql==1.1.1
 sqlalchemy==2.0.43
 uvicorn==0.35.0

@@ -4,6 +4,10 @@ from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from .prompt_config import get_prompt_config
+
+
+PROMPT_DEFAULTS = get_prompt_config().defaults
 
 class CompatibleModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -88,11 +92,11 @@ class RobotProfile(CompatibleModel):
     name: str = "当前智能体"
     avatar: str = ""
     common_prompt: str = Field(
-        default="",
+        default=PROMPT_DEFAULTS.common_prompt,
         validation_alias=AliasChoices("common_prompt", "commonPrompt"),
     )
     system_prompt: str = Field(
-        default="",
+        default=PROMPT_DEFAULTS.system_prompt,
         validation_alias=AliasChoices("system_prompt", "systemPrompt"),
     )
     memory_model_config_id: str = Field(
@@ -112,7 +116,7 @@ class RobotProfile(CompatibleModel):
         validation_alias=AliasChoices("numeric_computation_enabled", "numericComputationEnabled", "image_fetch_enabled", "imageFetchEnabled"),
     )
     numeric_computation_prompt: str = Field(
-        default="",
+        default=PROMPT_DEFAULTS.numeric_computation_prompt,
         validation_alias=AliasChoices("numeric_computation_prompt", "numericComputationPrompt", "image_fetch_prompt", "imageFetchPrompt"),
     )
     numeric_computation_items: list[dict[str, Any]] = Field(

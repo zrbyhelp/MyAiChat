@@ -6,8 +6,9 @@ from pathlib import Path
 
 from sqlalchemy import Column, MetaData, String, Table, Text, create_engine, inspect, select, text
 from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 
-from .schemas import MemorySchema, StructuredMemory, ThreadState
+from .schemas import ThreadState
 
 
 class ThreadStore:
@@ -16,7 +17,11 @@ class ThreadStore:
         self.file_dir = Path(os.getenv("AGENT_FILE_STORE_DIR", "/tmp/myaichat-agent"))
         self.engine = None
         self.table = None
+        self._ready = False
 
+    def ensure_ready(self) -> None:
+        if self._ready:
+            return
         if self.mode == "mysql":
             large_text = Text().with_variant(LONGTEXT(), "mysql")
             password = os.getenv("DB_PASSWORD", "myaichat")
@@ -54,8 +59,10 @@ class ThreadStore:
                 conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN numeric_state_json LONGTEXT NOT NULL"))
         else:
             self.file_dir.mkdir(parents=True, exist_ok=True)
+        self._ready = True
 
     def load(self, thread_id: str) -> ThreadState | None:
+        self.ensure_ready()
         if self.mode == "mysql":
             assert self.engine is not None and self.table is not None
             with self.engine.begin() as conn:
@@ -87,37 +94,31 @@ class ThreadStore:
         return ThreadState.model_validate(payload)
 
     def save(self, state: ThreadState) -> None:
+        self.ensure_ready()
+        state_payload = state.model_dump()
         if self.mode == "mysql":
             assert self.engine is not None and self.table is not None
             payload = {
                 "thread_id": state.thread_id,
-                "messages_json": json.dumps([item.model_dump() for item in state.messages], ensure_ascii=False),
-                "memory_schema_json": json.dumps(state.memory_schema.model_dump(), ensure_ascii=False),
-                "structured_memory_json": json.dumps(state.structured_memory.model_dump(), ensure_ascii=False),
-                "numeric_state_json": json.dumps(state.numeric_state, ensure_ascii=False),
+                "messages_json": json.dumps(state_payload["messages"], ensure_ascii=False),
+                "memory_schema_json": json.dumps(state_payload["memory_schema"], ensure_ascii=False),
+                "structured_memory_json": json.dumps(state_payload["structured_memory"], ensure_ascii=False),
+                "numeric_state_json": json.dumps(state_payload["numeric_state"], ensure_ascii=False),
             }
+            stmt = mysql_insert(self.table).values(**payload)
             with self.engine.begin() as conn:
-                existing = conn.execute(
-                    select(self.table.c.thread_id).where(self.table.c.thread_id == state.thread_id)
-                ).first()
-                if existing:
-                    conn.execute(
-                        self.table.update().where(self.table.c.thread_id == state.thread_id).values(**payload)
+                conn.execute(
+                    stmt.on_duplicate_key_update(
+                        messages_json=stmt.inserted.messages_json,
+                        memory_schema_json=stmt.inserted.memory_schema_json,
+                        structured_memory_json=stmt.inserted.structured_memory_json,
+                        numeric_state_json=stmt.inserted.numeric_state_json,
                     )
-                else:
-                    conn.execute(self.table.insert().values(**payload))
+                )
             return
 
         file_path = self.file_dir / f"{state.thread_id}.json"
         file_path.write_text(
-            json.dumps(state.model_dump(), ensure_ascii=False, indent=2) + "\n",
+            json.dumps(state_payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-
-
-def default_memory() -> StructuredMemory:
-    return StructuredMemory()
-
-
-def default_memory_schema() -> MemorySchema:
-    return MemorySchema()

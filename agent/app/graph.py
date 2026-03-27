@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from typing import TypedDict
 
 from langchain_openai import ChatOpenAI
-from langgraph.graph import END, START, StateGraph
 from typing_extensions import NotRequired
 
+from .prompt_config import get_prompt_config
 from .schemas import (
     ChatMessage,
     MemoryCategorySchema,
@@ -24,8 +25,11 @@ class AgentState(TypedDict):
     common_prompt: str
     system_prompt: str
     history: list[dict]
-    memory_schema: dict
-    structured_memory: dict
+    history_text: str
+    memory_schema: MemorySchema
+    structured_memory: StructuredMemory
+    structured_memory_text: str
+    structured_memory_payload_json: str
     structured_memory_interval: int
     structured_memory_history_limit: int
     model_config: dict
@@ -41,13 +45,34 @@ class AgentState(TypedDict):
 
 DEFAULT_STRUCTURED_MEMORY_INTERVAL = 3
 DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT = 12
-MAX_MEMORY_CONTEXT_ITEMS_PER_CATEGORY = 12
 MAX_MEMORY_SUMMARY_LENGTH = 280
-MAX_MEMORY_VALUE_TEXT_LENGTH = 500
+PROMPT_CONFIG = get_prompt_config()
+DEBUG_LOGS_ENABLED = str(os.getenv("AGENT_DEBUG_LOGS", "")).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def debug_log(label: str, payload: dict) -> None:
+    if not DEBUG_LOGS_ENABLED:
+        return
+    print(label, json.dumps(payload, ensure_ascii=False), flush=True)
+
+
+def history_payload(history: list[ChatMessage]) -> list[dict]:
+    return [item.model_dump() for item in history]
+
+
+def build_memory_context(memory: StructuredMemory) -> tuple[str, str]:
+    return memory_text(memory), json.dumps(compact_memory_payload(memory), ensure_ascii=False)
+
+
+def refresh_state_memory_context(state: AgentState, memory: StructuredMemory) -> None:
+    memory_text_value, memory_payload_json = build_memory_context(memory)
+    state["structured_memory"] = memory
+    state["structured_memory_text"] = memory_text_value
+    state["structured_memory_payload_json"] = memory_payload_json
 
 
 def sanitize_base_url(base_url: str) -> str:
@@ -90,6 +115,18 @@ def resolve_node_model_config(state: AgentState, kind: str) -> dict:
 
 def compose_system_prompt(*sections: str) -> str:
     return "\n\n".join([section.strip() for section in sections if isinstance(section, str) and section.strip()])
+
+
+def resolve_common_prompt(state: AgentState) -> str:
+    return str(state.get("common_prompt") or PROMPT_CONFIG.defaults.common_prompt or "").strip()
+
+
+def resolve_system_prompt(state: AgentState) -> str:
+    return str(state.get("system_prompt") or PROMPT_CONFIG.defaults.system_prompt or "").strip()
+
+
+def resolve_numeric_computation_prompt(state: AgentState) -> str:
+    return str(state.get("numeric_computation_prompt") or PROMPT_CONFIG.defaults.numeric_computation_prompt or "").strip()
 
 
 def parse_json_object(raw: str, fallback: dict) -> dict:
@@ -335,36 +372,16 @@ def memory_text(memory: StructuredMemory) -> str:
     parts: list[str] = []
     for category in memory.categories:
         parts.append(f"{category.label or category.category_id}：")
-        hidden_count = max(len(category.items) - MAX_MEMORY_CONTEXT_ITEMS_PER_CATEGORY, 0)
-        for item in category.items[:MAX_MEMORY_CONTEXT_ITEMS_PER_CATEGORY]:
+        for item in category.items:
             value_text = ", ".join([
-                f"{key}={truncate_text(json.dumps(value, ensure_ascii=False), MAX_MEMORY_VALUE_TEXT_LENGTH)}"
+                f"{key}={json.dumps(value, ensure_ascii=False)}"
                 for key, value in item.values.items()
             ])
             summary = item.summary.strip()
-            parts.append(f"- {truncate_text(summary or value_text or item.id, MAX_MEMORY_SUMMARY_LENGTH)}")
+            parts.append(f"- {summary or value_text or item.id}")
             if value_text and summary != value_text:
-                parts.append(f"  {truncate_text(value_text, MAX_MEMORY_VALUE_TEXT_LENGTH)}")
-        if hidden_count:
-            parts.append(f"- 其余 {hidden_count} 条已省略")
+                parts.append(f"  {value_text}")
     return "\n".join(parts) if parts else "暂无结构化记忆。"
-
-
-def default_structured_memory(schema: MemorySchema) -> StructuredMemory:
-    return StructuredMemory(
-        updated_at="",
-        categories=[
-            {
-                "category_id": category.id,
-                "label": category.label,
-                "description": category.description,
-                "updated_at": "",
-                "items": [],
-            }
-            for category in schema.categories
-        ],
-    )
-
 
 def normalize_positive_int(value, fallback: int) -> int:
     try:
@@ -471,11 +488,11 @@ def normalize_structured_memory(schema: MemorySchema, payload: dict) -> Structur
 def compact_category_memory_payload(category_memory: dict) -> dict:
     items = category_memory.get("items") if isinstance(category_memory.get("items"), list) else []
     compact_items: list[dict] = []
-    for item in items[:MAX_MEMORY_CONTEXT_ITEMS_PER_CATEGORY]:
+    for item in items:
         values = item.get("values") if isinstance(item.get("values"), dict) else {}
         compact_items.append({
             "id": str(item.get("id") or ""),
-            "summary": truncate_text(item.get("summary") or "", MAX_MEMORY_SUMMARY_LENGTH),
+            "summary": str(item.get("summary") or ""),
             "source_turn_id": str(item.get("source_turn_id") or item.get("sourceTurnId") or ""),
             "updated_at": str(item.get("updated_at") or item.get("updatedAt") or ""),
             "values": values,
@@ -486,7 +503,6 @@ def compact_category_memory_payload(category_memory: dict) -> dict:
         "description": str(category_memory.get("description") or ""),
         "updated_at": str(category_memory.get("updated_at") or category_memory.get("updatedAt") or ""),
         "items": compact_items,
-        "truncated_item_count": max(len(items) - len(compact_items), 0),
     }
 
 
@@ -495,19 +511,6 @@ def compact_memory_payload(memory: StructuredMemory) -> dict:
         "updated_at": memory.updated_at,
         "categories": [compact_category_memory_payload(category.model_dump()) for category in memory.categories],
     }
-
-
-def build_category_schema_text(category: MemoryCategorySchema) -> str:
-    lines = [f"- {category.id} | {category.label}"]
-    if category.description:
-        lines.append(f"  描述：{category.description}")
-    if category.extraction_instructions:
-        lines.append(f"  抽取说明：{category.extraction_instructions}")
-    for field in category.fields:
-        required = "必填" if field.required else "可选"
-        lines.append(f"  字段：{field.name} ({field.label}) / {field_type_text(field)} / {required}")
-    return "\n".join(lines)
-
 
 def normalize_category_memory_patch(
     category: MemoryCategorySchema,
@@ -639,30 +642,16 @@ async def update_memory_patch(
             {
                 "role": "system",
                 "content": compose_system_prompt(
-                    state["common_prompt"],
-                    (
-                        "你负责把当前对话整理成结构化长期记忆的增量 patch。"
-                        "你必须严格遵循给定 schema，只输出 JSON。"
-                        "你输出的是所有分类的增量 patch，不是完整结果。"
-                        "顶层结构固定为："
-                        '{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","upserts":[{"id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}],"deletes":["要删除的记录ID"]}]}。'
-                        "upserts 表示新增或覆盖同 id 的记录；deletes 表示删除指定 id 的记录。"
-                        "如果某条旧记录没有变化，不要放进 upserts，也不要放进 deletes。"
-                        "对于你在输入中没有看到的旧记录，默认视为保留，绝对不要因为没看到就删除。"
-                        "categories 里只能使用 schema 中声明的 category_id。"
-                        "values 里只能写对应分类 schema 声明过的字段。"
-                        "除了 updated_at、categories、category_id、upserts、deletes 之外，不要输出任何额外字段。"
-                        "不要输出没有任何有效字段值的 item。"
-                        "只有当当前对话明确表明某条记忆失效、被更正、或应被移除时，才把它的 id 放入 deletes。"
-                    ),
+                    resolve_common_prompt(state),
+                    PROMPT_CONFIG.templates.memory_patch.system_instruction,
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"当前记忆 schema：\n{schema_text(schema)}\n\n"
-                    f"当前已有记忆（已裁剪）：\n{json.dumps(compact_memory_payload(current_memory), ensure_ascii=False)}\n\n"
-                    f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
+                    f"当前已有记忆：\n{state['structured_memory_payload_json']}\n\n"
+                    f"历史消息：\n{state['history_text']}\n\n"
                     f"用户最新输入：{state['prompt']}\n\n"
                     f"助手最终回复：{state.get('final_response', '')}"
                 ),
@@ -681,8 +670,7 @@ async def update_memory_patch(
 
 async def answerer_node(state: AgentState) -> dict:
     model = build_model(state["model_config"])
-    structured_memory = StructuredMemory.model_validate(state["structured_memory"])
-    response = await model.ainvoke(build_answerer_messages(state, structured_memory))
+    response = await model.ainvoke(build_answerer_messages(state))
     usage = extract_usage(response)
     content = response.content if isinstance(response.content, str) else str(response.content)
     return {"final_response": content.strip(), "usage": usage}
@@ -690,26 +678,24 @@ async def answerer_node(state: AgentState) -> dict:
 
 def build_answerer_messages(
     state: AgentState,
-    structured_memory: StructuredMemory | None = None,
 ) -> list[dict]:
-    memory = structured_memory or StructuredMemory.model_validate(state["structured_memory"])
-    numeric_items = normalize_numeric_items(state.get("numeric_computation_items"))
+    numeric_items = state.get("numeric_computation_items") or []
     return [
         {
             "role": "system",
             "content": compose_system_prompt(
-                state["common_prompt"],
-                "请综合结构化记忆、历史消息，直接给出中文内容。",
-                state["system_prompt"],
+                resolve_common_prompt(state),
+                PROMPT_CONFIG.templates.answerer.base_instruction,
+                resolve_system_prompt(state),
             ),
         },
         {
             "role": "user",
             "content": (
-                f"结构化记忆：\n{memory_text(memory)}\n\n"
-                "数值信息说明：每个数值项中的 description 字段表示这个值的名字或含义。你只能读取、引用这里提供的 currentValue，不能以任何形式自行计算、修改、推断、纠正、补全或重写这些数值；如果正文需要提到数值，必须严格以这里给出的 currentValue 为准。\n\n"
+                f"结构化记忆：\n{state['structured_memory_text']}\n\n"
+                f"{PROMPT_CONFIG.templates.answerer.numeric_guardrail}\n\n"
                 f"数值信息：\n{json.dumps(numeric_payload_for_answerer(numeric_items, state.get('numeric_state')), ensure_ascii=False)}\n\n"
-                f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
+                f"历史消息：\n{state['history_text']}\n\n"
                 f"用户最新输入：{state['prompt']}"
             ),
         },
@@ -717,7 +703,7 @@ def build_answerer_messages(
 
 
 async def numeric_agent_node(state: AgentState) -> dict:
-    numeric_items = normalize_numeric_items(state.get("numeric_computation_items"))
+    numeric_items = state.get("numeric_computation_items") or []
     numeric_schema = numeric_items_to_schema(numeric_items)
     current_numeric_state = normalize_numeric_state_value(numeric_schema, {}, state.get("numeric_state") or {})
     current_numeric_state = current_numeric_state if isinstance(current_numeric_state, dict) else {}
@@ -729,33 +715,28 @@ async def numeric_agent_node(state: AgentState) -> dict:
         }
 
     model = build_model(resolve_node_model_config(state, "numeric_computation"))
-    structured_memory = StructuredMemory.model_validate(state["structured_memory"])
     response = await model.ainvoke(
         [
             {
                 "role": "system",
                 "content": compose_system_prompt(
-                    state["common_prompt"],
+                    resolve_common_prompt(state),
+                    PROMPT_CONFIG.templates.numeric_agent.system_instruction,
                     (
-                        "你是多智能体系统中的数值计算节点，用来在正文回复前根据上下文生成数值 JSON。"
-                        "你只能输出 JSON，不要输出解释。"
-                        "输出格式必须是一个 JSON 对象，字段必须严格遵循给定数值结构体。"
-                        "你必须根据用户传入的数值计算提示词修改当前 JSON 数据并输出。"
-                        "所有叶子字段都必须是 number，不能输出字符串、布尔值、null。"
-                        "不要输出 summary、explanation 或任何额外字段。"
-                        f"\n\n用户配置的数值计算提示词：\n{state.get('numeric_computation_prompt') or '未配置'}"
+                        f"{PROMPT_CONFIG.templates.numeric_agent.user_prompt_label}\n"
+                        f"{resolve_numeric_computation_prompt(state) or '未配置'}"
                     ),
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"主要故事设定：\n{state['system_prompt']}\n\n"
-                    f"结构化记忆：\n{memory_text(structured_memory)}\n\n"
+                    f"主要故事设定：\n{resolve_system_prompt(state)}\n\n"
+                    f"结构化记忆：\n{state['structured_memory_text']}\n\n"
                     f"数值字段定义：\n{numeric_items_description_text(numeric_items)}\n\n"
                     f"数值结构体：\n{json.dumps(numeric_schema, ensure_ascii=False)}\n\n"
                     f"当前数值状态：\n{numeric_state_text(current_numeric_state)}\n\n"
-                    f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
+                    f"历史消息：\n{state['history_text']}\n\n"
                     f"用户最新输入：{state['prompt']}"
                 ),
             },
@@ -770,19 +751,12 @@ async def numeric_agent_node(state: AgentState) -> dict:
         parsed,
     )
     numeric_result = numeric_result if isinstance(numeric_result, dict) else numeric_schema
-    print(
-        "[numeric-agent]",
-        json.dumps(
-            {
-                "prompt": state.get("prompt") or "",
-                "raw_output": raw_content,
-                "parsed_output": parsed,
-                "numeric_result": numeric_result,
-            },
-            ensure_ascii=False,
-        ),
-        flush=True,
-    )
+    debug_log("[numeric-agent]", {
+        "prompt": state.get("prompt") or "",
+        "raw_output": raw_content,
+        "parsed_output": parsed,
+        "numeric_result": numeric_result,
+    })
     return {
         "numeric_state": numeric_result,
         "usage": usage,
@@ -791,29 +765,21 @@ async def numeric_agent_node(state: AgentState) -> dict:
 
 async def ui_agent_node(state: AgentState) -> dict:
     model = build_model(resolve_node_model_config(state, "form_option"))
-    structured_memory = StructuredMemory.model_validate(state["structured_memory"])
     response = await model.ainvoke(
         [
             {
                 "role": "system",
                 "content": compose_system_prompt(
-                    state["common_prompt"],
-                    (
-                        "你负责为当前 assistant 回复生成聊天气泡里的交互 UI。"
-                        "只输出 JSON，顶层结构固定为 {\"suggestions\":[{\"title\":\"按钮文字\",\"prompt\":\"点击后发送文本\"}],\"form\":null} 或 {\"suggestions\":[],\"form\":{\"title\":\"标题\",\"description\":\"说明\",\"submitText\":\"提交\",\"fields\":[{\"name\":\"字段名\",\"label\":\"字段标签\",\"type\":\"input|radio|checkbox|select\",\"placeholder\":\"占位\",\"required\":true,\"inputType\":\"text|number\",\"multiple\":false,\"options\":[{\"label\":\"选项\",\"value\":\"值\"}],\"defaultValue\":\"默认值\"}]}}。"
-                        "只有要求用户输入，填写内容时生成 form，其余都生成 suggestions。"
-                        "如果既没有要求输入也没有明确选项则返回一个 suggestions，内容只能有一个继续。"
-                        "当回复存在明确下一步选择时生成 suggestions。"
-                        "form 和 suggestions 不能同时出现。"
-                    ),
+                    resolve_common_prompt(state),
+                    PROMPT_CONFIG.templates.ui_agent.system_instruction,
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"主要故事设定：\n{state['system_prompt']}\n\n"
-                    f"结构化记忆：\n{memory_text(structured_memory)}\n\n"
-                    f"历史消息：\n{history_text(state['history'], state['structured_memory_history_limit'])}\n\n"
+                    f"主要故事设定：\n{resolve_system_prompt(state)}\n\n"
+                    f"结构化记忆：\n{state['structured_memory_text']}\n\n"
+                    f"历史消息：\n{state['history_text']}\n\n"
                     f"用户最新输入：{state['prompt']}\n\n"
                     f"assistant 最终回复：\n{state.get('final_response', '')}"
                 ),
@@ -829,11 +795,11 @@ async def ui_agent_node(state: AgentState) -> dict:
 
 async def memory_node(state: AgentState) -> dict:
     model = build_model(resolve_node_model_config(state, "memory"))
-    schema = MemorySchema.model_validate(state["memory_schema"])
-    current_memory = StructuredMemory.model_validate(state["structured_memory"])
+    schema = state["memory_schema"]
+    current_memory = state["structured_memory"]
     patch, usage = await update_memory_patch(model, state, schema, current_memory)
     memory = merge_memory_patch(schema, current_memory, patch)
-    return {"structured_memory": memory, "usage": usage}
+    return {"structured_memory": StructuredMemory.model_validate(memory), "usage": usage}
 
 
 def add_usage(existing: dict | None, delta: dict | None) -> dict:
@@ -844,66 +810,39 @@ def add_usage(existing: dict | None, delta: dict | None) -> dict:
         "completion_tokens": int(left.get("completion_tokens", 0)) + int(right.get("completion_tokens", 0)),
     }
 
-
-def build_graph():
-    graph = StateGraph(AgentState)
-
-    async def numeric_agent(state: AgentState) -> dict:
-        result = await numeric_agent_node(state)
-        return {
-            "numeric_state": result.get("numeric_state", {}),
-            "usage": add_usage(state.get("usage"), result.get("usage")),
-        }
-
-    async def answerer(state: AgentState) -> dict:
-        result = await answerer_node(state)
-        return {"final_response": result["final_response"], "usage": add_usage(state.get("usage"), result.get("usage"))}
-
-    async def ui_agent(state: AgentState) -> dict:
-        result = await ui_agent_node(state)
-        return {"ui_payload": result["ui_payload"], "usage": add_usage(state.get("usage"), result.get("usage"))}
-
-    async def memory(state: AgentState) -> dict:
-        result = await memory_node(state)
-        return {"structured_memory": result["structured_memory"], "usage": add_usage(state.get("usage"), result.get("usage"))}
-
-    graph.add_node("numeric_agent", numeric_agent)
-    graph.add_node("answerer", answerer)
-    graph.add_node("ui_agent", ui_agent)
-    graph.add_node("memory", memory)
-    graph.add_edge(START, "numeric_agent")
-    graph.add_edge("numeric_agent", "answerer")
-    graph.add_edge("answerer", "ui_agent")
-    graph.add_edge("ui_agent", "memory")
-    graph.add_edge("memory", END)
-    return graph.compile()
-
-
 def build_initial_state(
     request: RunRequest,
     history: list[ChatMessage],
     memory_schema: MemorySchema,
     structured_memory: StructuredMemory,
 ) -> AgentState:
+    normalized_numeric_items = normalize_numeric_items(request.robot.numeric_computation_items or [])
+    normalized_history = history_payload(history)
+    resolved_history_limit = normalize_positive_int(
+        request.structured_memory_history_limit or request.robot.structured_memory_history_limit,
+        DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+    )
+    resolved_history_text = history_text(normalized_history, resolved_history_limit)
+    structured_memory_text, structured_memory_payload_json = build_memory_context(structured_memory)
     return {
         "thread_id": request.thread_id,
         "prompt": request.prompt,
-        "common_prompt": request.robot.common_prompt or "",
-        "system_prompt": request.system_prompt or request.robot.system_prompt or "",
-        "history": [item.model_dump() for item in history],
-        "memory_schema": memory_schema.model_dump(),
-        "structured_memory": structured_memory.model_dump(),
+        "common_prompt": request.robot.common_prompt or PROMPT_CONFIG.defaults.common_prompt,
+        "system_prompt": request.system_prompt or request.robot.system_prompt or PROMPT_CONFIG.defaults.system_prompt,
+        "history": normalized_history,
+        "history_text": resolved_history_text,
+        "memory_schema": memory_schema,
+        "structured_memory": structured_memory,
+        "structured_memory_text": structured_memory_text,
+        "structured_memory_payload_json": structured_memory_payload_json,
         "structured_memory_interval": normalize_positive_int(
             request.structured_memory_interval or request.robot.structured_memory_interval,
             DEFAULT_STRUCTURED_MEMORY_INTERVAL,
         ),
-        "structured_memory_history_limit": normalize_positive_int(
-            request.structured_memory_history_limit or request.robot.structured_memory_history_limit,
-            DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
-        ),
+        "structured_memory_history_limit": resolved_history_limit,
         "numeric_computation_enabled": bool(request.robot.numeric_computation_enabled),
-        "numeric_computation_prompt": request.robot.numeric_computation_prompt or "",
-        "numeric_computation_items": request.robot.numeric_computation_items or [],
+        "numeric_computation_prompt": request.robot.numeric_computation_prompt or PROMPT_CONFIG.defaults.numeric_computation_prompt,
+        "numeric_computation_items": normalized_numeric_items,
         "numeric_state": request.numeric_state or {},
         "model_config": request.model_settings.model_dump(),
         "auxiliary_model_configs": request.auxiliary_model_configs.model_dump(),
