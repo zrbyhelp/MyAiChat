@@ -232,6 +232,7 @@
     @handle-agent-card-action="handleAgentCardAction"
     @open-mobile-agent-create-dialog="openMobileAgentCreateDialog"
     @add-agent-template="addAgentTemplate"
+    @import-agent-template="importRobotTemplate"
     @next-agent-editor-step="nextAgentEditorStep"
     @previous-agent-editor-step="previousAgentEditorStep"
     @skip-agent-structure-setup="skipAgentStructureSetup"
@@ -474,6 +475,7 @@ const {
   addNumericComputationItem,
   removeNumericComputationItem,
   validateNumericComputationItems,
+  importRobotTemplate,
   loadRobotTemplates,
   openAgentManageDialog,
   addAgentTemplate,

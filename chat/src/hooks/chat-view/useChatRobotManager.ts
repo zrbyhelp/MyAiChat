@@ -5,6 +5,7 @@ import { getRobots, saveRobots } from '@/lib/api'
 import { UnauthorizedError } from '@/lib/auth'
 import { deleteLocalRobot, listLocalRobots, putLocalRobot } from '@/lib/local-db'
 import type {
+  AgentTemplateFileV1,
   AIRobotCard,
   MemorySchemaState,
   NumericComputationItem,
@@ -19,6 +20,8 @@ interface UseChatRobotManagerOptions {
 }
 
 export function useChatRobotManager(options: UseChatRobotManagerOptions) {
+  const AGENT_TEMPLATE_FILE_KIND = 'myaichat-agent-template'
+  const AGENT_TEMPLATE_FILE_SECRET = 'myaichat:agent-template:v1'
   const agentManageVisible = ref(false)
   const mobileAgentEditorVisible = ref(false)
   const savingMobileAgent = ref(false)
@@ -35,9 +38,13 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
   )
   const isEditingAgentDraft = computed(() => mobileAgentEditorMode.value === 'edit')
 
+  function createRobotId() {
+    return `robot-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+
   function createRobotTemplate(): AIRobotCard {
     return {
-      id: `robot-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      id: createRobotId(),
       name: '新智能体',
       description: '',
       avatar: '',
@@ -255,8 +262,203 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       openMobileAgentEditDialog(agentId)
       return
     }
+    if (nextAction === 'export') {
+      void exportRobotTemplate(agentId)
+      return
+    }
     if (nextAction === 'delete') {
       void removeMobileAgent(agentId)
+    }
+  }
+
+  function createImportedAgentName(baseName: string, existingNames: Set<string>) {
+    const seedName = baseName.trim() || '导入模板'
+    const suffix = '（导入）'
+    let candidate = `${seedName}${suffix}`
+    let index = 2
+
+    while (existingNames.has(candidate)) {
+      candidate = `${seedName}${suffix}${index}`
+      index += 1
+    }
+
+    return candidate
+  }
+
+  function sanitizeFileNameSegment(value: string) {
+    return value.replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '_').replace(/\s+/g, '-').replace(/-+/g, '-').trim() || 'agent-template'
+  }
+
+  function createTemplateExportFilename(templateName: string) {
+    const now = new Date()
+    const timestamp = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+      String(now.getHours()).padStart(2, '0'),
+      String(now.getMinutes()).padStart(2, '0'),
+      String(now.getSeconds()).padStart(2, '0'),
+    ].join('')
+
+    return `agent-template-${sanitizeFileNameSegment(templateName)}-${timestamp}.json`
+  }
+
+  function uint8ArrayToBase64(bytes: Uint8Array) {
+    let binary = ''
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte)
+    })
+    return btoa(binary)
+  }
+
+  function base64ToUint8Array(value: string) {
+    const binary = atob(value)
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+  }
+
+  async function getTemplateCryptoKey() {
+    const rawKey = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(AGENT_TEMPLATE_FILE_SECRET),
+    )
+    return crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+  }
+
+  async function encryptTemplatePayload(template: AIRobotCard) {
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const key = await getTemplateCryptoKey()
+    const plaintext = new TextEncoder().encode(JSON.stringify(template))
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext)
+
+    return {
+      iv: uint8ArrayToBase64(iv),
+      payload: uint8ArrayToBase64(new Uint8Array(encrypted)),
+    }
+  }
+
+  async function decryptTemplatePayload(input: { iv: string; payload: string }) {
+    const key = await getTemplateCryptoKey()
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: base64ToUint8Array(input.iv) },
+      key,
+      base64ToUint8Array(input.payload),
+    )
+
+    return JSON.parse(new TextDecoder().decode(decrypted)) as Partial<AIRobotCard>
+  }
+
+  function downloadTextFile(filename: string, content: string) {
+    const blob = new Blob([content], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function normalizeImportedRobot(template: Partial<AIRobotCard>) {
+    const normalized = normalizeRobotDraft(
+      {
+        ...createRobotTemplate(),
+        ...template,
+        persistToServer: false,
+      },
+      robotTemplates.value.length,
+    )
+
+    return {
+      ...normalized,
+      id: createRobotId(),
+      persistToServer: false,
+    }
+  }
+
+  function parseAgentTemplateFile(raw: string) {
+    let payload: AgentTemplateFileV1 | null = null
+    try {
+      payload = JSON.parse(raw) as AgentTemplateFileV1
+    } catch {
+      throw new Error('模板文件不是有效的 JSON')
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('模板文件格式不正确')
+    }
+
+    if (payload.kind !== AGENT_TEMPLATE_FILE_KIND) {
+      throw new Error('不支持的模板文件类型')
+    }
+
+    if (payload.version !== 1) {
+      throw new Error('不支持的模板文件版本')
+    }
+
+    if (payload.algorithm !== 'AES-GCM') {
+      throw new Error('不支持的模板加密算法')
+    }
+
+    if (typeof payload.iv !== 'string' || !payload.iv.trim()) {
+      throw new Error('模板文件缺少加密向量')
+    }
+
+    if (typeof payload.payload !== 'string' || !payload.payload.trim()) {
+      throw new Error('模板文件缺少加密内容')
+    }
+
+    return payload
+  }
+
+  async function exportRobotTemplate(agentId: string) {
+    const target = robotTemplates.value.find((item) => item.id === agentId)
+    if (!target) {
+      MessagePlugin.error('未找到要导出的智能体模板')
+      return
+    }
+
+    const encrypted = await encryptTemplatePayload(normalizeRobotDraft(target, 0))
+    const payload: AgentTemplateFileV1 = {
+      kind: AGENT_TEMPLATE_FILE_KIND,
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      algorithm: 'AES-GCM',
+      iv: encrypted.iv,
+      payload: encrypted.payload,
+    }
+
+    downloadTextFile(
+      createTemplateExportFilename(target.name || 'agent-template'),
+      `${JSON.stringify(payload, null, 2)}\n`,
+    )
+    MessagePlugin.success('模板已导出')
+  }
+
+  async function importRobotTemplate(file: File) {
+    try {
+      const raw = await file.text()
+      const payload = parseAgentTemplateFile(raw)
+      const decryptedTemplate = await decryptTemplatePayload(payload)
+      const existingNames = new Set(robotTemplates.value.map((item) => item.name.trim()).filter(Boolean))
+      const normalized = normalizeImportedRobot(decryptedTemplate)
+      const importedRobot: AIRobotCard = {
+        ...normalized,
+        name: createImportedAgentName(normalized.name, existingNames),
+        persistToServer: false,
+      }
+
+      await putLocalRobot(importedRobot)
+      await reloadRobotTemplates()
+      await persistRobotTemplates(robotTemplates.value, '模板已导入到本地')
+    } catch (error) {
+      const message =
+        error instanceof Error && /decrypt|operation-specific|AES-GCM|cipher|too small|invalid/i.test(error.message)
+          ? '模板文件无法解密'
+          : error instanceof Error
+            ? error.message
+            : '导入模板失败'
+      MessagePlugin.error(message)
     }
   }
 
@@ -369,6 +571,8 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     addNumericComputationItem,
     removeNumericComputationItem,
     validateNumericComputationItems,
+    exportRobotTemplate,
+    importRobotTemplate,
     loadRobotTemplates,
     openAgentManageDialog,
     addAgentTemplate,

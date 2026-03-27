@@ -87,6 +87,13 @@
       <div v-else class="history-empty">暂无智能体卡片，请先去“设置智能体”里维护</div>
     </div>
   </TDialog>
+  <input
+    ref="agentTemplateImportInputRef"
+    type="file"
+    accept=".json,application/json"
+    hidden
+    @change="handleAgentTemplateImportChange"
+  />
 
   <TDrawer
     v-if="isMobile"
@@ -137,30 +144,25 @@
               {{ item.systemPrompt || '未填写主要故事设定' }}
             </div>
           </TCard>
-          <TCard
-            class="config-card config-card-add"
-            hoverShadow
-            @click="$emit('open-mobile-agent-create-dialog')"
-          >
+          <TDropdown trigger="click" placement="bottom-right" :options="addAgentEntryOptions" @click="handleAddAgentEntryClick">
+            <TCard class="config-card config-card-add" hoverShadow>
+              <div class="config-card-add-media" aria-label="新增智能体">
+                <svg viewBox="0 0 64 64" aria-hidden="true">
+                  <path d="M32 14v36M14 32h36" />
+                </svg>
+              </div>
+            </TCard>
+          </TDropdown>
+        </div>
+        <TDropdown v-else trigger="click" placement="bottom-right" :options="addAgentEntryOptions" @click="handleAddAgentEntryClick">
+          <TCard class="config-card config-card-add" hoverShadow>
             <div class="config-card-add-media" aria-label="新增智能体">
               <svg viewBox="0 0 64 64" aria-hidden="true">
                 <path d="M32 14v36M14 32h36" />
               </svg>
             </div>
           </TCard>
-        </div>
-        <TCard
-          v-else
-          class="config-card config-card-add"
-          hoverShadow
-          @click="$emit('open-mobile-agent-create-dialog')"
-        >
-          <div class="config-card-add-media" aria-label="新增智能体">
-            <svg viewBox="0 0 64 64" aria-hidden="true">
-              <path d="M32 14v36M14 32h36" />
-            </svg>
-          </div>
-        </TCard>
+        </TDropdown>
       </div>
     </div>
   </TDrawer>
@@ -399,21 +401,25 @@
               {{ item.systemPrompt || '未填写主要故事设定' }}
             </div>
           </TCard>
-          <TCard class="config-card config-card-add" hoverShadow @click="$emit('add-agent-template')">
+          <TDropdown trigger="click" placement="bottom-right" :options="addAgentEntryOptions" @click="handleAddAgentEntryClick">
+            <TCard class="config-card config-card-add" hoverShadow>
+              <div class="config-card-add-media" aria-label="新增智能体">
+                <svg viewBox="0 0 64 64" aria-hidden="true">
+                  <path d="M32 14v36M14 32h36" />
+                </svg>
+              </div>
+            </TCard>
+          </TDropdown>
+        </div>
+        <TDropdown v-else trigger="click" placement="bottom-right" :options="addAgentEntryOptions" @click="handleAddAgentEntryClick">
+          <TCard class="config-card config-card-add" hoverShadow>
             <div class="config-card-add-media" aria-label="新增智能体">
               <svg viewBox="0 0 64 64" aria-hidden="true">
                 <path d="M32 14v36M14 32h36" />
               </svg>
             </div>
           </TCard>
-        </div>
-        <TCard v-else class="config-card config-card-add" hoverShadow @click="$emit('add-agent-template')">
-          <div class="config-card-add-media" aria-label="新增智能体">
-            <svg viewBox="0 0 64 64" aria-hidden="true">
-              <path d="M32 14v36M14 32h36" />
-            </svg>
-          </div>
-        </TCard>
+        </TDropdown>
       </div>
     </div>
   </TDialog>
@@ -696,9 +702,14 @@ const {
 } = toRefs(props)
 
 const avatarUploadRef = ref<UploadInstanceFunctions | null>(null)
+const agentTemplateImportInputRef = ref<HTMLInputElement | null>(null)
 const pendingAvatarUploadFiles = ref<UploadFile[]>([])
 const localPreviewUrls = new Set<string>()
 const savingAvatarOnSubmit = ref(false)
+const addAgentEntryOptions = [
+  { content: '新增模板', value: 'create' },
+  { content: '导入模板', value: 'import' },
+]
 
 const avatarUploadFiles = computed<UploadFile[]>(() => {
   if (pendingAvatarUploadFiles.value.length) {
@@ -789,6 +800,34 @@ function handleAvatarUploadRemove() {
   mobileAgentDraft.value.avatar = ''
 }
 
+function handleSelectCreateAgent() {
+  emit('add-agent-template')
+}
+
+function handleSelectImportAgent() {
+  agentTemplateImportInputRef.value?.click()
+}
+
+function handleAddAgentEntryClick(data: { value?: string | number | Record<string, unknown> }) {
+  if (String(data?.value || '') === 'import') {
+    handleSelectImportAgent()
+    return
+  }
+
+  handleSelectCreateAgent()
+}
+
+function handleAgentTemplateImportChange(event: Event) {
+  const target = event.target as HTMLInputElement | null
+  const file = target?.files?.[0]
+  if (!file) {
+    return
+  }
+
+  emit('import-agent-template', file)
+  target.value = ''
+}
+
 async function handleSaveMobileAgent() {
   if (!mobileAgentDraft.value.persistToServer || !hasPendingAvatarFile.value) {
     emit('save-mobile-agent')
@@ -877,6 +916,7 @@ const emit = defineEmits<{
   ): void
   (e: 'open-mobile-agent-create-dialog'): void
   (e: 'add-agent-template'): void
+  (e: 'import-agent-template', file: File): void
   (e: 'next-agent-editor-step'): void
   (e: 'previous-agent-editor-step'): void
   (e: 'skip-agent-structure-setup'): void

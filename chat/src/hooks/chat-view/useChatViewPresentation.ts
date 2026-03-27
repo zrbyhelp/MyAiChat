@@ -51,6 +51,7 @@ export function useChatViewPresentation(options: UseChatViewPresentationOptions)
 
   const agentCardActionOptions = [
     { content: '修改', value: 'edit' },
+    { content: '导出', value: 'export' },
     { content: '删除', value: 'delete', theme: 'error' as const },
   ]
   const modelCardActionOptions = [

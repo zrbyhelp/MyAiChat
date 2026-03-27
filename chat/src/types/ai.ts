@@ -67,6 +67,15 @@ export interface AIRobotCard {
   memorySchema: MemorySchemaState
 }
 
+export interface AgentTemplateFileV1 {
+  kind: 'myaichat-agent-template'
+  version: 1
+  exportedAt: string
+  algorithm: 'AES-GCM'
+  iv: string
+  payload: string
+}
+
 export interface ModelOption {
   id: string
   label: string
