@@ -11,11 +11,14 @@ from .graph import (
     build_model,
     build_initial_state,
     chunk_text,
+    debug_log,
     normalize_structured_memory,
+    normalize_positive_int,
     numeric_agent_node,
     numeric_payload_for_answerer,
     extract_usage,
     memory_node,
+    refresh_state_memory_context,
     ui_agent_node,
 )
 from .schemas import StructuredMemory
@@ -24,6 +27,11 @@ from .schemas import ChatMessage, RunRequest, ThreadState
 
 app = FastAPI(title="MyAiChat Agent Service")
 store = ThreadStore()
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    store.ensure_ready()
 
 
 def sse(payload: dict) -> str:
@@ -40,11 +48,6 @@ def should_use_request_schema(thread, request: RunRequest) -> bool:
     if not thread or not has_schema_categories(thread.memory_schema):
         return True
     return thread.memory_schema.model_dump() != request.memory_schema.model_dump()
-
-
-def normalize_positive_int(value: int | None, fallback: int) -> int:
-    return value if isinstance(value, int) and value > 0 else fallback
-
 
 def resolve_robot_name(request: RunRequest) -> str:
     name = str(getattr(request.robot, "name", "") or "").strip()
@@ -85,29 +88,22 @@ async def run_stream(request: RunRequest):
     structured_memory = normalize_structured_memory(memory_schema, raw_structured_memory.model_dump())
     if thread:
         request.numeric_state = thread.numeric_state
-    print(
-        "[numeric-agent:input]",
-        json.dumps(
-            {
-                "thread_id": request.thread_id,
-                "session_id": request.session_id,
-                "numeric_computation_enabled": bool(request.robot.numeric_computation_enabled),
-                "numeric_computation_prompt": request.robot.numeric_computation_prompt or "",
-                "numeric_computation_items": request.robot.numeric_computation_items or [],
-                "request_numeric_state": request.numeric_state or {},
-                "thread_numeric_state": thread.numeric_state if thread else None,
-            },
-            ensure_ascii=False,
-        ),
-        flush=True,
-    )
+    debug_log("[numeric-agent:input]", {
+        "thread_id": request.thread_id,
+        "session_id": request.session_id,
+        "numeric_computation_enabled": bool(request.robot.numeric_computation_enabled),
+        "numeric_computation_prompt": request.robot.numeric_computation_prompt or "",
+        "numeric_computation_items": request.robot.numeric_computation_items or [],
+        "request_numeric_state": request.numeric_state or {},
+        "thread_numeric_state": thread.numeric_state if thread else None,
+    })
     state = build_initial_state(request, history, memory_schema, structured_memory)
 
     async def event_stream() -> AsyncIterator[str]:
         try:
             yield sse({"type": "run_started", "threadId": request.thread_id})
             final_response = ""
-            final_memory = structured_memory.model_dump()
+            final_memory = structured_memory
             final_ui_payload = {"suggestions": [], "form": None}
             usage = {"prompt_tokens": 0, "completion_tokens": 0}
             try:
@@ -118,27 +114,18 @@ async def run_stream(request: RunRequest):
             usage = numeric_payload.get("usage") or usage
             yield sse({"type": "numeric_state_updated", "state": state.get("numeric_state") or {}})
 
-            print(
-                "[answerer:numeric-input]",
-                json.dumps(
-                    {
-                        "thread_id": request.thread_id,
-                        "session_id": request.session_id,
-                        "numeric_state": numeric_payload_for_answerer(
-                            state.get("numeric_computation_items") or [],
-                            state.get("numeric_state") or {},
-                        ),
-                    },
-                    ensure_ascii=False,
+            debug_log("[answerer:numeric-input]", {
+                "thread_id": request.thread_id,
+                "session_id": request.session_id,
+                "numeric_state": numeric_payload_for_answerer(
+                    state.get("numeric_computation_items") or [],
+                    state.get("numeric_state") or {},
                 ),
-                flush=True,
-            )
+            })
             try:
                 answer_model = build_model(state["model_config"])
                 answer_usage = {"prompt_tokens": 0, "completion_tokens": 0}
-                async for chunk in answer_model.astream(
-                    build_answerer_messages(state, StructuredMemory.model_validate(state["structured_memory"]))
-                ):
+                async for chunk in answer_model.astream(build_answerer_messages(state)):
                     text = chunk_text(chunk)
                     if text:
                         final_response += text
@@ -166,7 +153,7 @@ async def run_stream(request: RunRequest):
 
             if should_refresh_structured_memory(
                 history,
-                StructuredMemory.model_validate(state["structured_memory"]),
+                state["structured_memory"],
                 state["structured_memory_interval"],
             ):
                 yield sse({"type": "memory_started"})
@@ -176,8 +163,9 @@ async def run_stream(request: RunRequest):
                     raise RuntimeError(format_stage_error(request, "结构化记忆阶段", error)) from error
                 state.update(memory_payload)
                 final_memory = memory_payload.get("structured_memory") or final_memory
+                refresh_state_memory_context(state, final_memory)
                 usage = memory_payload.get("usage") or usage
-                yield sse({"type": "memory_updated", "memory": final_memory})
+                yield sse({"type": "memory_updated", "memory": final_memory.model_dump()})
 
             next_messages = [*history, ChatMessage(role="user", content=request.prompt), ChatMessage(role="assistant", content=final_response)]
             try:
@@ -186,7 +174,7 @@ async def run_stream(request: RunRequest):
                         thread_id=request.thread_id,
                         messages=next_messages,
                         memory_schema=memory_schema,
-                        structured_memory=type(structured_memory).model_validate(final_memory),
+                        structured_memory=final_memory,
                         numeric_state=state.get("numeric_state") or {},
                     )
                 )
@@ -199,7 +187,7 @@ async def run_stream(request: RunRequest):
                 "message": final_response,
                 "suggestions": final_ui_payload.get("suggestions") or [],
                 "form": final_ui_payload.get("form"),
-                "memory": final_memory,
+                "memory": final_memory.model_dump(),
                 "numeric_state": state.get("numeric_state") or {},
                 "usage": usage,
             })
