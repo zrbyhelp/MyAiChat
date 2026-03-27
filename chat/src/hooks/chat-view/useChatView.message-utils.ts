@@ -250,7 +250,7 @@ export function getFormFieldLabel(field: AIFormField, value: FormDraftValue | un
 }
 
 export function buildFormPrompt(schema: AIFormSchema, values: Record<string, FormDraftValue>) {
-  const lines = [schema.title ? `已填写表单《${schema.title}》` : '已填写表单']
+  const lines:Array<string> = []
   schema.fields.forEach((field) => {
     const value = values[field.name]
     if (
