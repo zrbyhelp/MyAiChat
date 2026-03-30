@@ -30,8 +30,6 @@ class FakeModel:
     async def ainvoke(self, messages):
         if self.kind == "numeric":
             return FakeMessage('{"hp": 10}', 11, 7)
-        if self.kind == "ui":
-            return FakeMessage('{"suggestions":[{"title":"继续","prompt":"继续"}],"form":null}', 13, 5)
         if self.kind == "memory":
             return FakeMessage('{"updated_at":"2026-03-27T00:00:00Z","categories":[]}', 17, 6)
         return FakeMessage("stub-final", 19, 9)
@@ -45,8 +43,6 @@ def fake_build_model(config):
     name = config.get("model")
     if name == "numeric-model":
         return FakeModel("numeric")
-    if name == "ui-model":
-        return FakeModel("ui")
     if name == "memory-model":
         return FakeModel("memory")
     return FakeModel("answer")
@@ -226,13 +222,6 @@ class RunStreamTests(unittest.IsolatedAsyncioTestCase):
                                     "model": "numeric-model",
                                     "temperature": 0.7,
                                 },
-                                "form_option": {
-                                    "provider": "openai",
-                                    "base_url": "http://example.com",
-                                    "api_key": "test-key",
-                                    "model": "ui-model",
-                                    "temperature": 0.7,
-                                },
                             },
                             "memory_schema": {"categories": []},
                             "structured_memory": {"updated_at": "", "categories": []},
@@ -246,10 +235,11 @@ class RunStreamTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("run_started", response.text)
                 self.assertIn("numeric_state_updated", response.text)
                 self.assertIn("message_done", response.text)
-                self.assertIn("suggestion", response.text)
+                self.assertIn("response_completed", response.text)
                 self.assertIn("memory_updated", response.text)
                 self.assertIn("run_completed", response.text)
                 self.assertIn('"hp": 10.0', response.text)
+                self.assertLess(response.text.index("response_completed"), response.text.index("memory_updated"))
             finally:
                 graph.build_model = original_graph_build_model
                 main.build_model = original_main_build_model
@@ -307,7 +297,6 @@ class RunStreamTests(unittest.IsolatedAsyncioTestCase):
                     )
 
                 self.assertEqual(response.status_code, 200)
-                self.assertIn("world_graph_context_started", response.text)
                 self.assertIn("world_graph_writeback_started", response.text)
             finally:
                 graph.build_model = original_graph_build_model
@@ -330,37 +319,27 @@ class CapturingModel:
 
 
 class WorldGraphPromptPlacementTests(unittest.IsolatedAsyncioTestCase):
-    async def test_world_graph_context_puts_story_setting_in_system_message(self):
-        original_build_model = graph.build_model
-        model = CapturingModel(
-            '{"context_summary":"摘要","decision":{"focus_character_ids":["c1"]}}'
-        )
-        try:
-            graph.build_model = lambda config: model
-            state = {
-                "common_prompt": "通用前缀",
-                "system_prompt": "角色设定",
-                "structured_memory_text": "暂无结构化记忆。",
-                "numeric_computation_items": [],
-                "numeric_state": {},
-                "history_text": "user: old",
-                "prompt": "继续推进剧情",
-                "world_graph_payload": {"meta": {"robotId": "robot-1"}, "nodes": [], "edges": [], "events": []},
-                "model_config": {"model": "answer-model"},
-                "auxiliary_model_configs": {},
-            }
+    async def test_build_answerer_messages_puts_story_setting_in_system_message_and_graph_in_user_message(self):
+        state = {
+            "common_prompt": "通用前缀",
+            "system_prompt": "角色设定",
+            "structured_memory_text": "暂无结构化记忆。",
+            "numeric_computation_items": [],
+            "numeric_state": {},
+            "history_text": "user: old",
+            "prompt": "继续推进剧情",
+            "world_graph_payload": {"meta": {"robotId": "robot-1"}, "nodes": [], "edges": [], "events": []},
+        }
 
-            result = await graph.world_graph_context_node(state)
+        messages = graph.build_answerer_messages(state)
 
-            self.assertEqual(result["world_graph_text_summary"], "摘要")
-            self.assertIsNotNone(model.messages)
-            self.assertEqual(model.messages[0]["role"], "system")
-            self.assertIn("通用前缀", model.messages[0]["content"])
-            self.assertIn("主要故事设定：\n角色设定", model.messages[0]["content"])
-            self.assertEqual(model.messages[1]["role"], "user")
-            self.assertNotIn("主要故事设定：", model.messages[1]["content"])
-        finally:
-            graph.build_model = original_build_model
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("通用前缀", messages[0]["content"])
+        self.assertIn("角色设定", messages[0]["content"])
+        self.assertIn("suggestions", messages[0]["content"])
+        self.assertEqual(messages[1]["role"], "user")
+        self.assertIn("完整世界图谱 JSON", messages[1]["content"])
+        self.assertIn('"robotId": "robot-1"', messages[1]["content"])
 
     async def test_world_graph_writeback_puts_story_setting_in_system_message(self):
         original_build_model = graph.build_model
@@ -376,7 +355,6 @@ class WorldGraphPromptPlacementTests(unittest.IsolatedAsyncioTestCase):
                 "history_text": "user: old",
                 "prompt": "继续推进剧情",
                 "world_graph_payload": {"meta": {"robotId": "robot-1"}, "nodes": [], "edges": [], "events": []},
-                "world_graph_decision": {"focus_character_ids": ["c1"]},
                 "final_response": "最终正文",
                 "model_config": {"model": "answer-model"},
                 "auxiliary_model_configs": {},

@@ -124,7 +124,6 @@ export function normalizeRobots(input) {
     numericComputationModelConfigId: String(
       robot?.numericComputationModelConfigId || robot?.numeric_computation_model_config_id || '',
     ).trim(),
-    formOptionModelConfigId: String(robot?.formOptionModelConfigId || robot?.form_option_model_config_id || '').trim(),
     worldGraphModelConfigId: String(robot?.worldGraphModelConfigId || robot?.world_graph_model_config_id || '').trim(),
     numericComputationEnabled: Boolean(robot?.numericComputationEnabled ?? robot?.imageFetchEnabled),
     numericComputationPrompt: String((robot?.numericComputationPrompt ?? robot?.imageFetchPrompt) || '').trim(),
@@ -154,7 +153,6 @@ export function normalizeSessionRobot(input) {
     numericComputationModelConfigId: String(
       input?.numericComputationModelConfigId || input?.numeric_computation_model_config_id || '',
     ).trim(),
-    formOptionModelConfigId: String(input?.formOptionModelConfigId || input?.form_option_model_config_id || '').trim(),
     worldGraphModelConfigId: String(input?.worldGraphModelConfigId || input?.world_graph_model_config_id || '').trim(),
     numericComputationEnabled: Boolean(input?.numericComputationEnabled ?? input?.imageFetchEnabled),
     numericComputationPrompt: String((input?.numericComputationPrompt ?? input?.imageFetchPrompt) || '').trim(),

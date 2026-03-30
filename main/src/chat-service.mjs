@@ -12,7 +12,14 @@ import {
   readModelConfigs,
   saveSessionRecord,
 } from './storage.mjs'
-import { normalizeFormSchema, normalizeSuggestionItems } from './structured.mjs'
+import {
+  createStructuredStreamParser,
+  consumeStructuredStreamChunk,
+  extractStructuredPayloadsFromText,
+  finalizeStructuredStream,
+  normalizeFormSchema,
+  normalizeSuggestionItems,
+} from './structured.mjs'
 import {
   applyWorldGraphWritebackToSnapshot,
   cloneWorldGraphSnapshot,
@@ -259,7 +266,6 @@ async function buildAgentRequest(payload, user, session) {
       system_prompt: robot?.systemPrompt || payload.systemPrompt || '',
       memory_model_config_id: String(robot?.memoryModelConfigId || ''),
       numeric_computation_model_config_id: String(robot?.numericComputationModelConfigId || ''),
-      form_option_model_config_id: String(robot?.formOptionModelConfigId || ''),
       world_graph_model_config_id: String(robot?.worldGraphModelConfigId || ''),
       numeric_computation_enabled: Boolean(robot?.numericComputationEnabled),
       numeric_computation_prompt: String(robot?.numericComputationPrompt || ''),
@@ -303,20 +309,6 @@ async function buildAgentRequest(payload, user, session) {
         const config = resolveAuxiliaryModelConfig(robot?.numericComputationModelConfigId)
         return {
           model_config_id: String(robot?.numericComputationModelConfigId || ''),
-          provider: config.provider,
-          base_url:
-            config.provider === 'ollama'
-              ? getOllamaChatBaseUrl(config.baseUrl)
-              : sanitizeBaseUrl(config.baseUrl),
-          api_key: String(config.apiKey || ''),
-          model: String(config.model || ''),
-          temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
-        }
-      })(),
-      form_option: (() => {
-        const config = resolveAuxiliaryModelConfig(robot?.formOptionModelConfigId)
-        return {
-          model_config_id: String(robot?.formOptionModelConfigId || ''),
           provider: config.provider,
           base_url:
             config.provider === 'ollama'
@@ -490,7 +482,24 @@ async function runAgentAndCollect(payload, user, onEvent) {
   let finalNumericState = session?.numericState || {}
   let finalWorldGraph = await loadWorldGraphPayload(user, payload, session)
   let finalWorldGraphWritebackOps = null
+  const structuredStreamState = createStructuredStreamParser()
+  let structuredStreamClosed = false
+  let receivedResponseCompleted = false
   let receivedRunCompleted = false
+
+  function finalizeStructuredAssistantOutput(rawMessage = '') {
+    if (structuredStreamClosed) {
+      return
+    }
+
+    const finalized = String(rawMessage || '').trim()
+      ? extractStructuredPayloadsFromText(rawMessage)
+      : finalizeStructuredStream(structuredStreamState)
+    structuredStreamClosed = true
+    finalMessage = String(finalized.text || '').trim()
+    finalSuggestions = normalizeSuggestionItems(finalized.suggestions)
+    finalForm = normalizeFormSchema(finalized.form)
+  }
 
   try {
     while (true) {
@@ -515,27 +524,32 @@ async function runAgentAndCollect(payload, user, onEvent) {
         if (!parsed) {
           continue
         }
+        const forwardedEvents = []
 
         if (parsed.type === 'error') {
           throw new Error(typeof parsed.message === 'string' && parsed.message.trim() ? parsed.message.trim() : '聊天失败')
         }
 
         if (parsed.type === 'message_delta' && parsed.text) {
-          finalMessage += String(parsed.text)
+          const visibleText = consumeStructuredStreamChunk(structuredStreamState, parsed.text)
+          if (visibleText) {
+            finalMessage += String(visibleText)
+            forwardedEvents.push({ type: 'message_delta', text: visibleText })
+          }
+        } else if (parsed.type === 'message_done') {
+          finalizeStructuredAssistantOutput(String(parsed.text || ''))
+          forwardedEvents.push({ type: 'message_done', text: finalMessage })
+          if (finalForm?.fields?.length) {
+            forwardedEvents.push({ type: 'form', form: finalForm })
+          } else if (finalSuggestions.length) {
+            forwardedEvents.push({ type: 'suggestion', items: finalSuggestions })
+          }
+        } else {
+          forwardedEvents.push(parsed)
         }
-        if (parsed.type === 'message_done' && parsed.text) {
-          finalMessage = String(parsed.text)
-        }
+
         if (parsed.type === 'memory_updated' && parsed.memory) {
           finalMemory = normalizeStructuredMemory(parsed.memory)
-        }
-        if (parsed.type === 'suggestion') {
-          finalSuggestions = normalizeSuggestionItems(parsed.items)
-          finalForm = null
-        }
-        if (parsed.type === 'form') {
-          finalForm = normalizeFormSchema(parsed.form)
-          finalSuggestions = []
         }
         if (parsed.type === 'usage') {
           finalUsage = normalizeUsage(parsed)
@@ -543,12 +557,21 @@ async function runAgentAndCollect(payload, user, onEvent) {
         if (parsed.type === 'numeric_state_updated' && parsed.state) {
           finalNumericState = parsed.state
         }
+        if (parsed.type === 'response_completed') {
+          finalizeStructuredAssistantOutput(String(parsed.message || ''))
+          receivedResponseCompleted = true
+          finalThreadId = String(parsed.threadId || finalThreadId)
+          finalNumericState =
+            typeof parsed.numeric_state === 'object' && parsed.numeric_state !== null
+              ? parsed.numeric_state
+              : typeof parsed.numericState === 'object' && parsed.numericState !== null
+                ? parsed.numericState
+                : finalNumericState
+        }
         if (parsed.type === 'run_completed') {
+          finalizeStructuredAssistantOutput(String(parsed.message || ''))
           receivedRunCompleted = true
           finalThreadId = String(parsed.threadId || finalThreadId)
-          finalMessage = String(parsed.message || finalMessage)
-          finalSuggestions = normalizeSuggestionItems(parsed.suggestions || finalSuggestions)
-          finalForm = normalizeFormSchema(parsed.form || finalForm)
           finalMemory = normalizeStructuredMemory(parsed.memory || finalMemory)
           finalNumericState =
             typeof parsed.numeric_state === 'object' && parsed.numeric_state !== null
@@ -565,7 +588,9 @@ async function runAgentAndCollect(payload, user, onEvent) {
                 : finalWorldGraphWritebackOps
         }
 
-        await onEvent?.(parsed)
+        for (const event of forwardedEvents) {
+          await onEvent?.(event)
+        }
       }
     }
   } catch (error) {
@@ -617,6 +642,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
     numericState: finalNumericState,
     memory: finalMemory,
     usage: finalUsage,
+    responseCompleted: receivedResponseCompleted,
     session: savedSession || normalizeSession({
       ...(session || payload.sessionSnapshot || {}),
       id: payload.sessionId,
@@ -663,7 +689,11 @@ export function mapAgentEventToChatEvents(payload) {
   }
 
   if (payload.type === 'message_done') {
-    return [{ type: 'ui_loading', message: '正在生成交互 UI' }]
+    return []
+  }
+
+  if (payload.type === 'response_completed') {
+    return [{ type: 'done' }]
   }
 
   if (payload.type === 'suggestion') {
@@ -707,10 +737,6 @@ export function mapAgentEventToChatEvents(payload) {
     }]
   }
 
-  if (payload.type === 'world_graph_context_started') {
-    return [{ type: 'ui_loading', message: '正在分析世界图谱' }]
-  }
-
   if (payload.type === 'world_graph_writeback_started') {
     return [{ type: 'ui_loading', message: '正在写回世界图谱' }]
   }
@@ -750,6 +776,9 @@ export async function handleChatStream(payload, res, user) {
       forwardAgentEvent(res, event)
     })
 
+    if (!result.responseCompleted) {
+      sendSSE(res, { type: 'done' })
+    }
     sendUsageSSE(res, result.session)
     sendSSE(res, {
       type: 'structured_memory',
@@ -763,7 +792,7 @@ export async function handleChatStream(payload, res, user) {
       type: 'session_world_graph',
       graph: result.session.worldGraph || null,
     })
-    sendSSE(res, { type: 'done' })
+    sendSSE(res, { type: 'background_done' })
   } catch (error) {
     sendSSE(res, {
       type: 'error',

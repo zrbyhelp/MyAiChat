@@ -350,14 +350,6 @@
                 clearable
               />
             </TFormItem>
-            <TFormItem label="表单选项模型">
-              <TSelect
-                v-model="mobileAgentDraft.formOptionModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
           </div>
           <div class="agent-schema-card">
             <MemorySchemaEditor :schema="mobileAgentDraft.memorySchema" />
@@ -655,14 +647,6 @@
             <TFormItem label="数值计算模型">
               <TSelect
                 v-model="mobileAgentDraft.numericComputationModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
-            <TFormItem label="表单选项模型">
-              <TSelect
-                v-model="mobileAgentDraft.formOptionModelConfigId"
                 :options="auxModelOptions"
                 placeholder="未单独配置，默认跟随正文模型"
                 clearable

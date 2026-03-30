@@ -650,7 +650,6 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
       systemPrompt: sessionRobot.systemPrompt,
       memoryModelConfigId: sessionRobot.memoryModelConfigId,
       numericComputationModelConfigId: sessionRobot.numericComputationModelConfigId,
-      formOptionModelConfigId: sessionRobot.formOptionModelConfigId,
       worldGraphModelConfigId: sessionRobot.worldGraphModelConfigId,
       numericComputationEnabled: sessionRobot.numericComputationEnabled,
       numericComputationPrompt: sessionRobot.numericComputationPrompt,
@@ -847,7 +846,7 @@ async function saveMobileAgentAndOpenWorldGraph() {
   openWorldGraph(savedAgent.id)
 }
 
-function finalizeChatResponse(options?: { refreshSession?: boolean }) {
+function completeChatResponse() {
   isChatResponding.value = false
   endInteractionLock()
   currentAssistantLoadingText.value = ''
@@ -855,6 +854,9 @@ function finalizeChatResponse(options?: { refreshSession?: boolean }) {
   pendingAssistantMemoryStatus.value = null
   flushPendingAssistantStructuredContent()
   applyChatMessages(chatMessages.value)
+}
+
+function syncChatResponse(options?: { refreshSession?: boolean }) {
   if (options?.refreshSession) {
     refreshCurrentSessionState().catch(() => {})
     refreshSessionHistory().catch(() => {})
@@ -885,7 +887,8 @@ const { chatServiceConfig } = useChatStreaming({
   applyStructuredMemory,
   applySessionWorldGraph,
   serializeChatMessages,
-  finalizeChatResponse,
+  completeChatResponse,
+  syncChatResponse,
   currentAssistantLoadingText,
   currentMemoryStatusText,
   pendingAssistantSuggestions,

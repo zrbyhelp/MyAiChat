@@ -8,7 +8,8 @@ import type { RobotWorldGraph } from '@/types/ai'
 function createStreamingTestContext() {
   const beginInteractionLock = vi.fn()
   const applyChatMessages = vi.fn()
-  const finalizeChatResponse = vi.fn()
+  const completeChatResponse = vi.fn()
+  const syncChatResponse = vi.fn()
   const flushPendingAssistantStructuredContent = vi.fn()
   const flushPendingAssistantMemoryStatus = vi.fn()
   const applyNumericState = vi.fn()
@@ -56,7 +57,6 @@ function createStreamingTestContext() {
       systemPrompt: '',
       memoryModelConfigId: '',
       numericComputationModelConfigId: '',
-      formOptionModelConfigId: '',
       worldGraphModelConfigId: '',
       numericComputationEnabled: false,
       numericComputationPrompt: '',
@@ -93,7 +93,8 @@ function createStreamingTestContext() {
     applyStructuredMemory,
     applySessionWorldGraph,
     serializeChatMessages,
-    finalizeChatResponse,
+    completeChatResponse,
+    syncChatResponse,
     currentAssistantLoadingText,
     currentMemoryStatusText,
     pendingAssistantSuggestions,
@@ -110,6 +111,8 @@ function createStreamingTestContext() {
     chatMessages,
     currentAssistantLoadingText,
     applyChatMessages,
+    completeChatResponse,
+    syncChatResponse,
   }
 }
 
@@ -173,5 +176,34 @@ describe('useChatStreaming', () => {
     expect(result).toMatchObject({ type: 'markdown', data: '正文开始' })
     expect(currentAssistantLoadingText.value).toBe('')
     expect(applyChatMessages).toHaveBeenCalledWith(chatMessages.value)
+  })
+
+  it('completes the visible response on done without triggering session sync yet', async () => {
+    const { chatServiceConfig, completeChatResponse, syncChatResponse } = createStreamingTestContext()
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'done',
+      },
+    } as never)
+
+    await Promise.resolve()
+
+    expect(completeChatResponse).toHaveBeenCalledTimes(1)
+    expect(syncChatResponse).not.toHaveBeenCalled()
+  })
+
+  it('syncs the final session state when background work finishes', async () => {
+    const { chatServiceConfig, syncChatResponse } = createStreamingTestContext()
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'background_done',
+      },
+    } as never)
+
+    await Promise.resolve()
+
+    expect(syncChatResponse).toHaveBeenCalledWith({ refreshSession: false })
   })
 })

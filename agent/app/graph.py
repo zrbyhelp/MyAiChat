@@ -39,11 +39,8 @@ class AgentState(TypedDict):
     numeric_computation_items: list[dict]
     numeric_state: dict
     world_graph_payload: dict
-    world_graph_text_summary: str
-    world_graph_decision: dict
     world_graph_writeback_ops: dict
     final_response: NotRequired[str]
-    ui_payload: NotRequired[dict]
     usage: NotRequired[dict]
 
 
@@ -150,91 +147,6 @@ def truncate_text(value, limit: int) -> str:
     if limit <= 0 or len(text) <= limit:
         return text
     return text[: max(limit - 1, 0)].rstrip() + "…"
-
-
-def normalize_ui_suggestions(input_value) -> list[dict]:
-    items = input_value if isinstance(input_value, list) else []
-    results: list[dict] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("title") or item.get("t") or "").strip()
-        prompt = str(item.get("prompt") or item.get("p") or title).strip()
-        if not title:
-            continue
-        results.append({
-            "title": title,
-            "prompt": prompt or title,
-        })
-    return results
-
-
-def normalize_ui_options(input_value) -> list[dict]:
-    items = input_value if isinstance(input_value, list) else []
-    results: list[dict] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        label = str(item.get("label") or item.get("l") or item.get("value") or item.get("v") or "").strip()
-        value = str(item.get("value") or item.get("v") or item.get("label") or item.get("l") or "").strip()
-        if not label or not value:
-            continue
-        results.append({
-            "label": label,
-            "value": value,
-        })
-    return results
-
-
-def normalize_ui_form(input_value) -> dict | None:
-    if not isinstance(input_value, dict):
-        return None
-
-    raw_fields = input_value.get("fields")
-    raw_fields = raw_fields if isinstance(raw_fields, list) else input_value.get("fs")
-    raw_fields = raw_fields if isinstance(raw_fields, list) else []
-    fields: list[dict] = []
-
-    for index, field in enumerate(raw_fields):
-        if not isinstance(field, dict):
-            continue
-        field_type = str(field.get("type") or field.get("t") or "input").strip()
-        if field_type not in {"input", "radio", "checkbox", "select"}:
-            field_type = "input"
-        normalized = {
-            "name": str(field.get("name") or field.get("n") or f"field_{index + 1}").strip(),
-            "label": str(field.get("label") or field.get("l") or field.get("name") or field.get("n") or f"字段 {index + 1}").strip(),
-            "type": field_type,
-            "placeholder": str(field.get("placeholder") or field.get("p") or "").strip(),
-            "required": bool(field.get("required") if field.get("required") is not None else field.get("r")),
-            "inputType": "number" if str(field.get("inputType") or field.get("it") or "").strip() == "number" else "text",
-            "multiple": bool(field.get("multiple") if field.get("multiple") is not None else field.get("m")),
-            "options": normalize_ui_options(field.get("options") or field.get("o")),
-            "defaultValue": field.get("defaultValue") if field.get("defaultValue") is not None else field.get("d", ""),
-        }
-        if normalized["name"] and normalized["label"]:
-            fields.append(normalized)
-
-    if not fields:
-        return None
-
-    return {
-        "title": str(input_value.get("title") or input_value.get("ti") or "请补充信息").strip(),
-        "description": str(input_value.get("description") or input_value.get("de") or "").strip(),
-        "submitText": str(input_value.get("submitText") or input_value.get("st") or "提交").strip(),
-        "fields": fields,
-    }
-
-
-def normalize_ui_payload(input_value) -> dict:
-    payload = input_value if isinstance(input_value, dict) else {}
-    suggestions = normalize_ui_suggestions(payload.get("suggestions") or payload.get("s"))
-    form = normalize_ui_form(payload.get("form") or payload.get("f"))
-    if form:
-        suggestions = []
-    if not form and not suggestions:
-        suggestions = [{"title": "继续", "prompt": "继续"}]
-    return {"suggestions": suggestions, "form": form}
 
 
 def normalize_numeric_items(input_value) -> list[dict]:
@@ -410,51 +322,6 @@ def normalize_string_list(value) -> list[str]:
 def world_graph_json_text(value) -> str:
     payload = value if isinstance(value, dict) else {}
     return json.dumps(payload, ensure_ascii=False)
-
-
-def normalize_world_graph_entity_candidate(value) -> dict | None:
-    item = value if isinstance(value, dict) else {}
-    entity_id = str(item.get("id") or "").strip()
-    object_type = str(item.get("object_type") or item.get("objectType") or "").strip()
-    name = str(item.get("name") or "").strip()
-    summary = str(item.get("summary") or "").strip()
-    if not entity_id or not object_type or not name:
-        return None
-    return {
-        "id": entity_id,
-        "object_type": object_type,
-        "name": name,
-        "summary": summary,
-    }
-
-
-def normalize_world_graph_decision(value) -> dict:
-    payload = value if isinstance(value, dict) else {}
-    candidates = [
-        normalize_world_graph_entity_candidate(item)
-        for item in (payload.get("candidate_new_entities") or payload.get("candidateNewEntities") or [])
-    ]
-    return {
-        "focus_character_ids": normalize_string_list(payload.get("focus_character_ids") or payload.get("focusCharacterIds")),
-        "focus_organization_ids": normalize_string_list(payload.get("focus_organization_ids") or payload.get("focusOrganizationIds")),
-        "focus_location_ids": normalize_string_list(payload.get("focus_location_ids") or payload.get("focusLocationIds")),
-        "focus_item_ids": normalize_string_list(payload.get("focus_item_ids") or payload.get("focusItemIds")),
-        "focus_event_ids": normalize_string_list(payload.get("focus_event_ids") or payload.get("focusEventIds")),
-        "focus_edge_ids": normalize_string_list(payload.get("focus_edge_ids") or payload.get("focusEdgeIds")),
-        "primary_conflict": str(payload.get("primary_conflict") or payload.get("primaryConflict") or "").strip(),
-        "recommended_progression": str(payload.get("recommended_progression") or payload.get("recommendedProgression") or "").strip(),
-        "timeline_focus": str(payload.get("timeline_focus") or payload.get("timelineFocus") or "").strip(),
-        "must_keep_consistency": normalize_string_list(payload.get("must_keep_consistency") or payload.get("mustKeepConsistency")),
-        "candidate_new_entities": [item for item in candidates if item],
-    }
-
-
-def normalize_world_graph_context_output(value) -> dict:
-    payload = value if isinstance(value, dict) else {}
-    return {
-        "context_summary": str(payload.get("context_summary") or payload.get("contextSummary") or "").strip(),
-        "decision": normalize_world_graph_decision(payload.get("decision")),
-    }
 
 
 def normalize_world_graph_writeback_ops(value) -> dict:
@@ -764,13 +631,13 @@ def build_answerer_messages(
     state: AgentState,
 ) -> list[dict]:
     numeric_items = state.get("numeric_computation_items") or []
-    world_graph_decision = state.get("world_graph_decision") or {}
     return [
         {
             "role": "system",
             "content": compose_system_prompt(
                 resolve_common_prompt(state),
                 PROMPT_CONFIG.templates.answerer.base_instruction,
+                PROMPT_CONFIG.templates.answerer.structured_output_instruction,
                 resolve_system_prompt(state),
             ),
         },
@@ -778,8 +645,7 @@ def build_answerer_messages(
             "role": "user",
             "content": (
                 f"结构化记忆：\n{state['structured_memory_text']}\n\n"
-                f"世界图谱上下文：\n{state.get('world_graph_text_summary') or '暂无世界图谱上下文。'}\n\n"
-                f"世界图谱决策：\n{json.dumps(world_graph_decision, ensure_ascii=False)}\n\n"
+                f"完整世界图谱 JSON：\n{world_graph_json_text(state.get('world_graph_payload') or {})}\n\n"
                 f"{PROMPT_CONFIG.templates.answerer.numeric_guardrail}\n\n"
                 f"数值信息：\n{json.dumps(numeric_payload_for_answerer(numeric_items, state.get('numeric_state')), ensure_ascii=False)}\n\n"
                 f"历史消息：\n{state['history_text']}\n\n"
@@ -850,48 +716,6 @@ async def numeric_agent_node(state: AgentState) -> dict:
     }
 
 
-async def world_graph_context_node(state: AgentState) -> dict:
-    world_graph_payload = state.get("world_graph_payload") or {}
-    if not str(world_graph_payload.get("meta", {}).get("robotId") or "").strip():
-        return {
-            "world_graph_text_summary": "",
-            "world_graph_decision": normalize_world_graph_decision({}),
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
-        }
-
-    model = build_model(resolve_node_model_config(state, "world_graph"))
-    response = await model.ainvoke(
-        [
-            {
-                "role": "system",
-                "content": compose_system_prompt(
-                    resolve_common_prompt(state),
-                    f"主要故事设定：\n{resolve_system_prompt(state)}",
-                    PROMPT_CONFIG.templates.world_graph_context.system_instruction,
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"结构化记忆：\n{state['structured_memory_text']}\n\n"
-                    f"数值信息：\n{json.dumps(numeric_payload_for_answerer(state.get('numeric_computation_items') or [], state.get('numeric_state')), ensure_ascii=False)}\n\n"
-                    f"历史消息：\n{state['history_text']}\n\n"
-                    f"用户最新输入：{state['prompt']}\n\n"
-                    f"完整世界图谱 JSON：\n{world_graph_json_text(world_graph_payload)}"
-                ),
-            },
-        ]
-    )
-    usage = extract_usage(response)
-    raw = response.content if isinstance(response.content, str) else str(response.content)
-    parsed = normalize_world_graph_context_output(parse_json_object(raw, {}))
-    return {
-        "world_graph_text_summary": parsed["context_summary"],
-        "world_graph_decision": parsed["decision"],
-        "usage": usage,
-    }
-
-
 async def world_graph_writeback_node(state: AgentState) -> dict:
     world_graph_payload = state.get("world_graph_payload") or {}
     if not str(world_graph_payload.get("meta", {}).get("robotId") or "").strip():
@@ -918,7 +742,6 @@ async def world_graph_writeback_node(state: AgentState) -> dict:
                     f"数值信息：\n{json.dumps(numeric_payload_for_answerer(state.get('numeric_computation_items') or [], state.get('numeric_state')), ensure_ascii=False)}\n\n"
                     f"历史消息：\n{state['history_text']}\n\n"
                     f"用户最新输入：{state['prompt']}\n\n"
-                    f"前置世界图谱决策：\n{json.dumps(state.get('world_graph_decision') or {}, ensure_ascii=False)}\n\n"
                     f"最终正文：\n{state.get('final_response', '')}\n\n"
                     f"完整世界图谱 JSON：\n{world_graph_json_text(world_graph_payload)}"
                 ),
@@ -932,38 +755,6 @@ async def world_graph_writeback_node(state: AgentState) -> dict:
         "world_graph_writeback_ops": parsed,
         "usage": usage,
     }
-
-
-async def ui_agent_node(state: AgentState) -> dict:
-    model = build_model(resolve_node_model_config(state, "form_option"))
-    response = await model.ainvoke(
-        [
-            {
-                "role": "system",
-                "content": compose_system_prompt(
-                    resolve_common_prompt(state),
-                    PROMPT_CONFIG.templates.ui_agent.system_instruction,
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"主要故事设定：\n{resolve_system_prompt(state)}\n\n"
-                    f"结构化记忆：\n{state['structured_memory_text']}\n\n"
-                    f"历史消息：\n{state['history_text']}\n\n"
-                    f"用户最新输入：{state['prompt']}\n\n"
-                    f"assistant 最终回复：\n{state.get('final_response', '')}"
-                ),
-            },
-        ]
-    )
-    usage = extract_usage(response)
-    raw = response.content if isinstance(response.content, str) else str(response.content)
-    parsed = parse_json_object(raw, {})
-    ui_payload = normalize_ui_payload(parsed)
-    return {"ui_payload": ui_payload, "usage": usage}
-
-
 async def memory_node(state: AgentState) -> dict:
     model = build_model(resolve_node_model_config(state, "memory"))
     schema = state["memory_schema"]
@@ -1016,8 +807,6 @@ def build_initial_state(
         "numeric_computation_items": normalized_numeric_items,
         "numeric_state": request.numeric_state or {},
         "world_graph_payload": request.world_graph or {},
-        "world_graph_text_summary": "",
-        "world_graph_decision": normalize_world_graph_decision({}),
         "world_graph_writeback_ops": normalize_world_graph_writeback_ops({}),
         "model_config": request.model_settings.model_dump(),
         "auxiliary_model_configs": request.auxiliary_model_configs.model_dump(),

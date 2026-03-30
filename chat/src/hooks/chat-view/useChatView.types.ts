@@ -57,6 +57,7 @@ export type NormalizedStreamPayload = {
     | 'session_world_graph'
     | 'ui_loading'
     | 'done'
+    | 'background_done'
     | 'error'
   text?: string
   message?: string

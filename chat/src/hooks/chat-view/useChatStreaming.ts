@@ -42,7 +42,8 @@ interface UseChatStreamingOptions {
   applyStructuredMemory: (memory?: Partial<StructuredMemoryState> | null) => void
   applySessionWorldGraph: (graph?: RobotWorldGraph | null) => void
   serializeChatMessages: (messages: ChatRenderMessage[]) => ChatSessionMessage[]
-  finalizeChatResponse: (options?: { refreshSession?: boolean }) => void
+  completeChatResponse: () => void
+  syncChatResponse: (options?: { refreshSession?: boolean }) => void
   currentAssistantLoadingText: Ref<string>
   currentMemoryStatusText: Ref<string>
   pendingAssistantSuggestions: Ref<SuggestionOption[] | null>
@@ -95,7 +96,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
   }
 
   function buildAuxiliaryModelConfig(
-    kind: 'memory' | 'numeric_computation' | 'form_option' | 'world_graph',
+    kind: 'memory' | 'numeric_computation' | 'world_graph',
     modelConfigId?: string | null,
   ) {
     const targetId = String(modelConfigId || '').trim()
@@ -140,7 +141,6 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             systemPrompt: options.sessionRobot.systemPrompt,
             memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
             numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
-            formOptionModelConfigId: options.sessionRobot.formOptionModelConfigId,
             worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
             numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
             numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
@@ -154,7 +154,6 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
               'numeric_computation',
               options.sessionRobot.numericComputationModelConfigId,
             ),
-            formOption: buildAuxiliaryModelConfig('form_option', options.sessionRobot.formOptionModelConfigId),
             worldGraph: buildAuxiliaryModelConfig('world_graph', options.sessionRobot.worldGraphModelConfigId),
           },
           sessionSnapshot: {
@@ -191,7 +190,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
     onMessage: (chunk: SSEChunkData): AIMessageContent | null => {
       const payload = chunk.data as NormalizedStreamPayload
       if (payload.type === 'error') {
-        options.finalizeChatResponse()
+        options.completeChatResponse()
         MessagePlugin.error(payload.message || '聊天失败')
         return null
       }
@@ -269,7 +268,12 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       }
       if (payload.type === 'done') {
         nextTick(() => {
-          options.finalizeChatResponse({
+          options.completeChatResponse()
+        })
+      }
+      if (payload.type === 'background_done') {
+        nextTick(() => {
+          options.syncChatResponse({
             refreshSession: options.currentSessionMemory.persistToServer,
           })
         })
@@ -277,10 +281,10 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       return null
     },
     onAbort: async () => {
-      options.finalizeChatResponse()
+      options.completeChatResponse()
     },
     onError: (error) => {
-      options.finalizeChatResponse()
+      options.completeChatResponse()
       MessagePlugin.error(formatChatErrorMessage(error))
     },
   }))

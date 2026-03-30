@@ -35,16 +35,6 @@
                 />
               </TFormItem>
             </div>
-            <div class="form-grid-2">
-              <TFormItem label="表单选项生成模型">
-                <TSelect
-                  v-model="sessionRobotDraft.formOptionModelConfigId"
-                  :options="auxModelOptions"
-                  placeholder="未单独配置，默认跟随正文模型"
-                  clearable
-                />
-              </TFormItem>
-            </div>
             <TFormItem label="数值计算模型">
               <TSelect
                 v-model="sessionRobotDraft.numericComputationModelConfigId"
@@ -87,16 +77,6 @@
               <TFormItem label="世界图谱模型">
                 <TSelect
                   v-model="sessionRobotDraft.worldGraphModelConfigId"
-                  :options="auxModelOptions"
-                  placeholder="未单独配置，默认跟随正文模型"
-                  clearable
-                />
-              </TFormItem>
-            </div>
-            <div class="form-grid-2">
-              <TFormItem label="表单选项生成模型">
-                <TSelect
-                  v-model="sessionRobotDraft.formOptionModelConfigId"
                   :options="auxModelOptions"
                   placeholder="未单独配置，默认跟随正文模型"
                   clearable

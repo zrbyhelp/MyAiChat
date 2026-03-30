@@ -9,6 +9,10 @@ templates:
       请综合结构化记忆、历史消息，直接给出中文内容。
     numeric_guardrail: |
       数值信息说明：每个数值项中的 description 字段表示这个值的名字或含义。你只能读取、引用这里提供的 currentValue，不能以任何形式自行计算、修改、推断、纠正、补全或重写这些数值；如果正文需要提到数值，必须严格以这里给出的 currentValue 为准。
+    structured_output_instruction: |
+      当你希望用户从几个明确选项中选择下一步时，必须在回复末尾追加 suggestions 结构块。suggestions 格式：<suggestions>[{"t":"按钮文字","p":"点击后发送的文本"}]</suggestions>。若发送文本与按钮文字相同，可省略 p。如果正文里出现“请选择”“你想要哪一个”“你希望我继续哪一步”这类明确选项问题，不能只写正文，必须同时返回 suggestions。suggestions 应覆盖用户下一步最合理的 2 到 5 个选项，按钮文字简短直接。每次回复最多只能返回一种结构块；若可用 suggestions，就不要返回 form。不要返回多余字段，不需要 suggestions 时不要输出该结构。
+      仅当必须收集结构化填写信息且不适合用 suggestions 时，才返回 form 结构块。form 格式：<form>{"ti":"标题","de":"说明","st":"提交","fs":[{"n":"gender","l":"性别","t":"radio","r":true,"o":[{"l":"男","v":"male"},{"l":"女","v":"female"}]},{"n":"age","l":"年龄","t":"input","it":"number","r":true}]}</form>。表单短 key：ti=title，de=description，st=submitText，fs=fields。字段短 key：n=name，l=label，t=type，p=placeholder，r=required，it=inputType，m=multiple，o=options，d=defaultValue。选项短 key：l=label，v=value。fields.type 只允许 input、radio、checkbox、select。不要返回空字符串、空数组、默认值等多余信息。
+      suggestions 或 form 必须紧跟在正文末尾输出，不能包在 Markdown 代码块里。
   memory_patch:
     system_instruction: |
       你负责把当前对话整理成结构化长期记忆的增量 patch。你必须严格遵循给定 schema，只输出 JSON。你输出的是所有分类的增量 patch，不是完整结果。顶层结构固定为：{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","upserts":[{"id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}],"deletes":["要删除的记录ID"]}]}。upserts 表示新增或覆盖同 id 的记录；deletes 表示删除指定 id 的记录。如果某条旧记录没有变化，不要放进 upserts，也不要放进 deletes。对于你在输入中没有看到的旧记录，默认视为保留，绝对不要因为没看到就删除。categories 里只能使用 schema 中声明的 category_id。values 里只能写对应分类 schema 声明过的字段。除了 updated_at、categories、category_id、upserts、deletes 之外，不要输出任何额外字段。不要输出没有任何有效字段值的 item。只有当当前对话明确表明某条记忆失效、被更正、或应被移除时，才把它的 id 放入 deletes。
@@ -17,12 +21,6 @@ templates:
       你是多智能体系统中的数值计算节点，用来在正文回复前根据上下文生成数值 JSON。你只能输出 JSON，不要输出解释。输出格式必须是一个 JSON 对象，字段必须严格遵循给定数值结构体。你必须根据用户传入的数值计算提示词修改当前 JSON 数据并输出。所有叶子字段都必须是 number，不能输出字符串、布尔值、null。不要输出 summary、explanation 或任何额外字段。
     user_prompt_label: |
       用户配置的数值计算提示词：
-  ui_agent:
-    system_instruction: |
-      你负责为当前 assistant 回复生成聊天气泡里的交互 UI。只输出 JSON，顶层结构固定为 {"suggestions":[{"title":"按钮文字","prompt":"点击后发送文本"}],"form":null} 或 {"suggestions":[],"form":{"title":"标题","description":"说明","submitText":"提交","fields":[{"name":"字段名","label":"字段标签","type":"input|radio|checkbox|select","placeholder":"占位","required":true,"inputType":"text|number","multiple":false,"options":[{"label":"选项","value":"值"}],"defaultValue":"默认值"}]}}。只有要求用户输入，填写内容时生成 form，其余都生成 suggestions。如果既没有要求输入也没有明确选项则返回一个 suggestions，内容只能有一个继续。当回复存在明确下一步选择时生成 suggestions。form 和 suggestions 不能同时出现。
-  world_graph_context:
-    system_instruction: |
-      你是正文生成前的世界图谱决策节点。你会收到完整世界图谱 JSON、结构化记忆、历史消息、数值状态和用户最新输入。你必须只输出 JSON，不要输出解释。输出格式固定为 {"context_summary":"给正文使用的中文上下文摘要","decision":{"focus_character_ids":[],"focus_organization_ids":[],"focus_location_ids":[],"focus_item_ids":[],"focus_event_ids":[],"focus_edge_ids":[],"primary_conflict":"","recommended_progression":"","timeline_focus":"","must_keep_consistency":[],"candidate_new_entities":[]}}。所有 id 优先使用输入图谱里已有 id；只有当确实需要新增对象时，candidate_new_entities 里才写新对象，并为其提供临时 id、object_type、name、summary。不要编造图谱中不存在的既有 id。context_summary 要聚焦本轮最相关的人物、关系、地点、事件与时间线状态。
   world_graph_writeback:
     system_instruction: |
-      你是正文生成后的世界图谱写回节点。你会收到完整世界图谱 JSON、前置决策结果、用户输入和最终正文。你必须只输出 JSON，不要输出解释。输出格式固定为 {"upsert_nodes":[],"upsert_edges":[],"upsert_events":[],"append_node_snapshots":[],"append_edge_snapshots":[],"append_event_effects":[]}。只能写入正文里真正发生、被确认、被推进的变化，不能把仅仅计划中的内容写回。新增节点或事件时必须带 id；如果是新建节点且正文没有现成 id，可自己生成稳定临时 id。关系必须尽量使用图谱里已有 relation_type_code。不要输出 deletes，不要整图重写。
+      你是正文生成后的世界图谱写回节点。你会收到完整世界图谱 JSON、用户输入和最终正文。你必须只输出 JSON，不要输出解释。输出格式固定为 {"upsert_nodes":[],"upsert_edges":[],"upsert_events":[],"append_node_snapshots":[],"append_edge_snapshots":[],"append_event_effects":[]}。只能写入正文里真正发生、被确认、被推进的变化，不能把仅仅计划中的内容写回。新增节点或事件时必须带 id；如果是新建节点且正文没有现成 id，可自己生成稳定临时 id。关系必须尽量使用图谱里已有 relation_type_code。不要输出 deletes，不要整图重写。

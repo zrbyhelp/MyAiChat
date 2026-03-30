@@ -306,7 +306,6 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     systemPrompt: '',
     memoryModelConfigId: '',
     numericComputationModelConfigId: '',
-    formOptionModelConfigId: '',
     worldGraphModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
@@ -322,7 +321,6 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     systemPrompt: '',
     memoryModelConfigId: '',
     numericComputationModelConfigId: '',
-    formOptionModelConfigId: '',
     worldGraphModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
@@ -423,7 +421,6 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionRobotDraft.id = sessionRobot.id
     sessionRobotDraft.memoryModelConfigId = sessionRobot.memoryModelConfigId
     sessionRobotDraft.numericComputationModelConfigId = sessionRobot.numericComputationModelConfigId
-    sessionRobotDraft.formOptionModelConfigId = sessionRobot.formOptionModelConfigId
     sessionRobotDraft.worldGraphModelConfigId = sessionRobot.worldGraphModelConfigId
     sessionRobotVisible.value = true
   }
@@ -432,7 +429,6 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionRobot.id = String(sessionRobotDraft.id || '').trim()
     sessionRobot.memoryModelConfigId = String(sessionRobotDraft.memoryModelConfigId || '').trim()
     sessionRobot.numericComputationModelConfigId = String(sessionRobotDraft.numericComputationModelConfigId || '').trim()
-    sessionRobot.formOptionModelConfigId = String(sessionRobotDraft.formOptionModelConfigId || '').trim()
     sessionRobot.worldGraphModelConfigId = String(sessionRobotDraft.worldGraphModelConfigId || '').trim()
     sessionRobotVisible.value = false
     await options.onSyncCurrentSessionMeta()

@@ -108,10 +108,6 @@ class RobotProfile(CompatibleModel):
         default="",
         validation_alias=AliasChoices("numeric_computation_model_config_id", "numericComputationModelConfigId"),
     )
-    form_option_model_config_id: str = Field(
-        default="",
-        validation_alias=AliasChoices("form_option_model_config_id", "formOptionModelConfigId"),
-    )
     world_graph_model_config_id: str = Field(
         default="",
         validation_alias=AliasChoices("world_graph_model_config_id", "worldGraphModelConfigId"),
@@ -152,10 +148,6 @@ class AuxiliaryModelConfigs(CompatibleModel):
     numeric_computation: ModelConfig | None = Field(
         default=None,
         validation_alias=AliasChoices("numeric_computation", "numericComputation"),
-    )
-    form_option: ModelConfig | None = Field(
-        default=None,
-        validation_alias=AliasChoices("form_option", "formOption"),
     )
     world_graph: ModelConfig | None = Field(
         default=None,

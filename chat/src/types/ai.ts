@@ -58,7 +58,6 @@ export interface AIRobotCard {
   systemPrompt: string
   memoryModelConfigId: string
   numericComputationModelConfigId: string
-  formOptionModelConfigId: string
   worldGraphModelConfigId: string
   numericComputationEnabled: boolean
   numericComputationPrompt: string
@@ -95,7 +94,6 @@ export interface SessionRobotState {
   systemPrompt: string
   memoryModelConfigId: string
   numericComputationModelConfigId: string
-  formOptionModelConfigId: string
   worldGraphModelConfigId: string
   numericComputationEnabled: boolean
   numericComputationPrompt: string

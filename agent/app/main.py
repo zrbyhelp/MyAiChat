@@ -19,8 +19,6 @@ from .graph import (
     extract_usage,
     memory_node,
     refresh_state_memory_context,
-    ui_agent_node,
-    world_graph_context_node,
     world_graph_writeback_node,
 )
 from .schemas import StructuredMemory
@@ -106,7 +104,6 @@ async def run_stream(request: RunRequest):
             yield sse({"type": "run_started", "threadId": request.thread_id})
             final_response = ""
             final_memory = structured_memory
-            final_ui_payload = {"suggestions": [], "form": None}
             usage = {"prompt_tokens": 0, "completion_tokens": 0}
             try:
                 numeric_payload = await numeric_agent_node(state)
@@ -117,20 +114,6 @@ async def run_stream(request: RunRequest):
             yield sse({"type": "numeric_state_updated", "state": state.get("numeric_state") or {}})
 
             has_world_graph = bool(str((state.get("world_graph_payload") or {}).get("meta", {}).get("robotId") or "").strip())
-            try:
-                if has_world_graph:
-                    yield sse({"type": "world_graph_context_started"})
-                world_graph_context_payload = await world_graph_context_node(state)
-                state.update(world_graph_context_payload)
-                usage = world_graph_context_payload.get("usage") or usage
-                yield sse({"type": "world_graph_context_ready"})
-            except Exception as error:
-                debug_log("[world-graph-context:error]", {
-                    "thread_id": request.thread_id,
-                    "session_id": request.session_id,
-                    "message": str(error),
-                })
-
             debug_log("[answerer:numeric-input]", {
                 "thread_id": request.thread_id,
                 "session_id": request.session_id,
@@ -155,18 +138,12 @@ async def run_stream(request: RunRequest):
             usage = answer_usage or usage
             state["final_response"] = final_response
             yield sse({"type": "message_done", "text": final_response})
-
-            try:
-                ui_payload_result = await ui_agent_node(state)
-            except Exception as error:
-                raise RuntimeError(format_stage_error(request, "交互 UI 阶段", error)) from error
-            state.update(ui_payload_result)
-            final_ui_payload = ui_payload_result.get("ui_payload") or final_ui_payload
-            usage = ui_payload_result.get("usage") or usage
-            if final_ui_payload.get("form"):
-                yield sse({"type": "form", "form": final_ui_payload["form"]})
-            elif final_ui_payload.get("suggestions"):
-                yield sse({"type": "suggestion", "items": final_ui_payload["suggestions"]})
+            yield sse({
+                "type": "response_completed",
+                "threadId": request.thread_id,
+                "message": final_response,
+                "numeric_state": state.get("numeric_state") or {},
+            })
 
             if should_refresh_structured_memory(
                 history,
@@ -216,8 +193,6 @@ async def run_stream(request: RunRequest):
                 "type": "run_completed",
                 "threadId": request.thread_id,
                 "message": final_response,
-                "suggestions": final_ui_payload.get("suggestions") or [],
-                "form": final_ui_payload.get("form"),
                 "memory": final_memory.model_dump(),
                 "numeric_state": state.get("numeric_state") or {},
                 "world_graph_writeback_ops": state.get("world_graph_writeback_ops") or {},

@@ -83,7 +83,6 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
           systemPrompt: options.sessionRobot.systemPrompt,
           memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
           numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
-          formOptionModelConfigId: options.sessionRobot.formOptionModelConfigId,
           worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
           numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
           numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
@@ -133,7 +132,6 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.sessionRobot.systemPrompt = session.robot.systemPrompt || ''
     options.sessionRobot.memoryModelConfigId = session.robot.memoryModelConfigId || ''
     options.sessionRobot.numericComputationModelConfigId = session.robot.numericComputationModelConfigId || ''
-    options.sessionRobot.formOptionModelConfigId = session.robot.formOptionModelConfigId || ''
     options.sessionRobot.worldGraphModelConfigId = session.robot.worldGraphModelConfigId || ''
     options.sessionRobot.numericComputationEnabled = Boolean(session.robot.numericComputationEnabled)
     options.sessionRobot.numericComputationPrompt = session.robot.numericComputationPrompt || ''
@@ -175,7 +173,6 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.systemPrompt = robot.systemPrompt
       options.sessionRobot.memoryModelConfigId = robot.memoryModelConfigId || ''
       options.sessionRobot.numericComputationModelConfigId = robot.numericComputationModelConfigId || ''
-      options.sessionRobot.formOptionModelConfigId = robot.formOptionModelConfigId || ''
       options.sessionRobot.worldGraphModelConfigId = robot.worldGraphModelConfigId || ''
       options.sessionRobot.numericComputationEnabled = Boolean(robot.numericComputationEnabled)
       options.sessionRobot.numericComputationPrompt = robot.numericComputationPrompt
@@ -195,7 +192,6 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.systemPrompt = ''
       options.sessionRobot.memoryModelConfigId = ''
       options.sessionRobot.numericComputationModelConfigId = ''
-      options.sessionRobot.formOptionModelConfigId = ''
       options.sessionRobot.worldGraphModelConfigId = ''
       options.sessionRobot.numericComputationEnabled = false
       options.sessionRobot.numericComputationPrompt = ''

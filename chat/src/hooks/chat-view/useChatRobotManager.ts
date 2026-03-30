@@ -58,7 +58,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       systemPrompt: '',
       memoryModelConfigId: '',
       numericComputationModelConfigId: '',
-      formOptionModelConfigId: '',
       worldGraphModelConfigId: '',
       numericComputationEnabled: false,
       numericComputationPrompt: '',
@@ -122,7 +121,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
     mobileAgentDraft.memoryModelConfigId = String(source?.memoryModelConfigId || '')
     mobileAgentDraft.numericComputationModelConfigId = String(source?.numericComputationModelConfigId || '')
-    mobileAgentDraft.formOptionModelConfigId = String(source?.formOptionModelConfigId || '')
     mobileAgentDraft.worldGraphModelConfigId = String(source?.worldGraphModelConfigId || '')
     mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
     mobileAgentDraft.numericComputationPrompt = String(source?.numericComputationPrompt || '')
@@ -149,7 +147,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       systemPrompt: item.systemPrompt,
       memoryModelConfigId: String(item.memoryModelConfigId || '').trim(),
       numericComputationModelConfigId: String(item.numericComputationModelConfigId || '').trim(),
-      formOptionModelConfigId: String(item.formOptionModelConfigId || '').trim(),
       worldGraphModelConfigId: String(item.worldGraphModelConfigId || '').trim(),
       numericComputationEnabled: Boolean(item.numericComputationEnabled),
       numericComputationPrompt: item.numericComputationPrompt.trim(),
@@ -487,7 +484,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         systemPrompt: mobileAgentDraft.systemPrompt,
         memoryModelConfigId: String(mobileAgentDraft.memoryModelConfigId || '').trim(),
         numericComputationModelConfigId: String(mobileAgentDraft.numericComputationModelConfigId || '').trim(),
-        formOptionModelConfigId: String(mobileAgentDraft.formOptionModelConfigId || '').trim(),
         worldGraphModelConfigId: String(mobileAgentDraft.worldGraphModelConfigId || '').trim(),
         numericComputationEnabled: Boolean(mobileAgentDraft.numericComputationEnabled),
         numericComputationPrompt: mobileAgentDraft.numericComputationPrompt.trim(),
