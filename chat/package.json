@@ -18,6 +18,7 @@
     "spell:check": "cspell --config cspell.json --no-progress"
   },
   "dependencies": {
+    "@antv/x6": "^3.1.7",
     "@clerk/vue": "^2.0.5",
     "@tdesign-vue-next/chat": "^0.5.1",
     "element-plus": "^2.11.2",
@@ -25,6 +26,7 @@
     "pinia": "^3.0.4",
     "tdesign-icons-vue-next": "^0.4.2",
     "tdesign-vue-next": "^1.18.5",
+    "tslib": "^2.8.1",
     "vue": "^3.5.29",
     "vue-router": "^5.0.3"
   },

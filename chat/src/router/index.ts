@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ChatView from '@/views/ChatView.vue'
+import WorldGraphView from '@/views/WorldGraphView.vue'
 import { isAuthLoadedNow, isSignedInNow, promptSignIn } from '@/lib/auth'
 
 const router = createRouter({
@@ -26,6 +27,14 @@ const router = createRouter({
       path: '/mine',
       name: 'mine',
       component: ChatView,
+      meta: {
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/robots/:robotId/world-graph',
+      name: 'robot-world-graph',
+      component: WorldGraphView,
       meta: {
         requiresAuth: true,
       },

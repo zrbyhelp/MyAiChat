@@ -24,6 +24,23 @@ import {
   writeModelConfigs,
   writeRobots,
 } from './storage.mjs'
+import {
+  addTimelineEffect,
+  createWorldRelationType,
+  deleteTimelineEffect,
+  deleteWorldEdge,
+  deleteWorldNode,
+  deleteWorldRelationType,
+  getWorldGraph,
+  listWorldRelationTypes,
+  saveWorldEdge,
+  saveWorldNode,
+  updateTimelineEffect,
+  updateTimelineOrder,
+  updateWorldGraphLayout,
+  updateWorldGraphMeta,
+  updateWorldRelationType,
+} from './world-graph-service.mjs'
 
 export function createApp() {
   const app = express()
@@ -32,7 +49,7 @@ export function createApp() {
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
     if (req.method === 'OPTIONS') {
       res.status(204).end()
       return
@@ -193,6 +210,142 @@ export function createApp() {
       const robots = normalizeRobots(req.body?.robots)
       await writeRobots(req.authUser, robots)
       res.json({ robots })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.get('/api/robots/:id/world-graph', async (req, res, next) => {
+    try {
+      res.json(await getWorldGraph(req.authUser, req.params.id))
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.put('/api/robots/:id/world-graph/meta', async (req, res, next) => {
+    try {
+      res.json({ meta: await updateWorldGraphMeta(req.authUser, req.params.id, req.body) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.put('/api/robots/:id/world-graph/layout', async (req, res, next) => {
+    try {
+      res.json({ meta: await updateWorldGraphLayout(req.authUser, req.params.id, req.body) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.get('/api/robots/:id/world-graph/relation-types', async (req, res, next) => {
+    try {
+      res.json({ relationTypes: await listWorldRelationTypes(req.authUser, req.params.id) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/robots/:id/world-graph/relation-types', async (req, res, next) => {
+    try {
+      res.json({ relationType: await createWorldRelationType(req.authUser, req.params.id, req.body) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.put('/api/robots/:id/world-graph/relation-types/:typeId', async (req, res, next) => {
+    try {
+      res.json({ relationType: await updateWorldRelationType(req.authUser, req.params.id, req.params.typeId, req.body) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.delete('/api/robots/:id/world-graph/relation-types/:typeId', async (req, res, next) => {
+    try {
+      res.json(await deleteWorldRelationType(req.authUser, req.params.id, req.params.typeId))
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/robots/:id/world-graph/nodes', async (req, res, next) => {
+    try {
+      res.json({ node: await saveWorldNode(req.authUser, req.params.id, req.body) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.put('/api/robots/:id/world-graph/nodes/:nodeId', async (req, res, next) => {
+    try {
+      res.json({ node: await saveWorldNode(req.authUser, req.params.id, { ...req.body, id: req.params.nodeId }) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.delete('/api/robots/:id/world-graph/nodes/:nodeId', async (req, res, next) => {
+    try {
+      res.json(await deleteWorldNode(req.authUser, req.params.id, req.params.nodeId))
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/robots/:id/world-graph/edges', async (req, res, next) => {
+    try {
+      res.json({ edge: await saveWorldEdge(req.authUser, req.params.id, req.body) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.put('/api/robots/:id/world-graph/edges/:edgeId', async (req, res, next) => {
+    try {
+      res.json({ edge: await saveWorldEdge(req.authUser, req.params.id, { ...req.body, id: req.params.edgeId }) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.delete('/api/robots/:id/world-graph/edges/:edgeId', async (req, res, next) => {
+    try {
+      res.json(await deleteWorldEdge(req.authUser, req.params.id, req.params.edgeId))
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.put('/api/robots/:id/world-graph/timeline/order', async (req, res, next) => {
+    try {
+      res.json({ events: await updateTimelineOrder(req.authUser, req.params.id, req.body?.eventIds) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/robots/:id/world-graph/timeline/events/:eventId/effects', async (req, res, next) => {
+    try {
+      res.json({ event: await addTimelineEffect(req.authUser, req.params.id, req.params.eventId, req.body) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.put('/api/robots/:id/world-graph/timeline/effects/:effectId', async (req, res, next) => {
+    try {
+      res.json({ event: await updateTimelineEffect(req.authUser, req.params.id, req.params.effectId, req.body) })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.delete('/api/robots/:id/world-graph/timeline/effects/:effectId', async (req, res, next) => {
+    try {
+      res.json(await deleteTimelineEffect(req.authUser, req.params.id, req.params.effectId))
     } catch (error) {
       next(error)
     }

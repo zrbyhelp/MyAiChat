@@ -234,3 +234,159 @@ export interface SessionResponse {
 export interface DeleteSessionResponse {
   deletedSessionId: string
 }
+
+export type WorldObjectType = 'character' | 'organization' | 'location' | 'event' | 'item'
+export type WorldRelationDirectionality = 'directed' | 'undirected'
+export type WorldTimelineEffectTargetKind = 'node' | 'relation'
+export type WorldTimelineEffectChangeTargetType = 'node-content' | 'relation'
+export type WorldTimelineEffectRelationMode = 'existing' | 'create'
+
+export interface WorldCalendarConfig {
+  calendarId: string
+  calendarName: string
+  eras: string[]
+  monthNames: string[]
+  dayNames: string[]
+  timeOfDayLabels: string[]
+  formatTemplate: string
+}
+
+export interface WorldGraphLayout {
+  viewportX: number
+  viewportY: number
+  zoom: number
+}
+
+export interface WorldTimeline {
+  sequenceIndex: number
+  calendarId: string
+  yearLabel: string
+  monthLabel: string
+  dayLabel: string
+  timeOfDayLabel: string
+  phase: string
+  impactLevel: number
+  eventType: string
+}
+
+export interface WorldTimelineEffectNodeAttributeChange {
+  fieldKey: string
+  beforeValue: string
+  afterValue: string
+}
+
+export interface WorldTimelineEffectRelationChange {
+  fieldKey: string
+  beforeValue: string
+  afterValue: string
+}
+
+export interface WorldTimelineEffectRelationDraft {
+  targetNodeId: string
+  relationTypeCode: string
+  relationLabel: string
+  summary: string
+  status: string
+  intensity: number | null
+}
+
+export interface WorldTimelineEffect {
+  id: string
+  summary: string
+  targetNodeId: string
+  changeTargetType: WorldTimelineEffectChangeTargetType
+  nodeAttributeChanges: WorldTimelineEffectNodeAttributeChange[]
+  relationMode: WorldTimelineEffectRelationMode
+  relationId: string
+  relationChanges: WorldTimelineEffectRelationChange[]
+  relationDraft: WorldTimelineEffectRelationDraft
+  targetKind?: WorldTimelineEffectTargetKind
+  targetId?: string
+  changeKind?: string
+  beforeValue?: string
+  afterValue?: string
+}
+
+export interface WorldNodeSnapshot {
+  sequenceIndex: number
+  name: string
+  summary: string
+  status: string
+  tags: string[]
+  attributes: Record<string, string | number | boolean | null>
+}
+
+export interface WorldEdgeSnapshot {
+  sequenceIndex: number
+  relationTypeCode: string
+  relationLabel: string
+  summary: string
+  status: string
+  intensity: number | null
+}
+
+export interface WorldNode {
+  id: string
+  objectType: WorldObjectType
+  name: string
+  summary: string
+  status: string
+  tags: string[]
+  attributes: Record<string, string | number | boolean | null>
+  position: {
+    x: number
+    y: number
+  }
+  startSequenceIndex: number
+  timelineSnapshots: WorldNodeSnapshot[]
+  timeline: WorldTimeline | null
+  effects: WorldTimelineEffect[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WorldEdge {
+  id: string
+  sourceNodeId: string
+  targetNodeId: string
+  relationTypeCode: string
+  relationLabel: string
+  summary: string
+  directionality: WorldRelationDirectionality
+  intensity: number | null
+  status: string
+  startSequenceIndex: number
+  endSequenceIndex: number | null
+  timelineSnapshots: WorldEdgeSnapshot[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RobotWorldRelationType {
+  id: string
+  code: string
+  label: string
+  description: string
+  directionality: WorldRelationDirectionality
+  sourceObjectTypes: WorldObjectType[]
+  targetObjectTypes: WorldObjectType[]
+  isBuiltin: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface RobotWorldGraphMeta {
+  robotId: string
+  title: string
+  summary: string
+  graphVersion: number
+  calendar: WorldCalendarConfig
+  layout: WorldGraphLayout
+}
+
+export interface RobotWorldGraph {
+  meta: RobotWorldGraphMeta
+  relationTypes: RobotWorldRelationType[]
+  nodes: WorldNode[]
+  edges: WorldEdge[]
+}

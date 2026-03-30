@@ -223,6 +223,104 @@ export function getModels() {
     },
   })
 
+  const RobotWorldGraph = sequelize.define('RobotWorldGraph', {
+    id: {
+      type: DataTypes.STRING(120),
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      field: 'user_id',
+    },
+    robotId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      field: 'robot_id',
+    },
+    title: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: '',
+    },
+    summary: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+    },
+    graphVersion: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 1,
+      field: 'graph_version',
+    },
+    calendarJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{}',
+      field: 'calendar_json',
+    },
+    lastLayoutJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{}',
+      field: 'last_layout_json',
+    },
+  })
+
+  const RobotWorldRelationType = sequelize.define('RobotWorldRelationType', {
+    id: {
+      type: DataTypes.STRING(120),
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      field: 'user_id',
+    },
+    robotId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      field: 'robot_id',
+    },
+    code: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+    },
+    label: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+    },
+    directionality: {
+      type: DataTypes.STRING(24),
+      allowNull: false,
+      defaultValue: 'directed',
+    },
+    sourceObjectTypesJson: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '[]',
+      field: 'source_object_types_json',
+    },
+    targetObjectTypesJson: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '[]',
+      field: 'target_object_types_json',
+    },
+    isBuiltin: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'is_builtin',
+    },
+  })
+
   const Session = sequelize.define('Session', {
     id: {
       type: DataTypes.STRING(120),
@@ -503,6 +601,14 @@ export function getModels() {
     foreignKey: 'userId',
     as: 'robots',
   })
+  User.hasMany(RobotWorldGraph, {
+    foreignKey: 'userId',
+    as: 'robotWorldGraphs',
+  })
+  User.hasMany(RobotWorldRelationType, {
+    foreignKey: 'userId',
+    as: 'robotWorldRelationTypes',
+  })
   User.hasMany(Session, {
     foreignKey: 'userId',
     as: 'sessions',
@@ -514,6 +620,38 @@ export function getModels() {
   Robot.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
+  })
+  Robot.hasOne(RobotWorldGraph, {
+    foreignKey: 'robotId',
+    sourceKey: 'id',
+    as: 'worldGraph',
+    onDelete: 'CASCADE',
+    hooks: true,
+  })
+  Robot.hasMany(RobotWorldRelationType, {
+    foreignKey: 'robotId',
+    sourceKey: 'id',
+    as: 'worldRelationTypes',
+    onDelete: 'CASCADE',
+    hooks: true,
+  })
+  RobotWorldGraph.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  })
+  RobotWorldGraph.belongsTo(Robot, {
+    foreignKey: 'robotId',
+    targetKey: 'id',
+    as: 'robot',
+  })
+  RobotWorldRelationType.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  })
+  RobotWorldRelationType.belongsTo(Robot, {
+    foreignKey: 'robotId',
+    targetKey: 'id',
+    as: 'robot',
   })
   Session.belongsTo(User, {
     foreignKey: 'userId',
@@ -529,6 +667,8 @@ export function getModels() {
     User,
     ModelConfig,
     Robot,
+    RobotWorldGraph,
+    RobotWorldRelationType,
     Session,
     SessionMessage,
   }

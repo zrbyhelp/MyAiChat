@@ -222,6 +222,28 @@
               placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
             />
           </TFormItem>
+          <div
+            class="story-world-graph-entry"
+            :class="{ disabled: !canOpenWorldGraph }"
+            @click="handleOpenWorldGraphFromEditor"
+          >
+            <div class="story-world-graph-preview" aria-hidden="true">
+              <span class="story-world-graph-node mint"></span>
+              <span class="story-world-graph-node cyan"></span>
+              <span class="story-world-graph-node green"></span>
+              <span class="story-world-graph-link left"></span>
+              <span class="story-world-graph-link right"></span>
+            </div>
+            <div class="story-world-graph-copy">
+              <strong>世界图谱</strong>
+              <span>{{
+                canOpenWorldGraph ? '点击进入人物与关系编辑' : '保存到服务器后可编辑人物关系'
+              }}</span>
+            </div>
+            <TButton variant="outline" size="small">
+              {{ canOpenWorldGraph ? '进入编辑' : '待保存' }}
+            </TButton>
+          </div>
           <TFormItem>
             <template #label>
               <span class="form-label-with-tip">
@@ -478,6 +500,28 @@
               placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
             />
           </TFormItem>
+          <div
+            class="story-world-graph-entry"
+            :class="{ disabled: !canOpenWorldGraph }"
+            @click="handleOpenWorldGraphFromEditor"
+          >
+            <div class="story-world-graph-preview" aria-hidden="true">
+              <span class="story-world-graph-node mint"></span>
+              <span class="story-world-graph-node cyan"></span>
+              <span class="story-world-graph-node green"></span>
+              <span class="story-world-graph-link left"></span>
+              <span class="story-world-graph-link right"></span>
+            </div>
+            <div class="story-world-graph-copy">
+              <strong>世界图谱</strong>
+              <span>{{
+                canOpenWorldGraph ? '点击进入人物与关系编辑' : '保存到服务器后可编辑人物关系'
+              }}</span>
+            </div>
+            <TButton variant="outline" size="small">
+              {{ canOpenWorldGraph ? '进入编辑' : '待保存' }}
+            </TButton>
+          </div>
           <TFormItem>
             <template #label>
               <span class="form-label-with-tip">
@@ -732,6 +776,9 @@ const avatarUploadFiles = computed<UploadFile[]>(() => {
 const hasPendingAvatarFile = computed(() =>
   pendingAvatarUploadFiles.value.some((item) => item.raw instanceof File),
 )
+const canOpenWorldGraph = computed(
+  () => Boolean(String(mobileAgentDraft.value.id || '').trim()) && mobileAgentDraft.value.persistToServer,
+)
 
 const avatarUploadTips = computed(() =>
   mobileAgentDraft.value.persistToServer
@@ -828,6 +875,21 @@ function handleAgentTemplateImportChange(event: Event) {
   target.value = ''
 }
 
+function handleOpenWorldGraphFromEditor() {
+  const agentId = String(mobileAgentDraft.value.id || '').trim()
+  if (!agentId) {
+    MessagePlugin.warning('请先保存智能体，再编辑世界图谱')
+    return
+  }
+
+  if (!mobileAgentDraft.value.persistToServer) {
+    MessagePlugin.warning('请先开启“新建聊天记录保存在服务器”')
+    return
+  }
+
+  emit('open-world-graph', agentId)
+}
+
 async function handleSaveMobileAgent() {
   if (!mobileAgentDraft.value.persistToServer || !hasPendingAvatarFile.value) {
     emit('save-mobile-agent')
@@ -921,7 +983,129 @@ const emit = defineEmits<{
   (e: 'previous-agent-editor-step'): void
   (e: 'skip-agent-structure-setup'): void
   (e: 'save-mobile-agent'): void
+  (e: 'open-world-graph', agentId: string): void
   (e: 'remove-numeric-computation-item', target: { numericComputationItems: NumericComputationItem[] }, index: number): void
   (e: 'add-numeric-computation-item', target: { numericComputationItems: NumericComputationItem[] }): void
 }>()
 </script>
+
+<style scoped>
+.story-world-graph-entry {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  margin: -2px 0 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #faf8f4 0%, #f4f4f5 100%);
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.story-world-graph-entry:hover {
+  border-color: #d1d5db;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.story-world-graph-entry.disabled {
+  opacity: 0.7;
+}
+
+.story-world-graph-preview {
+  position: relative;
+  height: 92px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 16% 20%, rgba(255, 255, 255, 0.95), transparent 34%),
+    linear-gradient(145deg, #f1efe9 0%, #efefef 100%);
+  overflow: hidden;
+}
+
+.story-world-graph-node {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+}
+
+.story-world-graph-node.mint {
+  top: 18px;
+  left: 64px;
+  width: 24px;
+  height: 24px;
+  background: #86efe2;
+}
+
+.story-world-graph-node.cyan {
+  bottom: 18px;
+  left: 28px;
+  width: 26px;
+  height: 26px;
+  background: #8fe8df;
+}
+
+.story-world-graph-node.green {
+  bottom: 24px;
+  right: 30px;
+  width: 24px;
+  height: 24px;
+  background: #b2ff94;
+}
+
+.story-world-graph-link {
+  position: absolute;
+  border-top: 2px solid #20242a;
+  border-radius: 999px;
+  transform-origin: center;
+}
+
+.story-world-graph-link.left {
+  top: 46px;
+  left: 34px;
+  width: 54px;
+  transform: rotate(-28deg);
+}
+
+.story-world-graph-link.right {
+  top: 48px;
+  right: 40px;
+  width: 48px;
+  transform: rotate(28deg);
+}
+
+.story-world-graph-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.story-world-graph-copy strong {
+  color: #111827;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.story-world-graph-copy span {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .story-world-graph-entry {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .story-world-graph-preview {
+    height: 104px;
+  }
+}
+</style>

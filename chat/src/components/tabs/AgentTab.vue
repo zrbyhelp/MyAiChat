@@ -228,7 +228,7 @@
     :agent-card-action-options="agentCardActionOptions"
     @confirm-start-new-chat="confirmStartNewChat"
     @open-mobile-agent-edit-dialog="openMobileAgentEditDialog"
-    @handle-agent-card-action="handleAgentCardAction"
+    @handle-agent-card-action="handleRobotCardAction"
     @open-mobile-agent-create-dialog="openMobileAgentCreateDialog"
     @add-agent-template="addAgentTemplate"
     @import-agent-template="importRobotTemplate"
@@ -236,6 +236,7 @@
     @previous-agent-editor-step="previousAgentEditorStep"
     @skip-agent-structure-setup="skipAgentStructureSetup"
     @save-mobile-agent="saveMobileAgent"
+    @open-world-graph="openWorldGraph"
     @remove-numeric-computation-item="removeNumericComputationItem"
     @add-numeric-computation-item="addNumericComputationItem"
   />
@@ -323,7 +324,7 @@ import SessionHistoryPanel from '@/components/chat/SessionHistoryPanel.vue'
 import { putLocalSession } from '@/lib/local-db'
 import { useAuth } from '@clerk/vue'
 import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useChatbotRuntime } from '@/hooks/chat-view/useChatbotRuntime'
 import { useChatInteractionGuard } from '@/hooks/chat-view/useChatInteractionGuard'
@@ -362,6 +363,7 @@ import { useChatSession } from '@/hooks/useChatSession'
 import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
 
 const route = useRoute()
+const router = useRouter()
 const MOBILE_BREAKPOINT = 768
 
 const providerOptions = PROVIDER_OPTIONS
@@ -482,7 +484,7 @@ const {
   openMobileAgentEditDialog,
   nextAgentEditorStep,
   previousAgentEditorStep,
-  handleAgentCardAction,
+  handleAgentCardAction: handleManagedAgentCardAction,
   saveMobileAgent,
   skipAgentStructureSetup,
 } = useChatRobotManager({
@@ -736,6 +738,23 @@ const { chatMessageProps, agentCardActionOptions, modelCardActionOptions } =
     sendPrompt,
     assistantAvatar: computed(() => sessionRobot.avatar),
   })
+
+function handleRobotCardAction(agentId: string, action?: string | number | Record<string, unknown>) {
+  if (String(action || '') === 'world') {
+    openWorldGraph(agentId)
+    return
+  }
+  handleManagedAgentCardAction(agentId, action)
+}
+
+function openWorldGraph(agentId: string) {
+  void router.push({
+    name: 'robot-world-graph',
+    params: {
+      robotId: agentId,
+    },
+  })
+}
 
 function finalizeChatResponse(options?: { refreshSession?: boolean }) {
   isChatResponding.value = false

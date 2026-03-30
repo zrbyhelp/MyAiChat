@@ -12,8 +12,14 @@ import type {
   ModelConfigsResponse,
   ModelOption,
   ModelsResponse,
+  RobotWorldGraph,
+  RobotWorldGraphMeta,
+  RobotWorldRelationType,
   RobotsResponse,
   TestConnectionResponse,
+  WorldEdge,
+  WorldNode,
+  WorldTimelineEffect,
 } from '@/types/ai'
 import { UnauthorizedError, createAuthorizedHeaders, handleUnauthorized, isSignedInNow, waitForAuthReady } from '@/lib/auth'
 
@@ -197,4 +203,190 @@ export function upsertSession(session: {
     },
     body: JSON.stringify(session),
   })
+}
+
+export function getRobotWorldGraph(robotId: string) {
+  return requestJson<RobotWorldGraph>(`/api/robots/${encodeURIComponent(robotId)}/world-graph`)
+}
+
+export function updateRobotWorldGraphMeta(robotId: string, meta: Partial<RobotWorldGraphMeta>) {
+  return requestJson<{ meta: RobotWorldGraphMeta }>(`/api/robots/${encodeURIComponent(robotId)}/world-graph/meta`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(meta),
+  })
+}
+
+export function updateRobotWorldGraphLayout(
+  robotId: string,
+  layout: RobotWorldGraphMeta['layout'],
+) {
+  return requestJson<{ meta: RobotWorldGraphMeta }>(`/api/robots/${encodeURIComponent(robotId)}/world-graph/layout`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(layout),
+  })
+}
+
+export function createRobotWorldRelationType(robotId: string, relationType: Partial<RobotWorldRelationType>) {
+  return requestJson<{ relationType: RobotWorldRelationType }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/relation-types`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(relationType),
+    },
+  )
+}
+
+export function updateRobotWorldRelationType(
+  robotId: string,
+  typeId: string,
+  relationType: Partial<RobotWorldRelationType>,
+) {
+  return requestJson<{ relationType: RobotWorldRelationType }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/relation-types/${encodeURIComponent(typeId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(relationType),
+    },
+  )
+}
+
+export function deleteRobotWorldRelationType(robotId: string, typeId: string) {
+  return requestJson<{ deletedTypeId: string }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/relation-types/${encodeURIComponent(typeId)}`,
+    {
+      method: 'DELETE',
+    },
+  )
+}
+
+export function createRobotWorldNode(robotId: string, node: Partial<WorldNode>) {
+  return requestJson<{ node: WorldNode }>(`/api/robots/${encodeURIComponent(robotId)}/world-graph/nodes`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(node),
+  })
+}
+
+export function updateRobotWorldNode(robotId: string, nodeId: string, node: Partial<WorldNode>) {
+  return requestJson<{ node: WorldNode }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/nodes/${encodeURIComponent(nodeId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(node),
+    },
+  )
+}
+
+export function deleteRobotWorldNode(robotId: string, nodeId: string) {
+  return requestJson<{ deletedNodeId: string }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/nodes/${encodeURIComponent(nodeId)}`,
+    {
+      method: 'DELETE',
+    },
+  )
+}
+
+export function createRobotWorldEdge(robotId: string, edge: Partial<WorldEdge>) {
+  return requestJson<{ edge: WorldEdge }>(`/api/robots/${encodeURIComponent(robotId)}/world-graph/edges`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(edge),
+  })
+}
+
+export function updateRobotWorldEdge(robotId: string, edgeId: string, edge: Partial<WorldEdge>) {
+  return requestJson<{ edge: WorldEdge }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/edges/${encodeURIComponent(edgeId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(edge),
+    },
+  )
+}
+
+export function deleteRobotWorldEdge(robotId: string, edgeId: string) {
+  return requestJson<{ deletedEdgeId: string }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/edges/${encodeURIComponent(edgeId)}`,
+    {
+      method: 'DELETE',
+    },
+  )
+}
+
+export function updateRobotTimelineOrder(robotId: string, eventIds: string[]) {
+  return requestJson<{ events: WorldNode[] }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/timeline/order`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ eventIds }),
+    },
+  )
+}
+
+export function createRobotTimelineEffect(
+  robotId: string,
+  eventId: string,
+  effect: Partial<WorldTimelineEffect>,
+) {
+  return requestJson<{ event: WorldNode }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/timeline/events/${encodeURIComponent(eventId)}/effects`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(effect),
+    },
+  )
+}
+
+export function updateRobotTimelineEffect(
+  robotId: string,
+  effectId: string,
+  effect: Partial<WorldTimelineEffect>,
+) {
+  return requestJson<{ event: WorldNode }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/timeline/effects/${encodeURIComponent(effectId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(effect),
+    },
+  )
+}
+
+export function deleteRobotTimelineEffect(robotId: string, effectId: string) {
+  return requestJson<{ deletedEffectId: string; event: WorldNode }>(
+    `/api/robots/${encodeURIComponent(robotId)}/world-graph/timeline/effects/${encodeURIComponent(effectId)}`,
+    {
+      method: 'DELETE',
+    },
+  )
 }

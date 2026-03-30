@@ -30,6 +30,17 @@ services:
       timeout: 5s
       retries: 10
 
+  neo4j:
+    image: neo4j:5.26
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-neo4jpassword}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j-data:/data
+
   main:
     build:
       context: ./main
@@ -55,10 +66,16 @@ services:
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
       AGENT_SERVICE_URL: http://agent:8000
+      NEO4J_URI: ${NEO4J_URI:-http://neo4j:7474}
+      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4jpassword}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
     depends_on:
       mysql:
         condition: service_healthy
       agent:
+        condition: service_started
+      neo4j:
         condition: service_started
     ports:
       - "${PORT:-3000}:3000"
@@ -128,3 +145,4 @@ services:
 volumes:
   mysql-data:
   minio-data:
+  neo4j-data:
