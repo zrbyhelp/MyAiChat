@@ -260,5 +260,80 @@ class RunStreamTests(unittest.IsolatedAsyncioTestCase):
                     os.environ["AGENT_FILE_STORE_DIR"] = previous_dir
 
 
+class CapturingModel:
+    def __init__(self, response_content: str):
+        self.response_content = response_content
+        self.messages = None
+
+    async def ainvoke(self, messages):
+        self.messages = messages
+        return FakeMessage(self.response_content, 5, 3)
+
+
+class WorldGraphPromptPlacementTests(unittest.IsolatedAsyncioTestCase):
+    async def test_world_graph_context_puts_story_setting_in_system_message(self):
+        original_build_model = graph.build_model
+        model = CapturingModel(
+            '{"context_summary":"摘要","decision":{"focus_character_ids":["c1"]}}'
+        )
+        try:
+            graph.build_model = lambda config: model
+            state = {
+                "common_prompt": "通用前缀",
+                "system_prompt": "角色设定",
+                "structured_memory_text": "暂无结构化记忆。",
+                "numeric_computation_items": [],
+                "numeric_state": {},
+                "history_text": "user: old",
+                "prompt": "继续推进剧情",
+                "world_graph_payload": {"meta": {"robotId": "robot-1"}, "nodes": [], "edges": [], "events": []},
+                "model_config": {"model": "answer-model"},
+                "auxiliary_model_configs": {},
+            }
+
+            result = await graph.world_graph_context_node(state)
+
+            self.assertEqual(result["world_graph_text_summary"], "摘要")
+            self.assertIsNotNone(model.messages)
+            self.assertEqual(model.messages[0]["role"], "system")
+            self.assertIn("通用前缀", model.messages[0]["content"])
+            self.assertIn("主要故事设定：\n角色设定", model.messages[0]["content"])
+            self.assertEqual(model.messages[1]["role"], "user")
+            self.assertNotIn("主要故事设定：", model.messages[1]["content"])
+        finally:
+            graph.build_model = original_build_model
+
+    async def test_world_graph_writeback_puts_story_setting_in_system_message(self):
+        original_build_model = graph.build_model
+        model = CapturingModel('{"upsert_nodes":[],"upsert_edges":[],"upsert_events":[]}')
+        try:
+            graph.build_model = lambda config: model
+            state = {
+                "common_prompt": "通用前缀",
+                "system_prompt": "角色设定",
+                "structured_memory_text": "暂无结构化记忆。",
+                "numeric_computation_items": [],
+                "numeric_state": {},
+                "history_text": "user: old",
+                "prompt": "继续推进剧情",
+                "world_graph_payload": {"meta": {"robotId": "robot-1"}, "nodes": [], "edges": [], "events": []},
+                "world_graph_decision": {"focus_character_ids": ["c1"]},
+                "final_response": "最终正文",
+                "model_config": {"model": "answer-model"},
+                "auxiliary_model_configs": {},
+            }
+
+            await graph.world_graph_writeback_node(state)
+
+            self.assertIsNotNone(model.messages)
+            self.assertEqual(model.messages[0]["role"], "system")
+            self.assertIn("通用前缀", model.messages[0]["content"])
+            self.assertIn("主要故事设定：\n角色设定", model.messages[0]["content"])
+            self.assertEqual(model.messages[1]["role"], "user")
+            self.assertNotIn("主要故事设定：", model.messages[1]["content"])
+        finally:
+            graph.build_model = original_build_model
+
+
 if __name__ == "__main__":
     unittest.main()

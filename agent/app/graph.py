@@ -866,13 +866,13 @@ async def world_graph_context_node(state: AgentState) -> dict:
                 "role": "system",
                 "content": compose_system_prompt(
                     resolve_common_prompt(state),
+                    f"主要故事设定：\n{resolve_system_prompt(state)}",
                     PROMPT_CONFIG.templates.world_graph_context.system_instruction,
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"主要故事设定：\n{resolve_system_prompt(state)}\n\n"
                     f"结构化记忆：\n{state['structured_memory_text']}\n\n"
                     f"数值信息：\n{json.dumps(numeric_payload_for_answerer(state.get('numeric_computation_items') or [], state.get('numeric_state')), ensure_ascii=False)}\n\n"
                     f"历史消息：\n{state['history_text']}\n\n"
@@ -907,13 +907,13 @@ async def world_graph_writeback_node(state: AgentState) -> dict:
                 "role": "system",
                 "content": compose_system_prompt(
                     resolve_common_prompt(state),
+                    f"主要故事设定：\n{resolve_system_prompt(state)}",
                     PROMPT_CONFIG.templates.world_graph_writeback.system_instruction,
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"主要故事设定：\n{resolve_system_prompt(state)}\n\n"
                     f"结构化记忆：\n{state['structured_memory_text']}\n\n"
                     f"数值信息：\n{json.dumps(numeric_payload_for_answerer(state.get('numeric_computation_items') or [], state.get('numeric_state')), ensure_ascii=False)}\n\n"
                     f"历史消息：\n{state['history_text']}\n\n"
