@@ -53,6 +53,16 @@
             <SettingIcon />
           </template>
         </TButton>
+        <TButton shape="circle" variant="outline" @click="openSessionWorldGraphDialog">
+          <template #icon>
+            <svg class="memory-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4.75 5.5A2.75 2.75 0 0 1 7.5 2.75h9A2.75 2.75 0 0 1 19.25 5.5v13A2.75 2.75 0 0 1 16.5 21.25h-9A2.75 2.75 0 0 1 4.75 18.5v-13Zm2.75-1.25A1.25 1.25 0 0 0 6.25 5.5v13c0 .69.56 1.25 1.25 1.25h9c.69 0 1.25-.56 1.25-1.25v-13c0-.69-.56-1.25-1.25-1.25h-9ZM8 8.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5A.75.75 0 0 1 8 8.25Zm0 3.5A.75.75 0 0 1 8.75 11h6.5a.75.75 0 0 1 0 1.5h-6.5a.75.75 0 0 1-.75-.75Zm0 3.5a.75.75 0 0 1 .75-.75h4a.75.75 0 0 1 0 1.5h-4a.75.75 0 0 1-.75-.75Z"
+                fill="currentColor"
+              />
+            </svg>
+          </template>
+        </TButton>
       </TSpace>
     </div>
     <div class="chatbot">
@@ -225,6 +235,7 @@
     :agent-editor-step="agentEditorStep"
     :mobile-agent-draft="mobileAgentDraft"
     :saving-mobile-agent="savingMobileAgent"
+    :aux-model-options="auxModelOptions"
     :agent-card-action-options="agentCardActionOptions"
     @confirm-start-new-chat="confirmStartNewChat"
     @open-mobile-agent-edit-dialog="openMobileAgentEditDialog"
@@ -236,10 +247,52 @@
     @previous-agent-editor-step="previousAgentEditorStep"
     @skip-agent-structure-setup="skipAgentStructureSetup"
     @save-mobile-agent="saveMobileAgent"
+    @save-mobile-agent-and-open-world-graph="saveMobileAgentAndOpenWorldGraph"
     @open-world-graph="openWorldGraph"
     @remove-numeric-computation-item="removeNumericComputationItem"
     @add-numeric-computation-item="addNumericComputationItem"
   />
+
+  <TDialog
+    :visible="worldGraphVisible"
+    :header="false"
+    width="calc(100vw - 32px)"
+    top="16px"
+    placement="center"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
+    :close-on-overlay-click="false"
+    @update:visible="handleWorldGraphVisibleChange"
+  >
+    <div style="width: calc(100vw - 96px); height: calc(100vh - 96px); overflow: hidden;">
+      <RobotWorldGraphWorkspace
+        v-if="currentWorldGraphRobot"
+        :current-robot="currentWorldGraphRobot"
+        @close="closeWorldGraph"
+      />
+    </div>
+  </TDialog>
+
+  <TDialog
+    :visible="sessionWorldGraphVisible"
+    :header="false"
+    width="min(1120px, calc(100vw - 48px))"
+    placement="center"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
+    @update:visible="(value) => (sessionWorldGraphVisible = value)"
+  >
+    <div style="width: min(1080px, calc(100vw - 88px)); height: min(720px, calc(100vh - 120px)); overflow: hidden;">
+      <RobotWorldGraphWorkspace
+        :current-robot="null"
+        :graph-data="currentSessionWorldGraph"
+        :read-only="true"
+        @close="sessionWorldGraphVisible = false"
+      />
+    </div>
+  </TDialog>
 
   <ChatModelDomain
     :is-mobile="isMobile"
@@ -306,6 +359,7 @@ import {
   Button as TButton,
   Checkbox as TCheckbox,
   CheckboxGroup as TCheckboxGroup,
+  Dialog as TDialog,
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
@@ -319,6 +373,7 @@ import { LightbulbIcon, MenuIcon, SettingIcon } from 'tdesign-icons-vue-next'
 
 import ChatAgentPanels from '@/components/chat/ChatAgentPanels.vue'
 import ChatModelDomain from '@/components/chat/ChatModelDomain.vue'
+import RobotWorldGraphWorkspace from '@/components/chat/RobotWorldGraphDialog.vue'
 import ChatSessionDomain from '@/components/chat/ChatSessionDomain.vue'
 import SessionHistoryPanel from '@/components/chat/SessionHistoryPanel.vue'
 import { putLocalSession } from '@/lib/local-db'
@@ -381,6 +436,9 @@ const chatbotRef = ref<ChatbotInstance | null>(null)
 const chatInstanceKey = ref(0)
 const isChatResponding = ref(false)
 const mobileSenderExpanded = ref(false)
+const worldGraphVisible = ref(false)
+const sessionWorldGraphVisible = ref(false)
+const currentWorldGraphRobotId = ref('')
 const {
   isInteractionLocked: isChatInteractionLocked,
   beginInteractionLock,
@@ -532,11 +590,13 @@ const {
   currentStructuredMemory,
   currentUsage,
   currentNumericState,
+  currentSessionWorldGraph,
   applySessionMemory,
   applyStructuredMemory,
   applyMemorySchema,
   applySessionUsage,
   applyNumericState,
+  applySessionWorldGraph,
   openMemoryDialog,
   openSessionRobotDialog,
   applySessionRobot,
@@ -583,6 +643,7 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
     },
     threadId: sessionId.value,
     robot: {
+      id: sessionRobot.id,
       name: sessionRobot.name,
       avatar: sessionRobot.avatar,
       commonPrompt: sessionRobot.commonPrompt,
@@ -590,6 +651,7 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
       memoryModelConfigId: sessionRobot.memoryModelConfigId,
       numericComputationModelConfigId: sessionRobot.numericComputationModelConfigId,
       formOptionModelConfigId: sessionRobot.formOptionModelConfigId,
+      worldGraphModelConfigId: sessionRobot.worldGraphModelConfigId,
       numericComputationEnabled: sessionRobot.numericComputationEnabled,
       numericComputationPrompt: sessionRobot.numericComputationPrompt,
       numericComputationItems: cloneNumericComputationItems(sessionRobot.numericComputationItems),
@@ -609,6 +671,7 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
       categories: currentStructuredMemory.categories,
     },
     numericState: currentNumericState.value,
+    worldGraph: currentSessionWorldGraph.value,
   }
 }
 
@@ -637,6 +700,7 @@ const {
   applyStructuredMemory,
   applySessionUsage,
   applyNumericState,
+  applySessionWorldGraph,
   applyChatMessages,
   loadCapabilities,
   normalizeSessionMessages,
@@ -747,13 +811,40 @@ function handleRobotCardAction(agentId: string, action?: string | number | Recor
   handleManagedAgentCardAction(agentId, action)
 }
 
+const currentWorldGraphRobot = computed(
+  () => robotTemplates.value.find((item) => item.id === currentWorldGraphRobotId.value) ?? null,
+)
+
 function openWorldGraph(agentId: string) {
-  void router.push({
-    name: 'robot-world-graph',
-    params: {
-      robotId: agentId,
-    },
+  currentWorldGraphRobotId.value = agentId
+  worldGraphVisible.value = true
+}
+
+function closeWorldGraph() {
+  worldGraphVisible.value = false
+  currentWorldGraphRobotId.value = ''
+}
+
+function openSessionWorldGraphDialog() {
+  sessionWorldGraphVisible.value = true
+}
+
+function handleWorldGraphVisibleChange(value: boolean) {
+  worldGraphVisible.value = value
+  if (!value) {
+    currentWorldGraphRobotId.value = ''
+  }
+}
+
+async function saveMobileAgentAndOpenWorldGraph() {
+  const savedAgent = await saveMobileAgent({
+    closeEditor: false,
+    successMessage: '智能体已保存，正在进入世界图谱',
   })
+  if (!savedAgent?.id) {
+    return
+  }
+  openWorldGraph(savedAgent.id)
 }
 
 function finalizeChatResponse(options?: { refreshSession?: boolean }) {
@@ -784,6 +875,7 @@ const { chatServiceConfig } = useChatStreaming({
   currentMemorySchema,
   currentStructuredMemory,
   currentNumericState,
+  currentSessionWorldGraph,
   rawChatMessages,
   effectiveStream,
   effectiveThinking,
@@ -791,6 +883,7 @@ const { chatServiceConfig } = useChatStreaming({
   applyNumericState,
   applySessionUsage,
   applyStructuredMemory,
+  applySessionWorldGraph,
   serializeChatMessages,
   finalizeChatResponse,
   currentAssistantLoadingText,

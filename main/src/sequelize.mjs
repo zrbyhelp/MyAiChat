@@ -168,6 +168,12 @@ export function getModels() {
       defaultValue: '',
       field: 'form_option_model_config_id',
     },
+    worldGraphModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'world_graph_model_config_id',
+    },
     imageFetchEnabled: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
@@ -362,6 +368,12 @@ export function getModels() {
       defaultValue: '',
       field: 'robot_avatar',
     },
+    robotId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_id',
+    },
     robotSystemPrompt: {
       type: DataTypes.TEXT,
       allowNull: false,
@@ -391,6 +403,12 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'robot_form_option_model_config_id',
+    },
+    robotWorldGraphModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_world_graph_model_config_id',
     },
     robotImageFetchEnabled: {
       type: DataTypes.BOOLEAN,
@@ -518,6 +536,11 @@ export function getModels() {
       type: DataTypes.TEXT('long'),
       allowNull: false,
       field: 'numeric_state_json',
+    },
+    sessionWorldGraphJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: true,
+      field: 'session_world_graph_json',
     },
     promptTokens: {
       type: DataTypes.INTEGER,

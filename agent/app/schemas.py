@@ -89,6 +89,7 @@ class ModelConfig(CompatibleModel):
 
 
 class RobotProfile(CompatibleModel):
+    id: str = ""
     name: str = "当前智能体"
     avatar: str = ""
     common_prompt: str = Field(
@@ -110,6 +111,10 @@ class RobotProfile(CompatibleModel):
     form_option_model_config_id: str = Field(
         default="",
         validation_alias=AliasChoices("form_option_model_config_id", "formOptionModelConfigId"),
+    )
+    world_graph_model_config_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("world_graph_model_config_id", "worldGraphModelConfigId"),
     )
     numeric_computation_enabled: bool = Field(
         default=False,
@@ -152,6 +157,10 @@ class AuxiliaryModelConfigs(CompatibleModel):
         default=None,
         validation_alias=AliasChoices("form_option", "formOption"),
     )
+    world_graph: ModelConfig | None = Field(
+        default=None,
+        validation_alias=AliasChoices("world_graph", "worldGraph"),
+    )
 
 
 class RunRequest(CompatibleModel):
@@ -180,6 +189,10 @@ class RunRequest(CompatibleModel):
     numeric_state: dict[str, Any] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("numeric_state", "numericState"),
+    )
+    world_graph: dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("world_graph", "worldGraph"),
     )
 
 

@@ -59,6 +59,7 @@ export interface AIRobotCard {
   memoryModelConfigId: string
   numericComputationModelConfigId: string
   formOptionModelConfigId: string
+  worldGraphModelConfigId: string
   numericComputationEnabled: boolean
   numericComputationPrompt: string
   numericComputationItems: NumericComputationItem[]
@@ -87,6 +88,7 @@ export interface ModelCapabilities {
 }
 
 export interface SessionRobotState {
+  id: string
   name: string
   avatar: string
   commonPrompt: string
@@ -94,6 +96,7 @@ export interface SessionRobotState {
   memoryModelConfigId: string
   numericComputationModelConfigId: string
   formOptionModelConfigId: string
+  worldGraphModelConfigId: string
   numericComputationEnabled: boolean
   numericComputationPrompt: string
   numericComputationItems: NumericComputationItem[]
@@ -198,6 +201,7 @@ export interface ChatSessionDetail extends ChatSessionSummary {
   memorySchema: MemorySchemaState
   structuredMemory: StructuredMemoryState
   numericState?: Record<string, unknown>
+  worldGraph?: RobotWorldGraph | null
 }
 
 export interface ModelConfigsResponse {

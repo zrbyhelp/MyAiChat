@@ -219,7 +219,7 @@
             <TTextarea
               v-model="mobileAgentDraft.systemPrompt"
               :autosize="{ minRows: 8, maxRows: 12 }"
-              placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
+              placeholder="填写世界观背景、核心规则、主线冲突与长期设定；人物和关系请在世界图谱维护。"
             />
           </TFormItem>
           <div
@@ -236,12 +236,10 @@
             </div>
             <div class="story-world-graph-copy">
               <strong>世界图谱</strong>
-              <span>{{
-                canOpenWorldGraph ? '点击进入人物与关系编辑' : '保存到服务器后可编辑人物关系'
-              }}</span>
+              <span>{{ worldGraphEntryHint }}</span>
             </div>
             <TButton variant="outline" size="small">
-              {{ canOpenWorldGraph ? '进入编辑' : '待保存' }}
+              {{ worldGraphEntryActionLabel }}
             </TButton>
           </div>
           <TFormItem>
@@ -324,6 +322,40 @@
                 v-model="mobileAgentDraft.structuredMemoryHistoryLimit"
                 :min="1"
                 placeholder="12"
+              />
+            </TFormItem>
+          </div>
+          <div class="form-grid-2">
+            <TFormItem label="记忆模型">
+              <TSelect
+                v-model="mobileAgentDraft.memoryModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
+            <TFormItem label="世界图谱模型">
+              <TSelect
+                v-model="mobileAgentDraft.worldGraphModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
+            <TFormItem label="数值计算模型">
+              <TSelect
+                v-model="mobileAgentDraft.numericComputationModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
+            <TFormItem label="表单选项模型">
+              <TSelect
+                v-model="mobileAgentDraft.formOptionModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
               />
             </TFormItem>
           </div>
@@ -497,7 +529,7 @@
             <TTextarea
               v-model="mobileAgentDraft.systemPrompt"
               :autosize="{ minRows: 10, maxRows: 14 }"
-              placeholder="描述智能体的角色、语气、关系、行为边界和长期背景。"
+              placeholder="填写世界观背景、核心规则、主线冲突与长期设定；人物和关系请在世界图谱维护。"
             />
           </TFormItem>
           <div
@@ -514,12 +546,10 @@
             </div>
             <div class="story-world-graph-copy">
               <strong>世界图谱</strong>
-              <span>{{
-                canOpenWorldGraph ? '点击进入人物与关系编辑' : '保存到服务器后可编辑人物关系'
-              }}</span>
+              <span>{{ worldGraphEntryHint }}</span>
             </div>
             <TButton variant="outline" size="small">
-              {{ canOpenWorldGraph ? '进入编辑' : '待保存' }}
+              {{ worldGraphEntryActionLabel }}
             </TButton>
           </div>
           <TFormItem>
@@ -605,6 +635,40 @@
               />
             </TFormItem>
           </div>
+          <div class="form-grid-2">
+            <TFormItem label="记忆模型">
+              <TSelect
+                v-model="mobileAgentDraft.memoryModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
+            <TFormItem label="世界图谱模型">
+              <TSelect
+                v-model="mobileAgentDraft.worldGraphModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
+            <TFormItem label="数值计算模型">
+              <TSelect
+                v-model="mobileAgentDraft.numericComputationModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
+            <TFormItem label="表单选项模型">
+              <TSelect
+                v-model="mobileAgentDraft.formOptionModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
+          </div>
           <div class="agent-schema-card">
             <MemorySchemaEditor :schema="mobileAgentDraft.memorySchema" />
           </div>
@@ -664,6 +728,7 @@ import {
   Input as TInput,
   InputNumber as TInputNumber,
   Popup as TPopup,
+  Select as TSelect,
   StepItem as TStepItem,
   Steps as TSteps,
   Switch as TSwitch,
@@ -725,6 +790,10 @@ const props = defineProps({
     type: Boolean,
     required: true,
   },
+  auxModelOptions: {
+    type: Array as PropType<Array<{ label: string; value: string }>>,
+    required: true,
+  },
   agentCardActionOptions: {
     type: Array as PropType<Array<Record<string, unknown>>>,
     required: true,
@@ -742,6 +811,7 @@ const {
   agentEditorStep,
   mobileAgentDraft,
   savingMobileAgent,
+  auxModelOptions,
   agentCardActionOptions,
 } = toRefs(props)
 
@@ -776,9 +846,30 @@ const avatarUploadFiles = computed<UploadFile[]>(() => {
 const hasPendingAvatarFile = computed(() =>
   pendingAvatarUploadFiles.value.some((item) => item.raw instanceof File),
 )
-const canOpenWorldGraph = computed(
-  () => Boolean(String(mobileAgentDraft.value.id || '').trim()) && mobileAgentDraft.value.persistToServer,
-)
+const savedServerRobotForDraft = computed(() => {
+  const agentId = String(mobileAgentDraft.value.id || '').trim()
+  if (!agentId) {
+    return null
+  }
+  return (
+    robotTemplates.value.find(
+      (item) => item.id === agentId && Boolean(item.persistToServer),
+    ) || null
+  )
+})
+const canOpenWorldGraph = computed(() => mobileAgentDraft.value.persistToServer)
+const worldGraphEntryHint = computed(() => {
+  if (!mobileAgentDraft.value.persistToServer) {
+    return '开启保存到服务器后可编辑人物关系'
+  }
+  return savedServerRobotForDraft.value ? '点击进入人物与关系编辑' : '保存后自动进入人物与关系编辑'
+})
+const worldGraphEntryActionLabel = computed(() => {
+  if (!mobileAgentDraft.value.persistToServer) {
+    return '需存服务端'
+  }
+  return savedServerRobotForDraft.value ? '进入编辑' : '保存并进入'
+})
 
 const avatarUploadTips = computed(() =>
   mobileAgentDraft.value.persistToServer
@@ -875,19 +966,35 @@ function handleAgentTemplateImportChange(event: Event) {
   target.value = ''
 }
 
-function handleOpenWorldGraphFromEditor() {
-  const agentId = String(mobileAgentDraft.value.id || '').trim()
-  if (!agentId) {
-    MessagePlugin.warning('请先保存智能体，再编辑世界图谱')
-    return
-  }
-
+async function handleOpenWorldGraphFromEditor() {
   if (!mobileAgentDraft.value.persistToServer) {
     MessagePlugin.warning('请先开启“新建聊天记录保存在服务器”')
     return
   }
 
-  emit('open-world-graph', agentId)
+  if (savingAvatarOnSubmit.value || savingMobileAgent.value) {
+    return
+  }
+
+  const targetRobot = savedServerRobotForDraft.value
+  if (targetRobot) {
+    emit('open-world-graph', targetRobot.id)
+    return
+  }
+
+  if (hasPendingAvatarFile.value) {
+    savingAvatarOnSubmit.value = true
+    try {
+      const uploadSuccess = await uploadPendingAvatarBeforeSave()
+      if (!uploadSuccess) {
+        return
+      }
+    } finally {
+      savingAvatarOnSubmit.value = false
+    }
+  }
+
+  emit('save-mobile-agent-and-open-world-graph')
 }
 
 async function handleSaveMobileAgent() {
@@ -983,6 +1090,7 @@ const emit = defineEmits<{
   (e: 'previous-agent-editor-step'): void
   (e: 'skip-agent-structure-setup'): void
   (e: 'save-mobile-agent'): void
+  (e: 'save-mobile-agent-and-open-world-graph'): void
   (e: 'open-world-graph', agentId: string): void
   (e: 'remove-numeric-computation-item', target: { numericComputationItems: NumericComputationItem[] }, index: number): void
   (e: 'add-numeric-computation-item', target: { numericComputationItems: NumericComputationItem[] }): void
@@ -1015,6 +1123,15 @@ const emit = defineEmits<{
 
 .story-world-graph-entry.disabled {
   opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.story-world-graph-entry.disabled:hover {
+  border-color: #e5e7eb;
+  box-shadow: none;
+  transform: none;
 }
 
 .story-world-graph-preview {

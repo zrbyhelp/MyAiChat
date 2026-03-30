@@ -13,6 +13,13 @@ import {
   saveSessionRecord,
 } from './storage.mjs'
 import { normalizeFormSchema, normalizeSuggestionItems } from './structured.mjs'
+import {
+  applyWorldGraphWritebackToSnapshot,
+  cloneWorldGraphSnapshot,
+  createEmptyWorldGraphSnapshot,
+  getWorldGraph,
+  normalizeWorldGraphSnapshot,
+} from './world-graph-service.mjs'
 
 const DEFAULT_AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8000'
 
@@ -138,7 +145,61 @@ function normalizePositiveInteger(value, fallback) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback
 }
 
-function buildAgentRequest(payload, user, session) {
+function hasWorldGraphWritebackOps(value) {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  return [
+    value.upsert_nodes,
+    value.upsertNodes,
+    value.upsert_edges,
+    value.upsertEdges,
+    value.upsert_events,
+    value.upsertEvents,
+    value.append_node_snapshots,
+    value.appendNodeSnapshots,
+    value.append_edge_snapshots,
+    value.appendEdgeSnapshots,
+    value.append_event_effects,
+    value.appendEventEffects,
+  ].some((item) => Array.isArray(item) && item.length > 0)
+}
+
+function resolveSessionRobotId(payload, session) {
+  const candidates = [
+    session?.robot?.id,
+    payload?.robot?.id,
+    payload?.sessionSnapshot?.robot?.id,
+  ]
+  const resolved = candidates.find((item) => typeof item === 'string' && item.trim())
+  return resolved ? String(resolved).trim() : ''
+}
+
+async function loadWorldGraphPayload(user, payload, session) {
+  const robotId = resolveSessionRobotId(payload, session)
+  const robotName = resolveChatRobotName(payload, session)
+  const sessionGraph =
+    session?.worldGraph ||
+    payload?.sessionSnapshot?.worldGraph ||
+    payload?.sessionSnapshot?.world_graph ||
+    null
+
+  if (sessionGraph) {
+    return normalizeWorldGraphSnapshot(sessionGraph, { robotId, robotName })
+  }
+
+  if (!robotId) {
+    return createEmptyWorldGraphSnapshot(robotId, robotName)
+  }
+
+  try {
+    return cloneWorldGraphSnapshot(await getWorldGraph(user, robotId))
+  } catch {
+    return createEmptyWorldGraphSnapshot(robotId, robotName)
+  }
+}
+
+async function buildAgentRequest(payload, user, session) {
   const memory = session?.memory || DEFAULT_SESSION_MEMORY
   const robot = session?.robot || payload.robot || DEFAULT_SESSION_ROBOT
   const structuredMemoryInterval = normalizePositiveInteger(
@@ -191,6 +252,7 @@ function buildAgentRequest(payload, user, session) {
       temperature: typeof payload.temperature === 'number' ? payload.temperature : 0.7,
     },
     robot: {
+      id: String(robot?.id || ''),
       name: robot?.name || payload.robotName || '当前智能体',
       avatar: robot?.avatar || '',
       common_prompt: String(robot?.commonPrompt || ''),
@@ -198,6 +260,7 @@ function buildAgentRequest(payload, user, session) {
       memory_model_config_id: String(robot?.memoryModelConfigId || ''),
       numeric_computation_model_config_id: String(robot?.numericComputationModelConfigId || ''),
       form_option_model_config_id: String(robot?.formOptionModelConfigId || ''),
+      world_graph_model_config_id: String(robot?.worldGraphModelConfigId || ''),
       numeric_computation_enabled: Boolean(robot?.numericComputationEnabled),
       numeric_computation_prompt: String(robot?.numericComputationPrompt || ''),
       numeric_computation_items: Array.isArray(robot?.numericComputationItems) ? robot.numericComputationItems : [],
@@ -264,7 +327,22 @@ function buildAgentRequest(payload, user, session) {
           temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
         }
       })(),
+      world_graph: (() => {
+        const config = resolveAuxiliaryModelConfig(robot?.worldGraphModelConfigId)
+        return {
+          model_config_id: String(robot?.worldGraphModelConfigId || ''),
+          provider: config.provider,
+          base_url:
+            config.provider === 'ollama'
+              ? getOllamaChatBaseUrl(config.baseUrl)
+              : sanitizeBaseUrl(config.baseUrl),
+          api_key: String(config.apiKey || ''),
+          model: String(config.model || ''),
+          temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
+        }
+      })(),
     },
+    world_graph: await loadWorldGraphPayload(user, payload, session),
     structured_memory_interval: structuredMemoryInterval,
     structured_memory_history_limit: structuredMemoryHistoryLimit,
   }
@@ -292,7 +370,7 @@ async function requestAgentRun(payload, user) {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(buildAgentRequest(payload, user, session)),
+      body: JSON.stringify(await buildAgentRequest(payload, user, session)),
     })
 
     if (!response.ok) {
@@ -352,6 +430,7 @@ async function commitSession(payload, user, result, existingSession) {
       typeof result.numericState === 'object' && result.numericState !== null
         ? result.numericState
         : existing?.numericState || {},
+    worldGraph: result.worldGraph || existing?.worldGraph || payload.sessionSnapshot?.worldGraph || null,
     usage: {
       promptTokens: existingUsage.promptTokens + nextUsage.promptTokens,
       completionTokens: existingUsage.completionTokens + nextUsage.completionTokens,
@@ -409,6 +488,8 @@ async function runAgentAndCollect(payload, user, onEvent) {
   let finalSuggestions = []
   let finalForm = null
   let finalNumericState = session?.numericState || {}
+  let finalWorldGraph = await loadWorldGraphPayload(user, payload, session)
+  let finalWorldGraphWritebackOps = null
   let receivedRunCompleted = false
 
   try {
@@ -476,6 +557,12 @@ async function runAgentAndCollect(payload, user, onEvent) {
                 ? parsed.numericState
                 : finalNumericState
           finalUsage = normalizeUsage(parsed.usage || finalUsage)
+          finalWorldGraphWritebackOps =
+            parsed.world_graph_writeback_ops && typeof parsed.world_graph_writeback_ops === 'object'
+              ? parsed.world_graph_writeback_ops
+              : parsed.worldGraphWritebackOps && typeof parsed.worldGraphWritebackOps === 'object'
+                ? parsed.worldGraphWritebackOps
+                : finalWorldGraphWritebackOps
         }
 
         await onEvent?.(parsed)
@@ -489,6 +576,24 @@ async function runAgentAndCollect(payload, user, onEvent) {
     throw new Error(formatChatErrorMessage(payload, session, new Error('连接中断')))
   }
 
+  if (hasWorldGraphWritebackOps(finalWorldGraphWritebackOps)) {
+    try {
+      await onEvent?.({ type: 'world_graph_started' })
+      const writebackResult = applyWorldGraphWritebackToSnapshot(finalWorldGraph, finalWorldGraphWritebackOps)
+      finalWorldGraph = writebackResult.graph
+      await onEvent?.({
+        type: 'world_graph_updated',
+        ...writebackResult,
+        graph: finalWorldGraph,
+      })
+    } catch (error) {
+      await onEvent?.({
+        type: 'world_graph_update_failed',
+        message: error instanceof Error ? error.message : '世界图谱写回失败',
+      })
+    }
+  }
+
   let savedSession
   try {
     savedSession = await commitSession(payload, user, {
@@ -499,6 +604,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
       numericState: finalNumericState,
       memory: finalMemory,
       usage: finalUsage,
+      worldGraph: finalWorldGraph,
     }, session)
   } catch (error) {
     throw new Error(formatChatErrorMessage(payload, session, error))
@@ -520,6 +626,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
       threadId: finalThreadId,
       structuredMemory: finalMemory,
       numericState: finalNumericState,
+      worldGraph: finalWorldGraph,
       usage: finalUsage,
     }),
   }
@@ -600,6 +707,15 @@ function forwardAgentEvent(res, payload) {
     return
   }
 
+  if (payload.type === 'world_graph_updated' && payload.graph) {
+    sendSSE(res, {
+      type: 'session_world_graph',
+      graph: payload.graph,
+      warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+    })
+    return
+  }
+
   if (payload.type === 'usage') {
     sendSSE(res, {
       type: 'usage',
@@ -634,6 +750,10 @@ export async function handleChatStream(payload, res, user) {
     sendSSE(res, {
       type: 'numeric_state_updated',
       state: result.numericState,
+    })
+    sendSSE(res, {
+      type: 'session_world_graph',
+      graph: result.session.worldGraph || null,
     })
     sendSSE(res, { type: 'done' })
   } catch (error) {

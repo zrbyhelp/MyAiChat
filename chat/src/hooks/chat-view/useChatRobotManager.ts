@@ -19,6 +19,11 @@ interface UseChatRobotManagerOptions {
   createNumericComputationItem: (index?: number) => NumericComputationItem
 }
 
+interface SaveMobileAgentOptions {
+  closeEditor?: boolean
+  successMessage?: string
+}
+
 export function useChatRobotManager(options: UseChatRobotManagerOptions) {
   const AGENT_TEMPLATE_FILE_KIND = 'myaichat-agent-template'
   const AGENT_TEMPLATE_FILE_SECRET = 'myaichat:agent-template:v1'
@@ -54,6 +59,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       memoryModelConfigId: '',
       numericComputationModelConfigId: '',
       formOptionModelConfigId: '',
+      worldGraphModelConfigId: '',
       numericComputationEnabled: false,
       numericComputationPrompt: '',
       numericComputationItems: [],
@@ -114,9 +120,10 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.persistToServer = Boolean(source?.persistToServer ?? true)
     mobileAgentDraft.commonPrompt = String(source?.commonPrompt || '')
     mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
-    mobileAgentDraft.memoryModelConfigId = ''
-    mobileAgentDraft.numericComputationModelConfigId = ''
-    mobileAgentDraft.formOptionModelConfigId = ''
+    mobileAgentDraft.memoryModelConfigId = String(source?.memoryModelConfigId || '')
+    mobileAgentDraft.numericComputationModelConfigId = String(source?.numericComputationModelConfigId || '')
+    mobileAgentDraft.formOptionModelConfigId = String(source?.formOptionModelConfigId || '')
+    mobileAgentDraft.worldGraphModelConfigId = String(source?.worldGraphModelConfigId || '')
     mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
     mobileAgentDraft.numericComputationPrompt = String(source?.numericComputationPrompt || '')
     mobileAgentDraft.numericComputationItems = cloneNumericComputationItems(source?.numericComputationItems)
@@ -140,9 +147,10 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       persistToServer: Boolean(item.persistToServer),
       commonPrompt: item.commonPrompt.trim(),
       systemPrompt: item.systemPrompt,
-      memoryModelConfigId: '',
-      numericComputationModelConfigId: '',
-      formOptionModelConfigId: '',
+      memoryModelConfigId: String(item.memoryModelConfigId || '').trim(),
+      numericComputationModelConfigId: String(item.numericComputationModelConfigId || '').trim(),
+      formOptionModelConfigId: String(item.formOptionModelConfigId || '').trim(),
+      worldGraphModelConfigId: String(item.worldGraphModelConfigId || '').trim(),
       numericComputationEnabled: Boolean(item.numericComputationEnabled),
       numericComputationPrompt: item.numericComputationPrompt.trim(),
       numericComputationItems: cloneNumericComputationItems(item.numericComputationItems),
@@ -462,13 +470,13 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     }
   }
 
-  async function saveMobileAgent() {
+  async function saveMobileAgent(saveOptions: SaveMobileAgentOptions = {}) {
     savingMobileAgent.value = true
     try {
       const itemsValidation = validateNumericComputationItems(mobileAgentDraft.numericComputationItems)
       if (!itemsValidation.ok && mobileAgentDraft.numericComputationEnabled) {
         MessagePlugin.error(itemsValidation.message)
-        return
+        return null
       }
       const nextAgent: AIRobotCard = {
         ...mobileAgentDraft,
@@ -477,9 +485,10 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         avatar: mobileAgentDraft.avatar.trim(),
         commonPrompt: mobileAgentDraft.commonPrompt.trim(),
         systemPrompt: mobileAgentDraft.systemPrompt,
-        memoryModelConfigId: '',
-        numericComputationModelConfigId: '',
-        formOptionModelConfigId: '',
+        memoryModelConfigId: String(mobileAgentDraft.memoryModelConfigId || '').trim(),
+        numericComputationModelConfigId: String(mobileAgentDraft.numericComputationModelConfigId || '').trim(),
+        formOptionModelConfigId: String(mobileAgentDraft.formOptionModelConfigId || '').trim(),
+        worldGraphModelConfigId: String(mobileAgentDraft.worldGraphModelConfigId || '').trim(),
         numericComputationEnabled: Boolean(mobileAgentDraft.numericComputationEnabled),
         numericComputationPrompt: mobileAgentDraft.numericComputationPrompt.trim(),
         numericComputationItems: itemsValidation.ok ? itemsValidation.normalized : [],
@@ -527,7 +536,8 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       await reloadRobotTemplates()
       await persistRobotTemplates(
         robotTemplates.value,
-        mobileAgentEditorMode.value === 'edit' ? '智能体已更新' : '智能体已新增',
+        saveOptions.successMessage
+          || (mobileAgentEditorMode.value === 'edit' ? '智能体已更新' : '智能体已新增'),
       )
 
       if (mobileAgentEditorMode.value === 'create') {
@@ -537,13 +547,17 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         editingAgentId.value = nextAgent.id
       }
 
-      mobileAgentEditorVisible.value = false
-      agentManageVisible.value = false
+      if (saveOptions.closeEditor !== false) {
+        mobileAgentEditorVisible.value = false
+        agentManageVisible.value = false
+      }
+      return normalizedAgent
     } catch (error) {
       if (error instanceof UnauthorizedError) {
-        return
+        return null
       }
       MessagePlugin.error(error instanceof Error ? error.message : '保存智能体失败')
+      return null
     } finally {
       savingMobileAgent.value = false
     }

@@ -136,6 +136,7 @@ export function createApp() {
           memorySchema: session.memorySchema,
           structuredMemory: session.structuredMemory,
           numericState: session.numericState,
+          worldGraph: session.worldGraph,
         },
       })
     } catch (error) {
@@ -160,6 +161,7 @@ export function createApp() {
           memorySchema: session.memorySchema,
           structuredMemory: session.structuredMemory,
           numericState: session.numericState,
+          worldGraph: session.worldGraph,
         },
       })
     } catch (error) {

@@ -10,6 +10,7 @@ import type {
   MemorySchemaField,
   MemorySchemaState,
   NumericComputationItem,
+  RobotWorldGraph,
   SessionMemoryState,
   SessionRobotState,
   SessionUsageState,
@@ -295,8 +296,10 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   })
   const currentUsage = reactive<SessionUsageState>({ ...DEFAULT_SESSION_USAGE })
   const currentNumericState = ref<Record<string, unknown>>({})
+  const currentSessionWorldGraph = ref<RobotWorldGraph | null>(null)
 
   const sessionRobot = reactive<SessionRobotState>({
+    id: '',
     name: '当前智能体',
     avatar: '',
     commonPrompt: '',
@@ -304,6 +307,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     memoryModelConfigId: '',
     numericComputationModelConfigId: '',
     formOptionModelConfigId: '',
+    worldGraphModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
     numericComputationItems: [],
@@ -311,6 +315,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
   })
   const sessionRobotDraft = reactive<SessionRobotState>({
+    id: '',
     name: '',
     avatar: '',
     commonPrompt: '',
@@ -318,6 +323,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     memoryModelConfigId: '',
     numericComputationModelConfigId: '',
     formOptionModelConfigId: '',
+    worldGraphModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
     numericComputationItems: [],
@@ -404,22 +410,30 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
       typeof value === 'object' && value !== null ? { ...value } : {}
   }
 
+  function applySessionWorldGraph(graph?: RobotWorldGraph | null) {
+    currentSessionWorldGraph.value = graph ? JSON.parse(JSON.stringify(graph)) as RobotWorldGraph : null
+  }
+
   function openMemoryDialog() {
     Object.assign(sessionMemoryDraft, normalizeSessionMemory(currentSessionMemory))
     memoryVisible.value = true
   }
 
   function openSessionRobotDialog() {
+    sessionRobotDraft.id = sessionRobot.id
     sessionRobotDraft.memoryModelConfigId = sessionRobot.memoryModelConfigId
     sessionRobotDraft.numericComputationModelConfigId = sessionRobot.numericComputationModelConfigId
     sessionRobotDraft.formOptionModelConfigId = sessionRobot.formOptionModelConfigId
+    sessionRobotDraft.worldGraphModelConfigId = sessionRobot.worldGraphModelConfigId
     sessionRobotVisible.value = true
   }
 
   async function applySessionRobot() {
+    sessionRobot.id = String(sessionRobotDraft.id || '').trim()
     sessionRobot.memoryModelConfigId = String(sessionRobotDraft.memoryModelConfigId || '').trim()
     sessionRobot.numericComputationModelConfigId = String(sessionRobotDraft.numericComputationModelConfigId || '').trim()
     sessionRobot.formOptionModelConfigId = String(sessionRobotDraft.formOptionModelConfigId || '').trim()
+    sessionRobot.worldGraphModelConfigId = String(sessionRobotDraft.worldGraphModelConfigId || '').trim()
     sessionRobotVisible.value = false
     await options.onSyncCurrentSessionMeta()
   }
@@ -451,10 +465,12 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     applyMemorySchema,
     applySessionUsage,
     applyNumericState,
+    applySessionWorldGraph,
     openMemoryDialog,
     openSessionRobotDialog,
     applySessionRobot,
     applySessionMemorySettings,
     currentNumericState,
+    currentSessionWorldGraph,
   }
 }

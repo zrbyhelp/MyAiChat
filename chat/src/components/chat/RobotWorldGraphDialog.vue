@@ -1,11 +1,18 @@
 <template>
-  <div v-if="!currentRobot?.persistToServer" class="empty-state">仅支持已保存到服务器的智能体使用世界设定。</div>
+  <div v-if="!hasGraphSource" class="empty-state">{{ emptyStateText }}</div>
   <div v-else-if="loading" class="empty-state">正在加载世界设定...</div>
   <div v-else class="world-shell">
     <aside class="sidebar">
-      <div class="sidebar-tabs">
+      <div class="sidebar-tabs" :class="{ single: !showRelationTypeTab }">
         <button class="sidebar-tab" :class="{ active: activePanel === 'graph' }" @click="switchPanel('graph')">图谱</button>
-        <button class="sidebar-tab" :class="{ active: activePanel === 'relation-types' }" @click="switchPanel('relation-types')">关系类型</button>
+        <button
+          v-if="showRelationTypeTab"
+          class="sidebar-tab"
+          :class="{ active: activePanel === 'relation-types' }"
+          @click="switchPanel('relation-types')"
+        >
+          关系类型
+        </button>
       </div>
       <div class="sidebar-search">
         <TInput v-model="searchKeyword" borderless placeholder="搜索" />
@@ -24,7 +31,7 @@
         <div v-if="!sidebarItems.length" class="sidebar-empty">暂无内容</div>
       </div>
       <div class="sidebar-footer">
-        <div v-if="createMenuVisible" class="create-menu">
+        <div v-if="!isReadOnly && createMenuVisible" class="create-menu">
           <button
             v-for="item in creatableObjectTypeOptions"
             :key="item.value"
@@ -34,7 +41,7 @@
             新增{{ item.label }}
           </button>
         </div>
-        <TButton class="create-button" variant="outline" @click="handleSidebarCreate">新增</TButton>
+        <TButton v-if="!isReadOnly" class="create-button" variant="outline" @click="handleSidebarCreate">新增</TButton>
         <TButton class="close-button" variant="text" @click="closeWorldGraph">关闭</TButton>
       </div>
     </aside>
@@ -50,6 +57,7 @@
           :linking-source-node-id="linkingSourceNodeId"
           :current-sequence-index="currentSequenceIndex"
           :layout="meta.layout"
+          :read-only="isReadOnly"
           @select-node="selectNode"
           @select-edge="selectEdge"
           @clear-selection="clearGraphSelection"
@@ -72,8 +80,8 @@
           </div>
 
           <div class="node-detail-actions">
-            <TButton size="small" theme="primary" @click="openSelectedNodeEditor">编辑</TButton>
-            <TButton size="small" variant="outline" @click="startLinkingFromDetail">连线</TButton>
+            <TButton v-if="!isReadOnly" size="small" theme="primary" @click="openSelectedNodeEditor">编辑</TButton>
+            <TButton v-if="!isReadOnly" size="small" variant="outline" @click="startLinkingFromDetail">连线</TButton>
           </div>
 
           <div class="node-detail-body">
@@ -101,7 +109,7 @@
           </div>
         </aside>
 
-        <div v-if="relationTypePickerVisible" class="relation-picker-mask" @click.self="cancelLinking">
+        <div v-if="!isReadOnly && relationTypePickerVisible" class="relation-picker-mask" @click.self="cancelLinking">
           <div class="relation-picker">
             <div class="relation-picker-title">选择关联类型</div>
             <div class="relation-picker-subtitle">{{ linkingSourceName }} -> {{ linkingTargetName }}</div>
@@ -118,7 +126,7 @@
           </div>
         </div>
 
-        <div v-if="editorVisible" class="editor-popup-layer" @click.self="closeEditor">
+        <div v-if="editorVisible && !isReadOnly" class="editor-popup-layer" @click.self="closeEditor">
           <section class="editor-popup">
             <div class="editor-head">
               <div>
@@ -366,7 +374,18 @@
           <div class="timeline-actions">
             <TButton size="small" variant="outline" :disabled="currentSequenceIndex === 0" @click="moveToPreviousPoint">上一个</TButton>
             <TButton size="small" variant="outline" :disabled="currentSequenceIndex === timelineMaxSequenceIndex" @click="moveToNextPoint">下一个</TButton>
-            <TButton size="small" theme="primary" @click="createEventAtCurrentPoint">在此时间点新增事件</TButton>
+            <TButton size="small" variant="outline" @click="toggleAutoplay">
+              {{ isAutoplaying ? '暂停播放' : '自动播放' }}
+            </TButton>
+            <TButton size="small" variant="outline" @click="restartAutoplay">重新播放</TButton>
+            <TSelect
+              v-model="playbackSpeed"
+              class="timeline-speed-select"
+              size="small"
+              :options="playbackSpeedOptions"
+              :clearable="false"
+            />
+            <TButton v-if="!isReadOnly" size="small" theme="primary" @click="createEventAtCurrentPoint">在此时间点新增事件</TButton>
           </div>
         </div>
 
@@ -416,6 +435,7 @@ import {
 } from '@/lib/api'
 import type {
   AIRobotCard,
+  RobotWorldGraph,
   RobotWorldGraphMeta,
   RobotWorldRelationType,
   WorldEdge,
@@ -432,7 +452,11 @@ import type {
   WorldTimelineEffect,
 } from '@/types/ai'
 
-const props = defineProps<{ currentRobot: AIRobotCard | null }>()
+const props = defineProps<{
+  currentRobot: AIRobotCard | null
+  graphData?: RobotWorldGraph | null
+  readOnly?: boolean
+}>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const objectTypeLabel: Record<WorldObjectType, string> = {
@@ -490,6 +514,9 @@ const typeTargetObjectTypes = ref<WorldObjectType[]>([])
 const linkingSourceNodeId = ref('')
 const linkingTargetNodeId = ref('')
 const currentSequenceIndex = ref(0)
+const isAutoplaying = ref(false)
+const playbackSpeed = ref<'1x' | '2x' | '4x'>('1x')
+const autoplayTimer = ref<number | null>(null)
 const layoutSaveTimer = ref<number | null>(null)
 const pendingLayout = ref<WorldGraphLayout | null>(null)
 const lastPersistedLayout = ref<WorldGraphLayout>({ viewportX: 0, viewportY: 0, zoom: 1 })
@@ -503,6 +530,17 @@ const meta = reactive<RobotWorldGraphMeta>({
 })
 
 const timelineLabelKeys: Array<keyof Pick<WorldTimeline, 'yearLabel' | 'monthLabel' | 'dayLabel' | 'timeOfDayLabel' | 'phase'>> = ['yearLabel', 'monthLabel', 'dayLabel', 'timeOfDayLabel', 'phase']
+const playbackSpeedOptions = [
+  { label: '1x', value: '1x' },
+  { label: '2x', value: '2x' },
+  { label: '4x', value: '4x' },
+]
+const isReadOnly = computed(() => Boolean(props.readOnly))
+const hasGraphSource = computed(() => Boolean(props.graphData || props.currentRobot?.persistToServer))
+const emptyStateText = computed(() =>
+  isReadOnly.value ? '当前会话还没有消息图谱。' : '仅支持已保存到服务器的智能体使用世界设定。',
+)
+const showRelationTypeTab = computed(() => !isReadOnly.value)
 
 function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(toRaw(value))) as T
@@ -1138,6 +1176,15 @@ const sidebarItems = computed(() => {
 })
 
 async function loadWorldGraph() {
+  if (props.graphData) {
+    rawNodes.value = (Array.isArray(props.graphData.nodes) ? props.graphData.nodes : []).map(normalizeNodeClient)
+    rawEdges.value = (Array.isArray(props.graphData.edges) ? props.graphData.edges : []).map(normalizeEdgeClient)
+    relationTypes.value = (Array.isArray(props.graphData.relationTypes) ? props.graphData.relationTypes : []).map(normalizeRelationTypeClient)
+    Object.assign(meta, cloneValue(props.graphData.meta))
+    lastPersistedLayout.value = cloneValue(props.graphData.meta.layout)
+    currentSequenceIndex.value = Math.min(currentSequenceIndex.value, timelineMaxSequenceIndex.value)
+    return
+  }
   if (!props.currentRobot?.id || !props.currentRobot.persistToServer) {
     rawNodes.value = []
     rawEdges.value = []
@@ -1164,6 +1211,38 @@ function setCurrentSequenceIndex(sequenceIndex: number) {
   currentSequenceIndex.value = Math.max(0, Math.min(timelineMaxSequenceIndex.value, Math.round(sequenceIndex)))
 }
 
+function stopAutoplay() {
+  isAutoplaying.value = false
+  if (autoplayTimer.value) {
+    window.clearTimeout(autoplayTimer.value)
+    autoplayTimer.value = null
+  }
+}
+
+function getPlaybackDelay() {
+  if (playbackSpeed.value === '4x') {
+    return 350
+  }
+  if (playbackSpeed.value === '2x') {
+    return 700
+  }
+  return 1200
+}
+
+function scheduleAutoplayStep() {
+  if (!isAutoplaying.value) {
+    return
+  }
+  if (currentSequenceIndex.value >= timelineMaxSequenceIndex.value) {
+    stopAutoplay()
+    return
+  }
+  autoplayTimer.value = window.setTimeout(() => {
+    setCurrentSequenceIndex(currentSequenceIndex.value + 1)
+    scheduleAutoplayStep()
+  }, getPlaybackDelay())
+}
+
 function moveToPreviousPoint() {
   setCurrentSequenceIndex(currentSequenceIndex.value - 1)
 }
@@ -1172,7 +1251,29 @@ function moveToNextPoint() {
   setCurrentSequenceIndex(currentSequenceIndex.value + 1)
 }
 
+function toggleAutoplay() {
+  if (isAutoplaying.value) {
+    stopAutoplay()
+    return
+  }
+  if (currentSequenceIndex.value >= timelineMaxSequenceIndex.value) {
+    setCurrentSequenceIndex(0)
+  }
+  isAutoplaying.value = true
+  scheduleAutoplayStep()
+}
+
+function restartAutoplay() {
+  stopAutoplay()
+  setCurrentSequenceIndex(0)
+  isAutoplaying.value = true
+  scheduleAutoplayStep()
+}
+
 function switchPanel(panel: 'graph' | 'relation-types') {
+  if (panel === 'relation-types' && isReadOnly.value) {
+    return
+  }
   activePanel.value = panel
   createMenuVisible.value = false
   searchKeyword.value = ''
@@ -1208,6 +1309,9 @@ function openNodeEditorFromProjected(node: WorldNode) {
 }
 
 function openSelectedNodeEditor() {
+  if (isReadOnly.value) {
+    return
+  }
   if (!selectedCanvasNode.value) {
     return
   }
@@ -1249,10 +1353,15 @@ function selectEdge(edgeId: string) {
   selectedNodeId.value = ''
   selectedEdgeId.value = edgeId
   selectedTypeId.value = ''
-  openEdgeEditorFromProjected(edge)
+  if (!isReadOnly.value) {
+    openEdgeEditorFromProjected(edge)
+  }
 }
 
 function selectTimelineEvent(nodeId: string) {
+  if (isReadOnly.value) {
+    return
+  }
   const node = currentTimelineEvents.value.find((item) => item.id === nodeId) || rawNodes.value.find((item) => item.id === nodeId && item.objectType === 'event')
   if (!node) {
     return
@@ -1264,6 +1373,9 @@ function selectTimelineEvent(nodeId: string) {
 }
 
 function startLinkingFromDetail() {
+  if (isReadOnly.value) {
+    return
+  }
   if (!selectedCanvasNode.value) {
     return
   }
@@ -1282,6 +1394,9 @@ function selectRelationType(typeId: string) {
 }
 
 function handleSidebarCreate() {
+  if (isReadOnly.value) {
+    return
+  }
   if (activePanel.value === 'relation-types') {
     selectedNodeId.value = ''
     selectedEdgeId.value = ''
@@ -1298,10 +1413,16 @@ function handleCreateNode(objectType: WorldObjectType) {
 }
 
 function createEventAtCurrentPoint() {
+  if (isReadOnly.value) {
+    return
+  }
   handleCreateNode('event')
 }
 
 function beginLinking(nodeId: string) {
+  if (isReadOnly.value) {
+    return
+  }
   if (!canvasNodeMap.value.has(nodeId)) {
     return
   }
@@ -1323,7 +1444,7 @@ function cancelLinking() {
 }
 
 async function createEdgeWithType(type: RobotWorldRelationType) {
-  if (!props.currentRobot?.id || !linkingSourceNodeId.value || !linkingTargetNodeId.value) {
+  if (isReadOnly.value || !props.currentRobot?.id || !linkingSourceNodeId.value || !linkingTargetNodeId.value) {
     return
   }
   savingEdge.value = true
@@ -1686,7 +1807,9 @@ async function saveNode() {
   const payload = mergeNodeDraftIntoRaw(rawNode, nodeDraft.value)
   savingNode.value = true
   try {
-    const response = rawNode ? await updateRobotWorldNode(props.currentRobot.id, rawNode.id, payload) : await createRobotWorldNode(props.currentRobot.id, payload)
+    const response = rawNode
+      ? await updateRobotWorldNode(props.currentRobot.id, rawNode.id, payload)
+      : await createRobotWorldNode(props.currentRobot.id, payload)
     const savedNode = normalizeNodeClient(response.node)
     rawNodes.value = rawNode ? rawNodes.value.map((item) => item.id === savedNode.id ? savedNode : item) : [...rawNodes.value, savedNode]
     selectedNodeId.value = savedNode.objectType === 'event' ? '' : savedNode.id
@@ -1730,7 +1853,9 @@ async function saveEdge() {
   const payload = mergeEdgeDraftIntoRaw(rawEdge, edgeDraft.value)
   savingEdge.value = true
   try {
-    const response = rawEdge ? await updateRobotWorldEdge(props.currentRobot.id, rawEdge.id, payload) : await createRobotWorldEdge(props.currentRobot.id, payload)
+    const response = rawEdge
+      ? await updateRobotWorldEdge(props.currentRobot.id, rawEdge.id, payload)
+      : await createRobotWorldEdge(props.currentRobot.id, payload)
     const savedEdge = normalizeEdgeClient(response.edge)
     rawEdges.value = rawEdge ? rawEdges.value.map((item) => item.id === savedEdge.id ? savedEdge : item) : [...rawEdges.value, savedEdge]
     selectedEdgeId.value = savedEdge.id
@@ -1772,7 +1897,9 @@ async function saveType() {
   const payload: Partial<RobotWorldRelationType> = { ...typeDraft.value, sourceObjectTypes: [...typeSourceObjectTypes.value], targetObjectTypes: [...typeTargetObjectTypes.value] }
   savingType.value = true
   try {
-    const response = typeDraft.value.id ? await updateRobotWorldRelationType(props.currentRobot.id, typeDraft.value.id, payload) : await createRobotWorldRelationType(props.currentRobot.id, payload)
+    const response = typeDraft.value.id
+      ? await updateRobotWorldRelationType(props.currentRobot.id, typeDraft.value.id, payload)
+      : await createRobotWorldRelationType(props.currentRobot.id, payload)
     const savedType = normalizeRelationTypeClient(response.relationType)
     relationTypes.value = typeDraft.value.id ? relationTypes.value.map((item) => item.id === savedType.id ? savedType : item) : [...relationTypes.value, savedType]
     selectedTypeId.value = savedType.id
@@ -1807,7 +1934,7 @@ async function removeType() {
 }
 
 async function persistNodePosition(nodeId: string, x: number, y: number) {
-  if (!props.currentRobot?.id) {
+  if (isReadOnly.value || !props.currentRobot?.id) {
     return
   }
   const node = rawNodes.value.find((item) => item.id === nodeId)
@@ -1830,7 +1957,7 @@ function handleNodeMove(payload: { nodeId: string; x: number; y: number }) {
 }
 
 async function autoLayout() {
-  if (!props.currentRobot?.id || !rawNodes.value.length) {
+  if (isReadOnly.value || !props.currentRobot?.id || !rawNodes.value.length) {
     return
   }
   const centerX = 560
@@ -1856,6 +1983,10 @@ async function autoLayout() {
 }
 
 function updateGraphLayout(layout: WorldGraphLayout) {
+  if (isReadOnly.value) {
+    Object.assign(meta.layout, cloneValue(layout))
+    return
+  }
   Object.assign(meta.layout, cloneValue(layout))
   pendingLayout.value = cloneValue(layout)
   if (layoutSaveTimer.value) {
@@ -1879,10 +2010,22 @@ function updateGraphLayout(layout: WorldGraphLayout) {
   }, 320)
 }
 
-watch(() => props.currentRobot?.id, () => { void loadWorldGraph() }, { immediate: true })
+watch(
+  () => [props.currentRobot?.id, props.graphData, props.readOnly],
+  () => {
+    if (isReadOnly.value) {
+      activePanel.value = 'graph'
+    }
+    void loadWorldGraph()
+  },
+  { immediate: true },
+)
 watch(timelineMaxSequenceIndex, (value) => {
   if (currentSequenceIndex.value > value) {
     currentSequenceIndex.value = value
+  }
+  if (isAutoplaying.value && currentSequenceIndex.value >= value) {
+    stopAutoplay()
   }
 })
 watch(canvasNodes, (nodes) => {
@@ -1910,6 +2053,14 @@ watch(typeDraft, (value) => {
   typeSourceObjectTypes.value = [...value.sourceObjectTypes]
   typeTargetObjectTypes.value = [...value.targetObjectTypes]
 })
+watch(playbackSpeed, () => {
+  if (!isAutoplaying.value) {
+    return
+  }
+  stopAutoplay()
+  isAutoplaying.value = true
+  scheduleAutoplayStep()
+})
 
 onMounted(() => {
   if (meta.layout.zoom <= 0) {
@@ -1918,6 +2069,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopAutoplay()
   if (layoutSaveTimer.value) {
     window.clearTimeout(layoutSaveTimer.value)
   }
@@ -1930,6 +2082,7 @@ onBeforeUnmount(() => {
 .world-shell{display:grid;grid-template-columns:280px minmax(0,1fr);background:#f3f3f3}
 .sidebar{display:flex;flex-direction:column;min-height:0;background:rgba(255,255,255,.92);border-right:1px solid rgba(15,23,42,.08)}
 .sidebar-tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:18px}
+.sidebar-tabs.single{grid-template-columns:1fr}
 .sidebar-tab{height:42px;border:0;border-radius:16px;background:#eef0f3;color:#5b6168;font-size:14px;font-weight:600;cursor:pointer;transition:.18s ease}
 .sidebar-tab.active{background:#111827;color:#fff}
 .sidebar-search{padding:0 18px 12px}
@@ -1989,6 +2142,7 @@ onBeforeUnmount(() => {
 .timeline-current span,.timeline-current small{color:#6b7280;font-size:13px}
 .timeline-current strong{color:#111827;font-size:18px;font-weight:700}
 .timeline-actions{display:flex;flex-wrap:wrap;gap:8px}
+.timeline-speed-select{width:92px}
 .timeline-range-wrap{display:grid}
 .timeline-range{width:100%}
 .timeline-event-strip{display:flex;gap:10px;overflow-x:auto}

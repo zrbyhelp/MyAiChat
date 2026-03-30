@@ -101,6 +101,7 @@ export const DEFAULT_ROBOTS = [
     memoryModelConfigId: '',
     numericComputationModelConfigId: '',
     formOptionModelConfigId: '',
+    worldGraphModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
     numericComputationItems: [],
@@ -111,6 +112,7 @@ export const DEFAULT_ROBOTS = [
 ]
 
 export const DEFAULT_SESSION_ROBOT = {
+  id: '',
   name: '当前智能体',
   avatar: '',
   commonPrompt: '',
@@ -118,6 +120,7 @@ export const DEFAULT_SESSION_ROBOT = {
   memoryModelConfigId: '',
   numericComputationModelConfigId: '',
   formOptionModelConfigId: '',
+  worldGraphModelConfigId: '',
   numericComputationEnabled: false,
   numericComputationPrompt: '',
   numericComputationItems: [],

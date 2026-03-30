@@ -15,6 +15,7 @@ import {
   PROVIDER_DEFAULTS,
 } from './constants.mjs'
 import { normalizeFormSchema, normalizeSuggestionItems, safeJsonParse } from './structured.mjs'
+import { normalizeWorldGraphSnapshot } from './world-graph-service.mjs'
 
 export {
   DEFAULT_MEMORY_SCHEMA,
@@ -124,6 +125,7 @@ export function normalizeRobots(input) {
       robot?.numericComputationModelConfigId || robot?.numeric_computation_model_config_id || '',
     ).trim(),
     formOptionModelConfigId: String(robot?.formOptionModelConfigId || robot?.form_option_model_config_id || '').trim(),
+    worldGraphModelConfigId: String(robot?.worldGraphModelConfigId || robot?.world_graph_model_config_id || '').trim(),
     numericComputationEnabled: Boolean(robot?.numericComputationEnabled ?? robot?.imageFetchEnabled),
     numericComputationPrompt: String((robot?.numericComputationPrompt ?? robot?.imageFetchPrompt) || '').trim(),
     numericComputationItems: normalizeNumericComputationItems(robot?.numericComputationItems ?? robot?.numericComputationSchema),
@@ -143,6 +145,7 @@ export function normalizeRobots(input) {
 
 export function normalizeSessionRobot(input) {
   return {
+    id: String(input?.id || input?.robotId || input?.robot_id || DEFAULT_SESSION_ROBOT.id).trim(),
     name: String(input?.name || DEFAULT_SESSION_ROBOT.name),
     avatar: String(input?.avatar || '').trim(),
     commonPrompt: String(input?.commonPrompt || input?.common_prompt || ''),
@@ -152,6 +155,7 @@ export function normalizeSessionRobot(input) {
       input?.numericComputationModelConfigId || input?.numeric_computation_model_config_id || '',
     ).trim(),
     formOptionModelConfigId: String(input?.formOptionModelConfigId || input?.form_option_model_config_id || '').trim(),
+    worldGraphModelConfigId: String(input?.worldGraphModelConfigId || input?.world_graph_model_config_id || '').trim(),
     numericComputationEnabled: Boolean(input?.numericComputationEnabled ?? input?.imageFetchEnabled),
     numericComputationPrompt: String((input?.numericComputationPrompt ?? input?.imageFetchPrompt) || '').trim(),
     numericComputationItems: normalizeNumericComputationItems(input?.numericComputationItems ?? input?.numericComputationSchema),
@@ -388,6 +392,13 @@ export function normalizeSession(input, index = 0) {
         : typeof input?.numeric_state === 'object' && input?.numeric_state !== null
           ? input.numeric_state
           : {},
+    worldGraph:
+      input?.worldGraph || input?.world_graph
+        ? normalizeWorldGraphSnapshot(input.worldGraph || input.world_graph, {
+            robotId: input?.robot?.id || input?.robotId || input?.robot_id || '',
+            robotName: input?.robot?.name || '',
+          })
+        : null,
     usage: normalizeSessionUsage(input?.usage),
   }
 }

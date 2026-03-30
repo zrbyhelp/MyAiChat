@@ -38,6 +38,10 @@ class AgentState(TypedDict):
     numeric_computation_prompt: str
     numeric_computation_items: list[dict]
     numeric_state: dict
+    world_graph_payload: dict
+    world_graph_text_summary: str
+    world_graph_decision: dict
+    world_graph_writeback_ops: dict
     final_response: NotRequired[str]
     ui_payload: NotRequired[dict]
     usage: NotRequired[dict]
@@ -391,6 +395,86 @@ def normalize_positive_int(value, fallback: int) -> int:
     return normalized if normalized > 0 else fallback
 
 
+def normalize_string_list(value) -> list[str]:
+    items = value if isinstance(value, list) else []
+    results: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            results.append(text)
+    return results
+
+
+def world_graph_json_text(value) -> str:
+    payload = value if isinstance(value, dict) else {}
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def normalize_world_graph_entity_candidate(value) -> dict | None:
+    item = value if isinstance(value, dict) else {}
+    entity_id = str(item.get("id") or "").strip()
+    object_type = str(item.get("object_type") or item.get("objectType") or "").strip()
+    name = str(item.get("name") or "").strip()
+    summary = str(item.get("summary") or "").strip()
+    if not entity_id or not object_type or not name:
+        return None
+    return {
+        "id": entity_id,
+        "object_type": object_type,
+        "name": name,
+        "summary": summary,
+    }
+
+
+def normalize_world_graph_decision(value) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    candidates = [
+        normalize_world_graph_entity_candidate(item)
+        for item in (payload.get("candidate_new_entities") or payload.get("candidateNewEntities") or [])
+    ]
+    return {
+        "focus_character_ids": normalize_string_list(payload.get("focus_character_ids") or payload.get("focusCharacterIds")),
+        "focus_organization_ids": normalize_string_list(payload.get("focus_organization_ids") or payload.get("focusOrganizationIds")),
+        "focus_location_ids": normalize_string_list(payload.get("focus_location_ids") or payload.get("focusLocationIds")),
+        "focus_item_ids": normalize_string_list(payload.get("focus_item_ids") or payload.get("focusItemIds")),
+        "focus_event_ids": normalize_string_list(payload.get("focus_event_ids") or payload.get("focusEventIds")),
+        "focus_edge_ids": normalize_string_list(payload.get("focus_edge_ids") or payload.get("focusEdgeIds")),
+        "primary_conflict": str(payload.get("primary_conflict") or payload.get("primaryConflict") or "").strip(),
+        "recommended_progression": str(payload.get("recommended_progression") or payload.get("recommendedProgression") or "").strip(),
+        "timeline_focus": str(payload.get("timeline_focus") or payload.get("timelineFocus") or "").strip(),
+        "must_keep_consistency": normalize_string_list(payload.get("must_keep_consistency") or payload.get("mustKeepConsistency")),
+        "candidate_new_entities": [item for item in candidates if item],
+    }
+
+
+def normalize_world_graph_context_output(value) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    return {
+        "context_summary": str(payload.get("context_summary") or payload.get("contextSummary") or "").strip(),
+        "decision": normalize_world_graph_decision(payload.get("decision")),
+    }
+
+
+def normalize_world_graph_writeback_ops(value) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    def normalize_list(key_snake: str, key_camel: str) -> list[dict]:
+        items = payload.get(key_snake)
+        if not isinstance(items, list):
+            items = payload.get(key_camel)
+        return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+    return {
+        "upsert_nodes": normalize_list("upsert_nodes", "upsertNodes"),
+        "upsert_edges": normalize_list("upsert_edges", "upsertEdges"),
+        "upsert_events": normalize_list("upsert_events", "upsertEvents"),
+        "append_node_snapshots": normalize_list("append_node_snapshots", "appendNodeSnapshots"),
+        "append_edge_snapshots": normalize_list("append_edge_snapshots", "appendEdgeSnapshots"),
+        "append_event_effects": normalize_list("append_event_effects", "appendEventEffects"),
+    }
+
+
 def history_text(history: list[dict], limit: int = DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT) -> str:
     if not history:
         return "暂无历史消息。"
@@ -680,6 +764,7 @@ def build_answerer_messages(
     state: AgentState,
 ) -> list[dict]:
     numeric_items = state.get("numeric_computation_items") or []
+    world_graph_decision = state.get("world_graph_decision") or {}
     return [
         {
             "role": "system",
@@ -693,6 +778,8 @@ def build_answerer_messages(
             "role": "user",
             "content": (
                 f"结构化记忆：\n{state['structured_memory_text']}\n\n"
+                f"世界图谱上下文：\n{state.get('world_graph_text_summary') or '暂无世界图谱上下文。'}\n\n"
+                f"世界图谱决策：\n{json.dumps(world_graph_decision, ensure_ascii=False)}\n\n"
                 f"{PROMPT_CONFIG.templates.answerer.numeric_guardrail}\n\n"
                 f"数值信息：\n{json.dumps(numeric_payload_for_answerer(numeric_items, state.get('numeric_state')), ensure_ascii=False)}\n\n"
                 f"历史消息：\n{state['history_text']}\n\n"
@@ -759,6 +846,90 @@ async def numeric_agent_node(state: AgentState) -> dict:
     })
     return {
         "numeric_state": numeric_result,
+        "usage": usage,
+    }
+
+
+async def world_graph_context_node(state: AgentState) -> dict:
+    world_graph_payload = state.get("world_graph_payload") or {}
+    if not str(world_graph_payload.get("meta", {}).get("robotId") or "").strip():
+        return {
+            "world_graph_text_summary": "",
+            "world_graph_decision": normalize_world_graph_decision({}),
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+        }
+
+    model = build_model(resolve_node_model_config(state, "world_graph"))
+    response = await model.ainvoke(
+        [
+            {
+                "role": "system",
+                "content": compose_system_prompt(
+                    resolve_common_prompt(state),
+                    PROMPT_CONFIG.templates.world_graph_context.system_instruction,
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"主要故事设定：\n{resolve_system_prompt(state)}\n\n"
+                    f"结构化记忆：\n{state['structured_memory_text']}\n\n"
+                    f"数值信息：\n{json.dumps(numeric_payload_for_answerer(state.get('numeric_computation_items') or [], state.get('numeric_state')), ensure_ascii=False)}\n\n"
+                    f"历史消息：\n{state['history_text']}\n\n"
+                    f"用户最新输入：{state['prompt']}\n\n"
+                    f"完整世界图谱 JSON：\n{world_graph_json_text(world_graph_payload)}"
+                ),
+            },
+        ]
+    )
+    usage = extract_usage(response)
+    raw = response.content if isinstance(response.content, str) else str(response.content)
+    parsed = normalize_world_graph_context_output(parse_json_object(raw, {}))
+    return {
+        "world_graph_text_summary": parsed["context_summary"],
+        "world_graph_decision": parsed["decision"],
+        "usage": usage,
+    }
+
+
+async def world_graph_writeback_node(state: AgentState) -> dict:
+    world_graph_payload = state.get("world_graph_payload") or {}
+    if not str(world_graph_payload.get("meta", {}).get("robotId") or "").strip():
+        return {
+            "world_graph_writeback_ops": normalize_world_graph_writeback_ops({}),
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+        }
+
+    model = build_model(resolve_node_model_config(state, "world_graph"))
+    response = await model.ainvoke(
+        [
+            {
+                "role": "system",
+                "content": compose_system_prompt(
+                    resolve_common_prompt(state),
+                    PROMPT_CONFIG.templates.world_graph_writeback.system_instruction,
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"主要故事设定：\n{resolve_system_prompt(state)}\n\n"
+                    f"结构化记忆：\n{state['structured_memory_text']}\n\n"
+                    f"数值信息：\n{json.dumps(numeric_payload_for_answerer(state.get('numeric_computation_items') or [], state.get('numeric_state')), ensure_ascii=False)}\n\n"
+                    f"历史消息：\n{state['history_text']}\n\n"
+                    f"用户最新输入：{state['prompt']}\n\n"
+                    f"前置世界图谱决策：\n{json.dumps(state.get('world_graph_decision') or {}, ensure_ascii=False)}\n\n"
+                    f"最终正文：\n{state.get('final_response', '')}\n\n"
+                    f"完整世界图谱 JSON：\n{world_graph_json_text(world_graph_payload)}"
+                ),
+            },
+        ]
+    )
+    usage = extract_usage(response)
+    raw = response.content if isinstance(response.content, str) else str(response.content)
+    parsed = normalize_world_graph_writeback_ops(parse_json_object(raw, {}))
+    return {
+        "world_graph_writeback_ops": parsed,
         "usage": usage,
     }
 
@@ -844,6 +1015,10 @@ def build_initial_state(
         "numeric_computation_prompt": request.robot.numeric_computation_prompt or PROMPT_CONFIG.defaults.numeric_computation_prompt,
         "numeric_computation_items": normalized_numeric_items,
         "numeric_state": request.numeric_state or {},
+        "world_graph_payload": request.world_graph or {},
+        "world_graph_text_summary": "",
+        "world_graph_decision": normalize_world_graph_decision({}),
+        "world_graph_writeback_ops": normalize_world_graph_writeback_ops({}),
         "model_config": request.model_settings.model_dump(),
         "auxiliary_model_configs": request.auxiliary_model_configs.model_dump(),
         "usage": {"prompt_tokens": 0, "completion_tokens": 0},

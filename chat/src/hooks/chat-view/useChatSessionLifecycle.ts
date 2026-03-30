@@ -36,6 +36,7 @@ interface UseChatSessionLifecycleOptions {
   applyStructuredMemory: (memory?: Partial<StructuredMemoryState> | null) => void
   applySessionUsage: (usage?: Partial<SessionUsageState> | null) => void
   applyNumericState: (value?: Record<string, unknown> | null) => void
+  applySessionWorldGraph: (graph?: import('@/types/ai').RobotWorldGraph | null) => void
   applyChatMessages: (messages: ChatRenderMessage[]) => void
   loadCapabilities: () => Promise<void>
   normalizeSessionMessages: (session: ChatSessionDetail) => ChatRenderMessage[]
@@ -64,6 +65,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.applyMemorySchema(session.memorySchema)
       options.applyStructuredMemory(session.structuredMemory)
       options.applySessionUsage(session.usage)
+      options.applySessionWorldGraph(session.worldGraph || null)
     } catch {
       // 忽略短暂刷新失败，保留当前状态。
     }
@@ -74,6 +76,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       const response = await upsertSession({
         id: options.sessionId.value,
         robot: {
+          id: options.sessionRobot.id,
           name: options.sessionRobot.name,
           avatar: options.sessionRobot.avatar,
           commonPrompt: options.sessionRobot.commonPrompt,
@@ -81,6 +84,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
           memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
           numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
           formOptionModelConfigId: options.sessionRobot.formOptionModelConfigId,
+          worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
           numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
           numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
           numericComputationItems: options.cloneNumericComputationItems(
@@ -93,6 +97,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
         modelConfigId: options.activeModelConfig.value.id,
         modelLabel: options.currentModelLabel.value,
         memorySchema: options.currentMemorySchema,
+        worldGraph: options.buildCurrentSessionDetail().worldGraph || null,
         persistToServer: true,
       })
 
@@ -103,6 +108,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.applyMemorySchema(response.session.memorySchema)
       options.applyStructuredMemory(response.session.structuredMemory)
       options.applySessionUsage(response.session.usage)
+      options.applySessionWorldGraph(response.session.worldGraph || null)
     } else {
       const session = options.buildCurrentSessionDetail()
       await putLocalSession(session)
@@ -113,12 +119,14 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.applyMemorySchema(session.memorySchema)
       options.applyStructuredMemory(session.structuredMemory)
       options.applySessionUsage(session.usage)
+      options.applySessionWorldGraph(session.worldGraph || null)
     }
     await options.refreshSessionHistory()
   }
 
   async function hydrateSession(session: ChatSessionDetail) {
     options.sessionId.value = session.id
+    options.sessionRobot.id = session.robot.id || ''
     options.sessionRobot.name = session.robot.name || '当前智能体'
     options.sessionRobot.avatar = session.robot.avatar || ''
     options.sessionRobot.commonPrompt = session.robot.commonPrompt || ''
@@ -126,6 +134,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.sessionRobot.memoryModelConfigId = session.robot.memoryModelConfigId || ''
     options.sessionRobot.numericComputationModelConfigId = session.robot.numericComputationModelConfigId || ''
     options.sessionRobot.formOptionModelConfigId = session.robot.formOptionModelConfigId || ''
+    options.sessionRobot.worldGraphModelConfigId = session.robot.worldGraphModelConfigId || ''
     options.sessionRobot.numericComputationEnabled = Boolean(session.robot.numericComputationEnabled)
     options.sessionRobot.numericComputationPrompt = session.robot.numericComputationPrompt || ''
     options.sessionRobot.numericComputationItems = options.cloneNumericComputationItems(
@@ -141,6 +150,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applyStructuredMemory(session.structuredMemory)
     options.applySessionUsage(session.usage)
     options.applyNumericState(session.numericState)
+    options.applySessionWorldGraph(session.worldGraph || null)
     options.storeActiveSessionId(session.id)
 
     if (
@@ -158,13 +168,15 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
 
   async function createNewChat(robot?: AIRobotCard | null) {
     if (robot) {
+      options.sessionRobot.id = robot.id
       options.sessionRobot.name = robot.name.trim() || '当前智能体'
       options.sessionRobot.avatar = robot.avatar || ''
       options.sessionRobot.commonPrompt = robot.commonPrompt
       options.sessionRobot.systemPrompt = robot.systemPrompt
-      options.sessionRobot.memoryModelConfigId = ''
-      options.sessionRobot.numericComputationModelConfigId = ''
-      options.sessionRobot.formOptionModelConfigId = ''
+      options.sessionRobot.memoryModelConfigId = robot.memoryModelConfigId || ''
+      options.sessionRobot.numericComputationModelConfigId = robot.numericComputationModelConfigId || ''
+      options.sessionRobot.formOptionModelConfigId = robot.formOptionModelConfigId || ''
+      options.sessionRobot.worldGraphModelConfigId = robot.worldGraphModelConfigId || ''
       options.sessionRobot.numericComputationEnabled = Boolean(robot.numericComputationEnabled)
       options.sessionRobot.numericComputationPrompt = robot.numericComputationPrompt
       options.sessionRobot.numericComputationItems = options.cloneNumericComputationItems(
@@ -176,6 +188,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
         robot.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit
       options.applyMemorySchema(robot.memorySchema)
     } else {
+      options.sessionRobot.id = ''
       options.sessionRobot.name = '当前智能体'
       options.sessionRobot.avatar = ''
       options.sessionRobot.commonPrompt = ''
@@ -183,6 +196,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.memoryModelConfigId = ''
       options.sessionRobot.numericComputationModelConfigId = ''
       options.sessionRobot.formOptionModelConfigId = ''
+      options.sessionRobot.worldGraphModelConfigId = ''
       options.sessionRobot.numericComputationEnabled = false
       options.sessionRobot.numericComputationPrompt = ''
       options.sessionRobot.numericComputationItems = []
@@ -202,6 +216,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applyStructuredMemory(options.defaultStructuredMemory)
     options.applySessionUsage(options.defaultSessionUsage)
     options.applyNumericState({})
+    options.applySessionWorldGraph(null)
 
     options.sessionId.value = options.createSessionId()
     options.storeActiveSessionId(options.sessionId.value)

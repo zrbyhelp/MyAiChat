@@ -31,11 +31,21 @@ class UiAgentPromptTemplate(BaseModel):
     system_instruction: str
 
 
+class WorldGraphContextPromptTemplate(BaseModel):
+    system_instruction: str
+
+
+class WorldGraphWritebackPromptTemplate(BaseModel):
+    system_instruction: str
+
+
 class PromptTemplates(BaseModel):
     answerer: AnswererPromptTemplate
     memory_patch: MemoryPatchPromptTemplate = Field(alias="memory_patch")
     numeric_agent: NumericAgentPromptTemplate = Field(alias="numeric_agent")
     ui_agent: UiAgentPromptTemplate = Field(alias="ui_agent")
+    world_graph_context: WorldGraphContextPromptTemplate = Field(alias="world_graph_context")
+    world_graph_writeback: WorldGraphWritebackPromptTemplate = Field(alias="world_graph_writeback")
 
 
 class PromptConfig(BaseModel):

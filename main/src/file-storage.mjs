@@ -19,6 +19,12 @@ import {
   normalizeSessionsPayload,
   safeJsonParse,
 } from './storage-shared.mjs'
+import {
+  cloneWorldGraphSnapshot,
+  createEmptyWorldGraphSnapshot,
+  getWorldGraph,
+  normalizeWorldGraphSnapshot,
+} from './world-graph-service.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = join(__dirname, '..', 'data')
@@ -130,6 +136,23 @@ export async function saveSessionRecord(user, session) {
 export async function upsertSessionRecord(user, input) {
   const now = new Date().toISOString()
   const existing = input?.id ? await getSessionRecord(user, String(input.id)) : null
+  let nextWorldGraph = input?.worldGraph || input?.world_graph || existing?.worldGraph || null
+  if (!nextWorldGraph) {
+    const robotId = String(input?.robot?.id || existing?.robot?.id || '').trim()
+    const robotName = String(input?.robot?.name || existing?.robot?.name || '').trim()
+    if (robotId) {
+      try {
+        nextWorldGraph = cloneWorldGraphSnapshot(await getWorldGraph(user, robotId))
+      } catch {
+        nextWorldGraph = createEmptyWorldGraphSnapshot(robotId, robotName)
+      }
+    }
+  } else {
+    nextWorldGraph = normalizeWorldGraphSnapshot(nextWorldGraph, {
+      robotId: input?.robot?.id || existing?.robot?.id || '',
+      robotName: input?.robot?.name || existing?.robot?.name || '',
+    })
+  }
   const nextSession = normalizeSession({
     ...(existing || {}),
     ...input,
@@ -138,6 +161,7 @@ export async function upsertSessionRecord(user, input) {
     memorySchema: normalizeMemorySchema(input?.memorySchema || existing?.memorySchema),
     structuredMemory: normalizeStructuredMemory(input?.structuredMemory || existing?.structuredMemory || DEFAULT_STRUCTURED_MEMORY),
     messages: existing?.messages || input?.messages || [],
+    worldGraph: nextWorldGraph,
     createdAt: existing?.createdAt || input?.createdAt || now,
     updatedAt: now,
   })

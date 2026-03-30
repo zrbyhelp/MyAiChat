@@ -16,6 +16,12 @@ import {
   safeJsonParse,
 } from './storage-shared.mjs'
 import { getModels, initializeDatabase } from './sequelize.mjs'
+import {
+  cloneWorldGraphSnapshot,
+  createEmptyWorldGraphSnapshot,
+  getWorldGraph,
+  normalizeWorldGraphSnapshot,
+} from './world-graph-service.mjs'
 
 function resolveUserId(user) {
   const userId = String(user?.id || '').trim()
@@ -58,6 +64,7 @@ function mapSessionRow(user, row) {
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
     updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt,
     robot: {
+      id: row.robotId,
       name: row.robotName,
       avatar: row.robotAvatar,
       commonPrompt: row.robotCommonPrompt,
@@ -65,6 +72,7 @@ function mapSessionRow(user, row) {
       memoryModelConfigId: row.robotMemoryModelConfigId,
       numericComputationModelConfigId: row.robotNumericComputationModelConfigId,
       formOptionModelConfigId: row.robotFormOptionModelConfigId,
+      worldGraphModelConfigId: row.robotWorldGraphModelConfigId,
       numericComputationEnabled: row.robotNumericComputationEnabled ?? row.robotImageFetchEnabled,
       numericComputationPrompt: row.robotNumericComputationPrompt ?? row.robotImageFetchPrompt,
       numericComputationItems: safeJsonParse(row.robotNumericComputationSchema, []),
@@ -87,6 +95,12 @@ function mapSessionRow(user, row) {
     memorySchema: normalizeMemorySchema(safeJsonParse(row.memorySchemaJson, null)),
     structuredMemory: normalizeStructuredMemory(safeJsonParse(row.structuredMemoryJson, DEFAULT_STRUCTURED_MEMORY)),
     numericState: safeJsonParse(row.numericStateJson, {}),
+    worldGraph: row.sessionWorldGraphJson
+      ? normalizeWorldGraphSnapshot(safeJsonParse(row.sessionWorldGraphJson, null), {
+          robotId: row.robotId,
+          robotName: row.robotName,
+        })
+      : null,
     usage: {
       promptTokens: row.promptTokens,
       completionTokens: row.completionTokens,
@@ -125,6 +139,7 @@ async function ensureDefaults(user) {
       memoryModelConfigId: robot.memoryModelConfigId,
       numericComputationModelConfigId: robot.numericComputationModelConfigId,
       formOptionModelConfigId: robot.formOptionModelConfigId,
+      worldGraphModelConfigId: robot.worldGraphModelConfigId,
       numericComputationEnabled: robot.numericComputationEnabled,
       numericComputationPrompt: robot.numericComputationPrompt,
       numericComputationSchema: JSON.stringify(robot.numericComputationItems || []),
@@ -201,11 +216,13 @@ export async function saveSessionRecord(user, session) {
       updatedAt: normalized.updatedAt,
       robotName: normalized.robot.name,
       robotAvatar: normalized.robot.avatar,
+      robotId: normalized.robot.id,
       robotCommonPrompt: normalized.robot.commonPrompt,
       robotSystemPrompt: normalized.robot.systemPrompt,
       robotMemoryModelConfigId: normalized.robot.memoryModelConfigId,
       robotNumericComputationModelConfigId: normalized.robot.numericComputationModelConfigId,
       robotFormOptionModelConfigId: normalized.robot.formOptionModelConfigId,
+      robotWorldGraphModelConfigId: normalized.robot.worldGraphModelConfigId,
       robotImageFetchEnabled: false,
       robotImageFetchPrompt: '',
       robotNumericComputationEnabled: normalized.robot.numericComputationEnabled,
@@ -227,6 +244,7 @@ export async function saveSessionRecord(user, session) {
       memorySchemaJson: JSON.stringify(normalized.memorySchema),
       structuredMemoryJson: JSON.stringify(normalized.structuredMemory || DEFAULT_STRUCTURED_MEMORY),
       numericStateJson: JSON.stringify(normalized.numericState || {}),
+      sessionWorldGraphJson: normalized.worldGraph ? JSON.stringify(normalized.worldGraph) : null,
       promptTokens: normalized.usage.promptTokens,
       completionTokens: normalized.usage.completionTokens,
     }, { transaction })
@@ -261,6 +279,23 @@ export async function saveSessionRecord(user, session) {
 export async function upsertSessionRecord(user, input) {
   const now = new Date().toISOString()
   const existing = input?.id ? await getSessionRecord(user, String(input.id)) : null
+  let nextWorldGraph = input?.worldGraph || input?.world_graph || existing?.worldGraph || null
+  if (!nextWorldGraph) {
+    const robotId = String(input?.robot?.id || existing?.robot?.id || '').trim()
+    const robotName = String(input?.robot?.name || existing?.robot?.name || '').trim()
+    if (robotId) {
+      try {
+        nextWorldGraph = cloneWorldGraphSnapshot(await getWorldGraph(user, robotId))
+      } catch {
+        nextWorldGraph = createEmptyWorldGraphSnapshot(robotId, robotName)
+      }
+    }
+  } else {
+    nextWorldGraph = normalizeWorldGraphSnapshot(nextWorldGraph, {
+      robotId: input?.robot?.id || existing?.robot?.id || '',
+      robotName: input?.robot?.name || existing?.robot?.name || '',
+    })
+  }
   const nextSession = normalizeSession({
     ...(existing || {}),
     ...input,
@@ -269,6 +304,7 @@ export async function upsertSessionRecord(user, input) {
     memorySchema: normalizeMemorySchema(input?.memorySchema || existing?.memorySchema),
     structuredMemory: normalizeStructuredMemory(input?.structuredMemory || existing?.structuredMemory || DEFAULT_STRUCTURED_MEMORY),
     messages: existing?.messages || input?.messages || [],
+    worldGraph: nextWorldGraph,
     createdAt: existing?.createdAt || input?.createdAt || now,
     updatedAt: now,
   })
@@ -440,6 +476,7 @@ export async function readRobots(user) {
     memoryModelConfigId: row.memoryModelConfigId,
     numericComputationModelConfigId: row.numericComputationModelConfigId,
     formOptionModelConfigId: row.formOptionModelConfigId,
+    worldGraphModelConfigId: row.worldGraphModelConfigId,
     numericComputationEnabled: row.numericComputationEnabled ?? row.imageFetchEnabled,
     numericComputationPrompt: row.numericComputationPrompt ?? row.imageFetchPrompt,
     numericComputationItems: safeJsonParse(row.numericComputationSchema, []),
@@ -479,6 +516,7 @@ export async function writeRobots(user, robots) {
         memoryModelConfigId: robot.memoryModelConfigId,
         numericComputationModelConfigId: robot.numericComputationModelConfigId,
         formOptionModelConfigId: robot.formOptionModelConfigId,
+        worldGraphModelConfigId: robot.worldGraphModelConfigId,
         numericComputationEnabled: robot.numericComputationEnabled,
         numericComputationPrompt: robot.numericComputationPrompt,
         numericComputationSchema: JSON.stringify(robot.numericComputationItems || []),

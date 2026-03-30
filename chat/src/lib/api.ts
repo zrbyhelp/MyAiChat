@@ -194,6 +194,7 @@ export function upsertSession(session: {
   modelConfigId?: string
   modelLabel?: string
   memorySchema?: MemorySchemaState
+  worldGraph?: RobotWorldGraph | null
   persistToServer?: boolean
 }) {
   return requestJson<SessionResponse>('/api/sessions', {

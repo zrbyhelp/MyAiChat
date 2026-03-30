@@ -71,6 +71,7 @@ function createRobot(overrides: Partial<AIRobotCard> = {}): AIRobotCard {
     memoryModelConfigId: '',
     numericComputationModelConfigId: '',
     formOptionModelConfigId: '',
+    worldGraphModelConfigId: '',
     numericComputationEnabled: false,
     numericComputationPrompt: '',
     numericComputationItems: [],

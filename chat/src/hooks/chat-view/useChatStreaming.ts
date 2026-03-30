@@ -16,6 +16,7 @@ import type {
   SessionMemoryState,
   SessionUsageState,
   MemorySchemaState,
+  RobotWorldGraph,
   StructuredMemoryState,
   SuggestionOption,
 } from '@/types/ai'
@@ -31,6 +32,7 @@ interface UseChatStreamingOptions {
   currentMemorySchema: MemorySchemaState
   currentStructuredMemory: StructuredMemoryState
   currentNumericState: Ref<Record<string, unknown>>
+  currentSessionWorldGraph: Ref<RobotWorldGraph | null>
   rawChatMessages: Ref<ChatRenderMessage[]>
   effectiveStream: ComputedRef<boolean>
   effectiveThinking: ComputedRef<boolean>
@@ -38,6 +40,7 @@ interface UseChatStreamingOptions {
   applyNumericState: (value?: Record<string, unknown> | null) => void
   applySessionUsage: (usage?: Partial<SessionUsageState> | null) => void
   applyStructuredMemory: (memory?: Partial<StructuredMemoryState> | null) => void
+  applySessionWorldGraph: (graph?: RobotWorldGraph | null) => void
   serializeChatMessages: (messages: ChatRenderMessage[]) => ChatSessionMessage[]
   finalizeChatResponse: (options?: { refreshSession?: boolean }) => void
   currentAssistantLoadingText: Ref<string>
@@ -92,7 +95,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
   }
 
   function buildAuxiliaryModelConfig(
-    kind: 'memory' | 'numeric_computation' | 'form_option',
+    kind: 'memory' | 'numeric_computation' | 'form_option' | 'world_graph',
     modelConfigId?: string | null,
   ) {
     const targetId = String(modelConfigId || '').trim()
@@ -130,6 +133,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
           persistToServer: options.currentSessionMemory.persistToServer,
           systemPrompt: options.sessionRobot.systemPrompt,
           robot: {
+            id: options.sessionRobot.id,
             name: options.sessionRobot.name,
             avatar: options.sessionRobot.avatar,
             commonPrompt: options.sessionRobot.commonPrompt,
@@ -137,6 +141,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
             numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
             formOptionModelConfigId: options.sessionRobot.formOptionModelConfigId,
+            worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
             numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
             numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
             numericComputationItems: options.cloneNumericComputationItems(options.sessionRobot.numericComputationItems),
@@ -150,6 +155,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
               options.sessionRobot.numericComputationModelConfigId,
             ),
             formOption: buildAuxiliaryModelConfig('form_option', options.sessionRobot.formOptionModelConfigId),
+            worldGraph: buildAuxiliaryModelConfig('world_graph', options.sessionRobot.worldGraphModelConfigId),
           },
           sessionSnapshot: {
             id: options.sessionId.value,
@@ -169,6 +175,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             memorySchema: options.currentMemorySchema,
             structuredMemory: options.currentStructuredMemory,
             numericState: options.currentNumericState.value,
+            worldGraph: options.currentSessionWorldGraph.value,
             usage: {
               promptTokens: 0,
               completionTokens: 0,
@@ -248,6 +255,10 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       }
       if (payload.type === 'numeric_state_updated' && payload.state) {
         options.applyNumericState(payload.state)
+        return null
+      }
+      if (payload.type === 'session_world_graph') {
+        options.applySessionWorldGraph(payload.graph || null)
         return null
       }
       if (payload.type === 'done') {

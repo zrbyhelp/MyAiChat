@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 import { useChatStreaming } from './useChatStreaming'
 import type { ChatRenderMessage } from './useChatView.types'
+import type { RobotWorldGraph } from '@/types/ai'
 
 describe('useChatStreaming', () => {
   it('refreshes chat messages when ui loading event arrives', async () => {
@@ -14,8 +15,10 @@ describe('useChatStreaming', () => {
     const applyNumericState = vi.fn()
     const applySessionUsage = vi.fn()
     const applyStructuredMemory = vi.fn()
+    const applySessionWorldGraph = vi.fn()
     const cloneNumericComputationItems = vi.fn().mockReturnValue([])
     const serializeChatMessages = vi.fn().mockReturnValue([])
+    const currentSessionWorldGraph = ref<RobotWorldGraph | null>(null)
     const chatMessages = ref<ChatRenderMessage[]>([
       {
         id: 'assistant-1',
@@ -47,6 +50,7 @@ describe('useChatStreaming', () => {
       currentModelLabel: computed(() => 'Model 1'),
       modelConfigs: ref([]),
       sessionRobot: {
+        id: 'robot-1',
         name: '测试智能体',
         avatar: '',
         commonPrompt: '',
@@ -54,6 +58,7 @@ describe('useChatStreaming', () => {
         memoryModelConfigId: '',
         numericComputationModelConfigId: '',
         formOptionModelConfigId: '',
+        worldGraphModelConfigId: '',
         numericComputationEnabled: false,
         numericComputationPrompt: '',
         numericComputationItems: [],
@@ -79,6 +84,7 @@ describe('useChatStreaming', () => {
         categories: [],
       },
       currentNumericState: ref({}),
+      currentSessionWorldGraph,
       rawChatMessages: ref([]),
       effectiveStream: computed(() => true),
       effectiveThinking: computed(() => false),
@@ -86,6 +92,7 @@ describe('useChatStreaming', () => {
       applyNumericState,
       applySessionUsage,
       applyStructuredMemory,
+      applySessionWorldGraph,
       serializeChatMessages,
       finalizeChatResponse,
       currentAssistantLoadingText,

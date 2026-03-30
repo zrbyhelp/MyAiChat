@@ -9,7 +9,7 @@
         <TButton size="small" variant="outline" @click="zoomOut">缩小</TButton>
         <TButton size="small" variant="outline" @click="fitContent">适应</TButton>
         <TButton size="small" variant="outline" @click="zoomIn">放大</TButton>
-        <TButton size="small" variant="outline" @click="emit('request-auto-layout')">布局</TButton>
+        <TButton v-if="!props.readOnly" size="small" variant="outline" @click="emit('request-auto-layout')">布局</TButton>
       </div>
       <div class="mini-map-card">
         <div ref="miniMapRef" class="mini-map"></div>
@@ -45,6 +45,7 @@ const props = defineProps<{
   linkingSourceNodeId: string
   currentSequenceIndex: number
   layout: WorldGraphLayout
+  readOnly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -306,6 +307,9 @@ function bindGraphEvents(graph: Graph) {
   })
 
   graph.on('node:moved', ({ node }) => {
+    if (props.readOnly) {
+      return
+    }
     const position = node.position()
     emit('move-node', {
       nodeId: node.id,
@@ -375,6 +379,7 @@ async function initializeGraph() {
       },
     },
     interacting: {
+      nodeMovable: !props.readOnly,
       edgeLabelMovable: false,
       vertexAddable: false,
       vertexDeletable: false,

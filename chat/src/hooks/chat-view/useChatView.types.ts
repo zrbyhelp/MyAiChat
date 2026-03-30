@@ -1,4 +1,4 @@
-import type { AIFormSchema, SuggestionOption } from '@/types/ai'
+import type { AIFormSchema, RobotWorldGraph, SuggestionOption } from '@/types/ai'
 
 export type ChatbotInstance = {
   registerMergeStrategy?: (
@@ -54,6 +54,7 @@ export type NormalizedStreamPayload = {
     | 'usage'
     | 'structured_memory'
     | 'numeric_state_updated'
+    | 'session_world_graph'
     | 'ui_loading'
     | 'done'
     | 'error'
@@ -66,6 +67,8 @@ export type NormalizedStreamPayload = {
   completionTokens?: number
   memory?: import('@/types/ai').StructuredMemoryState
   state?: Record<string, unknown>
+  graph?: RobotWorldGraph | null
+  warnings?: string[]
 }
 
 export type ChatFormSlot = {
