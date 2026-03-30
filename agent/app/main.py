@@ -116,7 +116,10 @@ async def run_stream(request: RunRequest):
             usage = numeric_payload.get("usage") or usage
             yield sse({"type": "numeric_state_updated", "state": state.get("numeric_state") or {}})
 
+            has_world_graph = bool(str((state.get("world_graph_payload") or {}).get("meta", {}).get("robotId") or "").strip())
             try:
+                if has_world_graph:
+                    yield sse({"type": "world_graph_context_started"})
                 world_graph_context_payload = await world_graph_context_node(state)
                 state.update(world_graph_context_payload)
                 usage = world_graph_context_payload.get("usage") or usage
@@ -182,6 +185,8 @@ async def run_stream(request: RunRequest):
                 yield sse({"type": "memory_updated", "memory": final_memory.model_dump()})
 
             try:
+                if has_world_graph:
+                    yield sse({"type": "world_graph_writeback_started"})
                 world_graph_writeback_payload = await world_graph_writeback_node(state)
                 state.update(world_graph_writeback_payload)
                 usage = world_graph_writeback_payload.get("usage") or usage

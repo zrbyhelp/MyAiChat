@@ -645,85 +645,93 @@ export async function requestNonStreamChat(payload, user) {
 }
 
 function forwardAgentEvent(res, payload) {
+  for (const event of mapAgentEventToChatEvents(payload)) {
+    sendSSE(res, event)
+  }
+}
+
+export function mapAgentEventToChatEvents(payload) {
   if (payload.type === 'error') {
-    sendSSE(res, {
+    return [{
       type: 'error',
       message: typeof payload.message === 'string' && payload.message.trim() ? payload.message.trim() : '聊天失败',
-    })
-    return
+    }]
   }
 
   if (payload.type === 'message_delta' && payload.text) {
-    sendSSE(res, { type: 'text', text: payload.text })
-    return
+    return [{ type: 'text', text: payload.text }]
   }
 
   if (payload.type === 'message_done') {
-    sendSSE(res, { type: 'ui_loading', message: '正在生成交互 UI' })
-    return
+    return [{ type: 'ui_loading', message: '正在生成交互 UI' }]
   }
 
   if (payload.type === 'suggestion') {
-    sendSSE(res, {
+    return [{
       type: 'suggestion',
       items: normalizeSuggestionItems(payload.items),
-    })
-    return
+    }]
   }
 
   if (payload.type === 'form') {
-    sendSSE(res, {
+    return [{
       type: 'form',
       form: normalizeFormSchema(payload.form),
-    })
-    return
+    }]
   }
 
   if (payload.type === 'memory_started') {
-    sendSSE(res, {
+    return [{
       type: 'memory_status',
       status: 'running',
       message: '正在整理结构化记忆',
-    })
-    return
+    }]
   }
 
   if (payload.type === 'memory_updated' && payload.memory) {
-    sendSSE(res, { type: 'structured_memory', memory: payload.memory })
-    sendSSE(res, {
-      type: 'memory_status',
-      status: 'running',
-      message: '正在保存会话到数据库',
-    })
-    return
+    return [
+      { type: 'structured_memory', memory: payload.memory },
+      {
+        type: 'memory_status',
+        status: 'running',
+        message: '正在保存会话到数据库',
+      },
+    ]
   }
 
   if (payload.type === 'numeric_state_updated') {
-    sendSSE(res, {
+    return [{
       type: 'numeric_state_updated',
       state: payload.state,
       summary: payload.summary || '',
-    })
-    return
+    }]
+  }
+
+  if (payload.type === 'world_graph_context_started') {
+    return [{ type: 'ui_loading', message: '正在分析世界图谱' }]
+  }
+
+  if (payload.type === 'world_graph_writeback_started') {
+    return [{ type: 'ui_loading', message: '正在写回世界图谱' }]
   }
 
   if (payload.type === 'world_graph_updated' && payload.graph) {
-    sendSSE(res, {
+    return [{
       type: 'session_world_graph',
       graph: payload.graph,
       warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
-    })
-    return
+    }]
   }
 
   if (payload.type === 'usage') {
-    sendSSE(res, {
+    return [{
       type: 'usage',
       promptTokens: payload.prompt_tokens ?? payload.promptTokens ?? payload.input_tokens ?? 0,
       completionTokens: payload.completion_tokens ?? payload.completionTokens ?? payload.output_tokens ?? 0,
-    })
-    return
+    }]
   }
+
+  return []
 }
 
 export async function handleChatStream(payload, res, user) {

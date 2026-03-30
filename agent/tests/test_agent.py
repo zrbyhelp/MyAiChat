@@ -259,6 +259,65 @@ class RunStreamTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     os.environ["AGENT_FILE_STORE_DIR"] = previous_dir
 
+    async def test_runs_stream_emits_world_graph_started_events_when_graph_is_enabled(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            previous_dir = os.environ.get("AGENT_FILE_STORE_DIR")
+            original_graph_build_model = graph.build_model
+            original_main_build_model = main.build_model
+            original_store = main.store
+            try:
+                os.environ["AGENT_FILE_STORE_DIR"] = temp_dir
+                graph.build_model = fake_build_model
+                main.build_model = fake_build_model
+                main.store = ThreadStore()
+                main.store.ensure_ready()
+
+                transport = httpx.ASGITransport(app=main.app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                    response = await client.post(
+                        "/runs/stream",
+                        json={
+                            "thread_id": "thread-world-graph-test",
+                            "session_id": "session-world-graph-test",
+                            "prompt": "测试世界图谱状态",
+                            "user": {"id": "u1"},
+                            "model_config": {
+                                "provider": "openai",
+                                "base_url": "http://example.com",
+                                "api_key": "test-key",
+                                "model": "answer-model",
+                                "temperature": 0.7,
+                            },
+                            "robot": {
+                                "common_prompt": "通用前缀",
+                                "system_prompt": "角色设定",
+                            },
+                            "auxiliary_model_configs": {},
+                            "memory_schema": {"categories": []},
+                            "structured_memory": {"updated_at": "", "categories": []},
+                            "history": [{"role": "user", "content": "old"}],
+                            "numeric_state": {},
+                            "world_graph": {
+                                "meta": {"robotId": "robot-1", "robotName": "测试智能体"},
+                                "nodes": [],
+                                "edges": [],
+                                "events": [],
+                            },
+                        },
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("world_graph_context_started", response.text)
+                self.assertIn("world_graph_writeback_started", response.text)
+            finally:
+                graph.build_model = original_graph_build_model
+                main.build_model = original_main_build_model
+                main.store = original_store
+                if previous_dir is None:
+                    os.environ.pop("AGENT_FILE_STORE_DIR", None)
+                else:
+                    os.environ["AGENT_FILE_STORE_DIR"] = previous_dir
+
 
 class CapturingModel:
     def __init__(self, response_content: str):

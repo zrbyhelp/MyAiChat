@@ -202,6 +202,12 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
         return createThinkingChunk(payload.text, true)
       }
       if (payload.type === 'text' && payload.text) {
+        if (options.currentAssistantLoadingText.value) {
+          options.currentAssistantLoadingText.value = ''
+          nextTick(() => {
+            options.applyChatMessages(options.chatMessages.value)
+          })
+        }
         return { type: 'markdown', strategy: 'merge', data: payload.text }
       }
       if (payload.type === 'ui_loading' && payload.message) {
