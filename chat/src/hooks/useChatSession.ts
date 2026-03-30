@@ -35,9 +35,27 @@ export function useChatSession(options: UseChatSessionOptions) {
   const batchDeletingSessionIds = ref<string[]>([])
   const historySelectionMode = ref(false)
   const selectedSessionIds = ref<string[]>([])
+  const sessionSourceMap = ref<Record<string, { hasServer: boolean; hasLocal: boolean }>>({})
 
   function mergeSessions(serverSessions: ChatSessionSummary[], localSessions: ChatSessionSummary[]) {
-    return [...serverSessions, ...localSessions].sort(
+    const nextSourceMap: Record<string, { hasServer: boolean; hasLocal: boolean }> = {}
+    const mergedById = new Map<string, ChatSessionSummary>()
+
+    for (const session of serverSessions) {
+      nextSourceMap[session.id] = { hasServer: true, hasLocal: nextSourceMap[session.id]?.hasLocal ?? false }
+      mergedById.set(session.id, session)
+    }
+
+    for (const session of localSessions) {
+      nextSourceMap[session.id] = { hasServer: nextSourceMap[session.id]?.hasServer ?? false, hasLocal: true }
+      if (!mergedById.has(session.id)) {
+        mergedById.set(session.id, session)
+      }
+    }
+
+    sessionSourceMap.value = nextSourceMap
+
+    return Array.from(mergedById.values()).sort(
       (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
     )
   }
@@ -65,17 +83,56 @@ export function useChatSession(options: UseChatSessionOptions) {
     }
   }
 
-  function toggleSessionSelection(targetSessionId: string) {
+  function setSessionSelection(targetSessionId: string, selected: boolean) {
     if (!targetSessionId) {
       return
     }
+
     const current = new Set(selectedSessionIds.value)
-    if (current.has(targetSessionId)) {
-      current.delete(targetSessionId)
-    } else {
+    if (selected) {
       current.add(targetSessionId)
+    } else {
+      current.delete(targetSessionId)
     }
     selectedSessionIds.value = Array.from(current)
+  }
+
+  function toggleSessionSelection(targetSessionId: string, selected?: boolean) {
+    if (!targetSessionId) {
+      return
+    }
+    const nextSelected = typeof selected === 'boolean'
+      ? selected
+      : !selectedSessionIds.value.includes(targetSessionId)
+    setSessionSelection(targetSessionId, nextSelected)
+  }
+
+  async function deleteSessionCopies(targetSessionId: string) {
+    const sources = sessionSourceMap.value[targetSessionId]
+
+    if (sources?.hasServer && sources?.hasLocal) {
+      const [serverResult, localResult] = await Promise.allSettled([
+        deleteSession(targetSessionId),
+        deleteLocalSession(targetSessionId),
+      ])
+
+      if (serverResult.status === 'rejected') {
+        throw serverResult.reason
+      }
+
+      if (localResult.status === 'rejected') {
+        throw localResult.reason
+      }
+
+      return
+    }
+
+    if (sources?.hasLocal) {
+      await deleteLocalSession(targetSessionId)
+      return
+    }
+
+    await deleteSession(targetSessionId)
   }
 
   async function loadSessionRecord(targetSessionId: string) {
@@ -128,12 +185,7 @@ export function useChatSession(options: UseChatSessionOptions) {
       sessionId.value === targetSessionId ? remainingSessions[0]?.id || '' : sessionId.value
 
     try {
-      const targetSummary = sessionHistory.value.find((item) => item.id === targetSessionId)
-      if (targetSummary?.persistToServer === false) {
-        await deleteLocalSession(targetSessionId)
-      } else {
-        await deleteSession(targetSessionId)
-      }
+      await deleteSessionCopies(targetSessionId)
       await refreshSessionHistory()
 
       if (sessionId.value === targetSessionId) {
@@ -179,12 +231,7 @@ export function useChatSession(options: UseChatSessionOptions) {
 
     try {
       for (const targetSessionId of targetIds) {
-        const targetSummary = sessionHistory.value.find((item) => item.id === targetSessionId)
-        if (targetSummary?.persistToServer === false) {
-          await deleteLocalSession(targetSessionId)
-        } else {
-          await deleteSession(targetSessionId)
-        }
+        await deleteSessionCopies(targetSessionId)
       }
 
       await refreshSessionHistory()
@@ -227,6 +274,7 @@ export function useChatSession(options: UseChatSessionOptions) {
     loadSessionRecord,
     exitHistorySelectionMode,
     toggleHistorySelectionMode,
+    setSessionSelection,
     toggleSessionSelection,
     openHistorySession,
     handleDeleteSession,

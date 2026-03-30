@@ -16,7 +16,7 @@ interface UseChatViewUiControllerOptions {
   onOpenHistorySession: (targetSessionId: string) => Promise<boolean>
   onDeleteSession: (targetSessionId: string) => Promise<unknown>
   onToggleHistorySelectionMode: () => void
-  onToggleSessionSelection: (targetSessionId: string) => void
+  onToggleSessionSelection: (targetSessionId: string, selected?: boolean) => void
   onBatchDeleteSessions: () => Promise<unknown>
 }
 
@@ -77,8 +77,8 @@ export function useChatViewUiController(options: UseChatViewUiControllerOptions)
     options.onToggleHistorySelectionMode()
   }
 
-  function toggleSessionSelection(targetSessionId: string) {
-    options.onToggleSessionSelection(targetSessionId)
+  function toggleSessionSelection(targetSessionId: string, selected?: boolean) {
+    options.onToggleSessionSelection(targetSessionId, selected)
   }
 
   async function handleBatchDeleteSessions() {

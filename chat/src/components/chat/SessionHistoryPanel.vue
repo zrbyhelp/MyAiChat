@@ -90,7 +90,8 @@
             <div v-if="historySelectionMode" class="history-card-checkbox" @click.stop>
               <TCheckbox
                 :model-value="isSelected(item.id)"
-                @update:model-value="() => emit('toggle-session-selection', item.id)"
+                @click.stop
+                @update:model-value="(value: boolean) => emit('toggle-session-selection', item.id, value)"
               />
             </div>
             <TDropdown
@@ -144,7 +145,7 @@ const emit = defineEmits<{
   (event: 'open-session', id: string): void
   (event: 'delete-session', id: string): void
   (event: 'toggle-history-selection-mode'): void
-  (event: 'toggle-session-selection', id: string): void
+  (event: 'toggle-session-selection', id: string, selected?: boolean): void
   (event: 'batch-delete-sessions'): void
 }>()
 
@@ -166,7 +167,7 @@ function isSelected(id: string) {
 
 function handleCardClick(id: string) {
   if (props.historySelectionMode) {
-    emit('toggle-session-selection', id)
+    emit('toggle-session-selection', id, !isSelected(id))
     return
   }
   emit('open-session', id)
