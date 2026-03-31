@@ -32,6 +32,7 @@ interface UseChatStreamingOptions {
   currentMemorySchema: MemorySchemaState
   currentStructuredMemory: StructuredMemoryState
   currentNumericState: Ref<Record<string, unknown>>
+  currentStoryOutline: Ref<string>
   currentSessionWorldGraph: Ref<RobotWorldGraph | null>
   rawChatMessages: Ref<ChatRenderMessage[]>
   effectiveStream: ComputedRef<boolean>
@@ -41,6 +42,7 @@ interface UseChatStreamingOptions {
   applySessionUsage: (usage?: Partial<SessionUsageState> | null) => void
   applyStructuredMemory: (memory?: Partial<StructuredMemoryState> | null) => void
   applySessionWorldGraph: (graph?: RobotWorldGraph | null) => void
+  applyStoryOutline: (value?: string | null) => void
   serializeChatMessages: (messages: ChatRenderMessage[]) => ChatSessionMessage[]
   completeChatResponse: () => void
   syncChatResponse: (options?: { refreshSession?: boolean }) => void
@@ -96,7 +98,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
   }
 
   function buildAuxiliaryModelConfig(
-    kind: 'memory' | 'numeric_computation' | 'world_graph',
+    kind: 'memory' | 'outline' | 'numeric_computation' | 'world_graph',
     modelConfigId?: string | null,
   ) {
     const targetId = String(modelConfigId || '').trim()
@@ -140,6 +142,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             commonPrompt: options.sessionRobot.commonPrompt,
             systemPrompt: options.sessionRobot.systemPrompt,
             memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
+            outlineModelConfigId: options.sessionRobot.outlineModelConfigId,
             numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
             worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
             numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
@@ -150,6 +153,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
           },
           auxiliaryModelConfigs: {
             memory: buildAuxiliaryModelConfig('memory', options.sessionRobot.memoryModelConfigId),
+            outline: buildAuxiliaryModelConfig('outline', options.sessionRobot.outlineModelConfigId),
             numericComputation: buildAuxiliaryModelConfig(
               'numeric_computation',
               options.sessionRobot.numericComputationModelConfigId,
@@ -174,6 +178,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             memorySchema: options.currentMemorySchema,
             structuredMemory: options.currentStructuredMemory,
             numericState: options.currentNumericState.value,
+            storyOutline: options.currentStoryOutline.value,
             worldGraph: options.currentSessionWorldGraph.value,
             usage: {
               promptTokens: 0,
@@ -210,6 +215,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
         return { type: 'markdown', strategy: 'merge', data: payload.text }
       }
       if (payload.type === 'ui_loading' && payload.message) {
+        options.currentMemoryStatusText.value = ''
         options.currentAssistantLoadingText.value = payload.message || '正在生成交互 UI'
         nextTick(() => {
           options.applyChatMessages(options.chatMessages.value)
@@ -236,6 +242,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
         return null
       }
       if (payload.type === 'memory_status' && payload.message) {
+        options.currentAssistantLoadingText.value = ''
         options.pendingAssistantMemoryStatus.value = {
           status: payload.status || 'running',
           text: payload.message,
@@ -256,6 +263,10 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       }
       if (payload.type === 'structured_memory' && payload.memory) {
         options.applyStructuredMemory(payload.memory)
+        return null
+      }
+      if (payload.type === 'story_outline') {
+        options.applyStoryOutline(payload.storyOutline || '')
         return null
       }
       if (payload.type === 'numeric_state_updated' && payload.state) {

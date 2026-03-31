@@ -69,6 +69,7 @@ function createRobot(overrides: Partial<AIRobotCard> = {}): AIRobotCard {
     commonPrompt: overrides.commonPrompt || '通用提示',
     systemPrompt: overrides.systemPrompt || '系统提示',
     memoryModelConfigId: '',
+    outlineModelConfigId: '',
     numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
     numericComputationEnabled: false,

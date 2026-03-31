@@ -12,7 +12,40 @@
         <TButton v-if="!props.readOnly" size="small" variant="outline" @click="emit('request-auto-layout')">布局</TButton>
       </div>
       <div class="mini-map-card">
-        <div ref="miniMapRef" class="mini-map"></div>
+        <svg class="mini-map-svg" :viewBox="`0 0 ${MINIMAP_WIDTH} ${MINIMAP_HEIGHT}`" aria-hidden="true">
+          <path
+            v-for="edge in miniMapScene.edges"
+            :key="edge.id"
+            :d="edge.path"
+            fill="none"
+            :stroke="edge.stroke"
+            :stroke-width="edge.strokeWidth"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            opacity="0.92"
+          />
+          <circle
+            v-for="node in miniMapScene.nodes"
+            :key="node.id"
+            :cx="node.x"
+            :cy="node.y"
+            :r="node.radius"
+            :fill="node.fill"
+            :stroke="node.stroke"
+            :stroke-width="node.strokeWidth"
+          />
+          <rect
+            v-if="miniMapScene.viewport"
+            class="mini-map-viewport"
+            :x="miniMapScene.viewport.x"
+            :y="miniMapScene.viewport.y"
+            :width="miniMapScene.viewport.width"
+            :height="miniMapScene.viewport.height"
+            :rx="10"
+            :ry="10"
+          />
+          <text v-if="!miniMapScene.nodes.length" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">暂无内容</text>
+        </svg>
       </div>
     </div>
 
@@ -24,8 +57,8 @@
 </template>
 
 <script setup lang="ts">
-import { Graph, MiniMap, Scroller, Selection, Shape, Snapline } from '@antv/x6'
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Graph, Scroller, Selection, Shape, Snapline } from '@antv/x6'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Button as TButton } from 'tdesign-vue-next'
 
 import type {
@@ -46,6 +79,7 @@ const props = defineProps<{
   currentSequenceIndex: number
   layout: WorldGraphLayout
   readOnly?: boolean
+  fitRequestKey?: number
 }>()
 
 const emit = defineEmits<{
@@ -62,14 +96,17 @@ const emit = defineEmits<{
 
 const mountRef = ref<HTMLElement | null>(null)
 const graphContainerRef = ref<HTMLElement | null>(null)
-const miniMapRef = ref<HTMLElement | null>(null)
 const graphRef = ref<Graph | null>(null)
 const resizeObserverRef = ref<ResizeObserver | null>(null)
 const scrollerRef = ref<Scroller | null>(null)
 const suppressLayoutEmitRef = ref(false)
 const scrollListenerRef = ref<(() => void) | null>(null)
+const lastAppliedFitRef = ref<{ requestKey: number; width: number; height: number } | null>(null)
+const viewportAreaRef = ref<{ x: number; y: number; width: number; height: number } | null>(null)
 const MINIMAP_WIDTH = 176
 const MINIMAP_HEIGHT = 120
+const MINIMAP_PADDING = 12
+const NODE_SIZE = 68
 
 const objectTypeFill: Record<WorldObjectType, string> = {
   character: '#86efe2',
@@ -97,8 +134,8 @@ function visibleEdges() {
 
 function getNodeCenter(node: WorldNode) {
   return {
-    x: node.position.x + 34,
-    y: node.position.y + 34,
+    x: node.position.x + NODE_SIZE / 2,
+    y: node.position.y + NODE_SIZE / 2,
   }
 }
 
@@ -185,6 +222,116 @@ function createEdgeCell(edge: WorldEdge) {
   })
 }
 
+const miniMapScene = computed(() => {
+  const nodes = visibleNodes()
+  const viewportArea = viewportAreaRef.value
+  if (!nodes.length && !viewportArea) {
+    return {
+      nodes: [] as Array<{ id: string; x: number; y: number; radius: number; fill: string; stroke: string; strokeWidth: number }>,
+      edges: [] as Array<{ id: string; path: string; stroke: string; strokeWidth: number }>,
+      viewport: null as null | { x: number; y: number; width: number; height: number },
+    }
+  }
+
+  const xStarts = nodes.map((node) => node.position.x)
+  const yStarts = nodes.map((node) => node.position.y)
+  const xEnds = nodes.map((node) => node.position.x + NODE_SIZE)
+  const yEnds = nodes.map((node) => node.position.y + NODE_SIZE)
+  if (viewportArea) {
+    xStarts.push(viewportArea.x)
+    yStarts.push(viewportArea.y)
+    xEnds.push(viewportArea.x + viewportArea.width)
+    yEnds.push(viewportArea.y + viewportArea.height)
+  }
+
+  const minX = Math.min(...xStarts)
+  const minY = Math.min(...yStarts)
+  const maxX = Math.max(...xEnds)
+  const maxY = Math.max(...yEnds)
+  const innerWidth = MINIMAP_WIDTH - MINIMAP_PADDING * 2
+  const innerHeight = MINIMAP_HEIGHT - MINIMAP_PADDING * 2
+  const contentWidth = Math.max(NODE_SIZE, maxX - minX)
+  const contentHeight = Math.max(NODE_SIZE, maxY - minY)
+  const scale = Math.min(innerWidth / contentWidth, innerHeight / contentHeight)
+  const offsetX = (MINIMAP_WIDTH - contentWidth * scale) / 2 - minX * scale
+  const offsetY = (MINIMAP_HEIGHT - contentHeight * scale) / 2 - minY * scale
+  const visibleNodeMap = new Map(nodes.map((node) => [node.id, node] as const))
+  const projectPoint = (x: number, y: number) => ({
+    x: Number((x * scale + offsetX).toFixed(2)),
+    y: Number((y * scale + offsetY).toFixed(2)),
+  })
+
+  const edgeItems = visibleEdges().map((edge) => {
+    const sourceNode = visibleNodeMap.get(edge.sourceNodeId)
+    const targetNode = visibleNodeMap.get(edge.targetNodeId)
+    if (!sourceNode || !targetNode) {
+      return null
+    }
+
+    const source = projectPoint(getNodeCenter(sourceNode).x, getNodeCenter(sourceNode).y)
+    const target = projectPoint(getNodeCenter(targetNode).x, getNodeCenter(targetNode).y)
+    const vertices = buildCurveVertex(sourceNode, targetNode).map((vertex) => projectPoint(vertex.x, vertex.y))
+    const path = vertices[0]
+      ? `M ${source.x} ${source.y} Q ${vertices[0].x} ${vertices[0].y} ${target.x} ${target.y}`
+      : `M ${source.x} ${source.y} L ${target.x} ${target.y}`
+
+    return {
+      id: edge.id,
+      path,
+      stroke: props.selectedEdgeId === edge.id ? '#2563eb' : '#4b5563',
+      strokeWidth: props.selectedEdgeId === edge.id ? 2 : 1.4,
+    }
+  }).filter((edge): edge is { id: string; path: string; stroke: string; strokeWidth: number } => Boolean(edge))
+
+  const nodeRadius = Number(Math.min(9, Math.max(4.5, (NODE_SIZE / 2) * scale)).toFixed(2))
+  const nodeItems = nodes.map((node) => {
+    const center = getNodeCenter(node)
+    const projected = projectPoint(center.x, center.y)
+    return {
+      id: node.id,
+      x: projected.x,
+      y: projected.y,
+      radius: nodeRadius,
+      fill: objectTypeFill[node.objectType],
+      stroke: props.selectedNodeId === node.id || props.linkingSourceNodeId === node.id ? '#111111' : 'rgba(255,255,255,0.92)',
+      strokeWidth: props.selectedNodeId === node.id || props.linkingSourceNodeId === node.id ? 2 : 1.2,
+    }
+  })
+
+  return {
+    nodes: nodeItems,
+    edges: edgeItems,
+    viewport: viewportArea
+      ? (() => {
+          const topLeft = projectPoint(viewportArea.x, viewportArea.y)
+          const bottomRight = projectPoint(viewportArea.x + viewportArea.width, viewportArea.y + viewportArea.height)
+          return {
+            x: Number(topLeft.x.toFixed(2)),
+            y: Number(topLeft.y.toFixed(2)),
+            width: Number(Math.max(18, bottomRight.x - topLeft.x).toFixed(2)),
+            height: Number(Math.max(14, bottomRight.y - topLeft.y).toFixed(2)),
+          }
+        })()
+      : null,
+  }
+})
+
+function syncMiniMapViewport() {
+  const graph = graphRef.value
+  if (!graph) {
+    viewportAreaRef.value = null
+    return
+  }
+
+  const visibleArea = graph.getGraphArea()
+  viewportAreaRef.value = {
+    x: Number(visibleArea.x.toFixed(2)),
+    y: Number(visibleArea.y.toFixed(2)),
+    width: Number(visibleArea.width.toFixed(2)),
+    height: Number(visibleArea.height.toFixed(2)),
+  }
+}
+
 function emitLayoutChange() {
   const graph = graphRef.value
   const scroller = scrollerRef.value
@@ -192,6 +339,7 @@ function emitLayoutChange() {
     return
   }
 
+  syncMiniMapViewport()
   const scrollbar = scroller.getScrollbarPosition()
   emit('update-layout', {
     viewportX: Math.round(scrollbar.left),
@@ -212,6 +360,7 @@ function applyLayoutFromProps() {
   window.setTimeout(() => {
     suppressLayoutEmitRef.value = false
   }, 0)
+  syncMiniMapViewport()
 }
 
 function syncSelection() {
@@ -245,6 +394,7 @@ function renderGraph() {
   ])
   syncSelection()
   graph.updateScroller()
+  syncMiniMapViewport()
 }
 
 function zoomIn() {
@@ -277,6 +427,45 @@ function fitContent() {
   emitLayoutChange()
 }
 
+function getViewportSize() {
+  return {
+    width: Math.round(mountRef.value?.clientWidth || 0),
+    height: Math.round(mountRef.value?.clientHeight || 0),
+  }
+}
+
+function applyRequestedFitContent() {
+  if (!graphRef.value || !props.fitRequestKey) {
+    return
+  }
+
+  if (!visibleNodes().length) {
+    return
+  }
+
+  const viewport = getViewportSize()
+  if (viewport.width < 160 || viewport.height < 160) {
+    return
+  }
+
+  const lastAppliedFit = lastAppliedFitRef.value
+  if (
+    lastAppliedFit &&
+    lastAppliedFit.requestKey === props.fitRequestKey &&
+    lastAppliedFit.width === viewport.width &&
+    lastAppliedFit.height === viewport.height
+  ) {
+    return
+  }
+
+  fitContent()
+  lastAppliedFitRef.value = {
+    requestKey: props.fitRequestKey,
+    width: viewport.width,
+    height: viewport.height,
+  }
+}
+
 function bindGraphEvents(graph: Graph) {
   graph.on('node:click', ({ node }) => {
     if (props.linkingSourceNodeId) {
@@ -307,9 +496,6 @@ function bindGraphEvents(graph: Graph) {
   })
 
   graph.on('node:moved', ({ node }) => {
-    if (props.readOnly) {
-      return
-    }
     const position = node.position()
     emit('move-node', {
       nodeId: node.id,
@@ -340,13 +526,14 @@ function setupResizeObserver() {
 
     graphRef.value.resize(Math.max(480, Math.round(entry.contentRect.width)), Math.max(360, Math.round(entry.contentRect.height)))
     graphRef.value.updateScroller()
+    applyRequestedFitContent()
   })
 
   resizeObserverRef.value.observe(mountRef.value)
 }
 
 async function initializeGraph() {
-  if (!mountRef.value || !graphContainerRef.value || !miniMapRef.value || graphRef.value) {
+  if (!mountRef.value || !graphContainerRef.value || graphRef.value) {
     return
   }
 
@@ -379,7 +566,7 @@ async function initializeGraph() {
       },
     },
     interacting: {
-      nodeMovable: !props.readOnly,
+      nodeMovable: true,
       edgeLabelMovable: false,
       vertexAddable: false,
       vertexDeletable: false,
@@ -397,15 +584,6 @@ async function initializeGraph() {
   graph.use(scroller)
   graph.use(new Snapline({ enabled: true }))
   graph.use(new Selection({ enabled: true, multiple: false, rubberband: false, showNodeSelectionBox: false, showEdgeSelectionBox: false }))
-  graph.use(
-    new MiniMap({
-      container: miniMapRef.value,
-      width: MINIMAP_WIDTH,
-      height: MINIMAP_HEIGHT,
-      padding: 10,
-      scalable: true,
-    }),
-  )
 
   mountRef.value.replaceChildren(scroller.container)
   scrollListenerRef.value = () => {
@@ -420,6 +598,7 @@ async function initializeGraph() {
   renderGraph()
   await nextTick()
   applyLayoutFromProps()
+  applyRequestedFitContent()
   setupResizeObserver()
 }
 
@@ -435,12 +614,15 @@ function destroyGraph() {
   graphRef.value = null
   scrollerRef.value = null
   scrollListenerRef.value = null
+  viewportAreaRef.value = null
 }
 
 watch(
   () => [props.nodes, props.edges, props.relationTypes],
-  () => {
+  async () => {
     renderGraph()
+    await nextTick()
+    applyRequestedFitContent()
   },
 )
 
@@ -461,6 +643,14 @@ watch(
   },
 )
 
+watch(
+  () => props.fitRequestKey,
+  async () => {
+    await nextTick()
+    applyRequestedFitContent()
+  },
+)
+
 onMounted(() => {
   void initializeGraph()
 })
@@ -477,9 +667,9 @@ onBeforeUnmount(() => {
 .canvas-controls,.mini-map-card,.linking-hint{pointer-events:auto}
 .canvas-controls{display:flex;gap:8px}
 .mini-map-card{width:176px;height:120px;border-radius:22px;background:rgba(255,255,255,.96);box-shadow:0 12px 28px rgba(15,23,42,.08);overflow:hidden}
-.mini-map{width:100%;height:100%;background:#fff}
-.mini-map :deep(.x6-widget-minimap){width:100%!important;height:100%!important;padding:0;background:#fff}
-.mini-map :deep(.x6-widget-minimap-viewport){border-radius:18px}
+.mini-map-svg{display:block;width:100%;height:100%;background:#fff}
+.mini-map-viewport{fill:rgba(37,99,235,.08);stroke:#2563eb;stroke-width:2}
+.mini-map-svg text{fill:#6b7280;font-size:11px}
 .linking-hint{position:absolute;top:28px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:999px;background:rgba(17,17,17,.92);color:#fff;font-size:13px;z-index:5}
 @media (max-width:960px){.canvas-overlay{top:18px;right:18px}}
 </style>

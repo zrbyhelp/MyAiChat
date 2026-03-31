@@ -269,6 +269,7 @@
       <RobotWorldGraphWorkspace
         v-if="currentWorldGraphRobot"
         :current-robot="currentWorldGraphRobot"
+        mode="editor"
         @close="closeWorldGraph"
       />
     </div>
@@ -286,9 +287,11 @@
   >
     <div style="width: min(1080px, calc(100vw - 88px)); height: min(720px, calc(100vh - 120px)); overflow: hidden;">
       <RobotWorldGraphWorkspace
+        v-if="sessionWorldGraphVisible"
         :current-robot="null"
         :graph-data="currentSessionWorldGraph"
-        :read-only="true"
+        mode="session"
+        :active="sessionWorldGraphVisible"
         @close="sessionWorldGraphVisible = false"
       />
     </div>
@@ -590,12 +593,14 @@ const {
   currentStructuredMemory,
   currentUsage,
   currentNumericState,
+  currentStoryOutline,
   currentSessionWorldGraph,
   applySessionMemory,
   applyStructuredMemory,
   applyMemorySchema,
   applySessionUsage,
   applyNumericState,
+  applyStoryOutline,
   applySessionWorldGraph,
   openMemoryDialog,
   openSessionRobotDialog,
@@ -649,6 +654,7 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
       commonPrompt: sessionRobot.commonPrompt,
       systemPrompt: sessionRobot.systemPrompt,
       memoryModelConfigId: sessionRobot.memoryModelConfigId,
+      outlineModelConfigId: sessionRobot.outlineModelConfigId,
       numericComputationModelConfigId: sessionRobot.numericComputationModelConfigId,
       worldGraphModelConfigId: sessionRobot.worldGraphModelConfigId,
       numericComputationEnabled: sessionRobot.numericComputationEnabled,
@@ -658,6 +664,7 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
       structuredMemoryHistoryLimit: sessionRobot.structuredMemoryHistoryLimit,
     },
     messages: serializedMessages,
+    storyOutline: currentStoryOutline.value,
     memory: {
       ...currentSessionMemory,
       persistToServer: currentSessionMemory.persistToServer,
@@ -689,6 +696,7 @@ const {
   sessionRobot,
   currentSessionMemory,
   currentMemorySchema,
+  currentStoryOutline,
   activeModelConfig,
   currentModelLabel,
   activeModelConfigId,
@@ -699,6 +707,7 @@ const {
   applyStructuredMemory,
   applySessionUsage,
   applyNumericState,
+  applyStoryOutline,
   applySessionWorldGraph,
   applyChatMessages,
   loadCapabilities,
@@ -877,6 +886,7 @@ const { chatServiceConfig } = useChatStreaming({
   currentMemorySchema,
   currentStructuredMemory,
   currentNumericState,
+  currentStoryOutline,
   currentSessionWorldGraph,
   rawChatMessages,
   effectiveStream,
@@ -885,6 +895,7 @@ const { chatServiceConfig } = useChatStreaming({
   applyNumericState,
   applySessionUsage,
   applyStructuredMemory,
+  applyStoryOutline,
   applySessionWorldGraph,
   serializeChatMessages,
   completeChatResponse,

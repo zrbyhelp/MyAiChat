@@ -15,9 +15,11 @@ function createStreamingTestContext() {
   const applyNumericState = vi.fn()
   const applySessionUsage = vi.fn()
   const applyStructuredMemory = vi.fn()
+  const applyStoryOutline = vi.fn()
   const applySessionWorldGraph = vi.fn()
   const cloneNumericComputationItems = vi.fn().mockReturnValue([])
   const serializeChatMessages = vi.fn().mockReturnValue([])
+  const currentStoryOutline = ref('')
   const currentSessionWorldGraph = ref<RobotWorldGraph | null>(null)
   const chatMessages = ref<ChatRenderMessage[]>([
     {
@@ -56,6 +58,7 @@ function createStreamingTestContext() {
       commonPrompt: '',
       systemPrompt: '',
       memoryModelConfigId: '',
+      outlineModelConfigId: '',
       numericComputationModelConfigId: '',
       worldGraphModelConfigId: '',
       numericComputationEnabled: false,
@@ -83,6 +86,7 @@ function createStreamingTestContext() {
       categories: [],
     },
     currentNumericState: ref({}),
+    currentStoryOutline,
     currentSessionWorldGraph,
     rawChatMessages: ref([]),
     effectiveStream: computed(() => true),
@@ -91,6 +95,7 @@ function createStreamingTestContext() {
     applyNumericState,
     applySessionUsage,
     applyStructuredMemory,
+    applyStoryOutline,
     applySessionWorldGraph,
     serializeChatMessages,
     completeChatResponse,
@@ -110,7 +115,9 @@ function createStreamingTestContext() {
     chatServiceConfig,
     chatMessages,
     currentAssistantLoadingText,
+    currentMemoryStatusText,
     applyChatMessages,
+    applyStoryOutline,
     completeChatResponse,
     syncChatResponse,
   }
@@ -151,6 +158,36 @@ describe('useChatStreaming', () => {
     expect(applyChatMessages).toHaveBeenCalledWith(chatMessages.value)
   })
 
+  it('replaces the previous stage when loading switches from ui loading to memory status', async () => {
+    const { chatServiceConfig, currentAssistantLoadingText, currentMemoryStatusText } =
+      createStreamingTestContext()
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'ui_loading',
+        message: '正在写回世界图谱',
+      },
+    } as never)
+
+    await Promise.resolve()
+
+    expect(currentAssistantLoadingText.value).toBe('正在写回世界图谱')
+    expect(currentMemoryStatusText.value).toBe('')
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'memory_status',
+        status: 'running',
+        message: '正在保存会话到数据库',
+      },
+    } as never)
+
+    await Promise.resolve()
+
+    expect(currentAssistantLoadingText.value).toBe('')
+    expect(currentMemoryStatusText.value).toBe('正在保存会话到数据库')
+  })
+
   it('clears loading text when the first response text chunk arrives', async () => {
     const { chatServiceConfig, chatMessages, currentAssistantLoadingText, applyChatMessages } =
       createStreamingTestContext()
@@ -178,7 +215,7 @@ describe('useChatStreaming', () => {
     expect(applyChatMessages).toHaveBeenCalledWith(chatMessages.value)
   })
 
-  it('completes the visible response on done without triggering session sync yet', async () => {
+  it('completes the visible response on done without triggering session sync directly', async () => {
     const { chatServiceConfig, completeChatResponse, syncChatResponse } = createStreamingTestContext()
 
     chatServiceConfig.value.onMessage?.({
@@ -205,5 +242,46 @@ describe('useChatStreaming', () => {
     await Promise.resolve()
 
     expect(syncChatResponse).toHaveBeenCalledWith({ refreshSession: false })
+  })
+
+  it('stores internal story outline updates without rendering them as chat content', async () => {
+    const { chatServiceConfig, applyStoryOutline } = createStreamingTestContext()
+
+    const result = chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'story_outline',
+        storyOutline: '本轮先推进角色冲突，再落到对话回应。',
+      },
+    } as never)
+
+    await Promise.resolve()
+
+    expect(result).toBeNull()
+    expect(applyStoryOutline).toHaveBeenCalledWith('本轮先推进角色冲突，再落到对话回应。')
+  })
+
+  it('can process background_done before done when final completion is delayed until server writeback ends', async () => {
+    const { chatServiceConfig, completeChatResponse, syncChatResponse } = createStreamingTestContext()
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'background_done',
+      },
+    } as never)
+
+    await Promise.resolve()
+
+    expect(syncChatResponse).toHaveBeenCalledWith({ refreshSession: false })
+    expect(completeChatResponse).not.toHaveBeenCalled()
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'done',
+      },
+    } as never)
+
+    await Promise.resolve()
+
+    expect(completeChatResponse).toHaveBeenCalledTimes(1)
   })
 })

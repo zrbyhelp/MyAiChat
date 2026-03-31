@@ -191,6 +191,7 @@ export function upsertSession(session: {
   title?: string
   robot?: SessionRobotState
   memory?: SessionMemoryState
+  storyOutline?: string
   modelConfigId?: string
   modelLabel?: string
   memorySchema?: MemorySchemaState

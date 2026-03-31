@@ -26,6 +26,16 @@
                   clearable
                 />
               </TFormItem>
+              <TFormItem label="故事梗概模型">
+                <TSelect
+                  v-model="sessionRobotDraft.outlineModelConfigId"
+                  :options="auxModelOptions"
+                  placeholder="未单独配置，默认跟随正文模型"
+                  clearable
+                />
+              </TFormItem>
+            </div>
+            <div class="form-grid-2">
               <TFormItem label="世界图谱模型">
                 <TSelect
                   v-model="sessionRobotDraft.worldGraphModelConfigId"
@@ -74,6 +84,16 @@
                   clearable
                 />
               </TFormItem>
+              <TFormItem label="故事梗概模型">
+                <TSelect
+                  v-model="sessionRobotDraft.outlineModelConfigId"
+                  :options="auxModelOptions"
+                  placeholder="未单独配置，默认跟随正文模型"
+                  clearable
+                />
+              </TFormItem>
+            </div>
+            <div class="form-grid-2">
               <TFormItem label="世界图谱模型">
                 <TSelect
                   v-model="sessionRobotDraft.worldGraphModelConfigId"

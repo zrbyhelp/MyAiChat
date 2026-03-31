@@ -323,6 +323,7 @@ class WorldGraphPromptPlacementTests(unittest.IsolatedAsyncioTestCase):
         state = {
             "common_prompt": "通用前缀",
             "system_prompt": "角色设定",
+            "story_outline": "剧情先推进误会，再让角色给出回应。",
             "structured_memory_text": "暂无结构化记忆。",
             "numeric_computation_items": [],
             "numeric_state": {},
@@ -336,10 +337,44 @@ class WorldGraphPromptPlacementTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[0]["role"], "system")
         self.assertIn("通用前缀", messages[0]["content"])
         self.assertIn("角色设定", messages[0]["content"])
+        self.assertIn("角色沉浸感", messages[0]["content"])
+        self.assertIn("内部故事梗概只用于你规划本轮推进", messages[0]["content"])
         self.assertIn("suggestions", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
+        self.assertIn("内部故事梗概", messages[1]["content"])
+        self.assertIn("剧情先推进误会", messages[1]["content"])
         self.assertIn("完整世界图谱 JSON", messages[1]["content"])
         self.assertIn('"robotId": "robot-1"', messages[1]["content"])
+
+    async def test_story_outline_node_puts_story_setting_in_system_message(self):
+        original_build_model = graph.build_model
+        model = CapturingModel("先描述误会升级，再安排角色正面回应。")
+        try:
+            graph.build_model = lambda config: model
+            state = {
+                "common_prompt": "通用前缀",
+                "system_prompt": "角色设定",
+                "structured_memory_text": "暂无结构化记忆。",
+                "numeric_computation_items": [],
+                "numeric_state": {},
+                "history_text": "user: old",
+                "prompt": "继续推进剧情",
+                "world_graph_payload": {"meta": {"robotId": "robot-1"}, "nodes": [], "edges": [], "events": []},
+                "model_config": {"model": "answer-model"},
+                "auxiliary_model_configs": {},
+            }
+
+            payload = await graph.story_outline_node(state)
+
+            self.assertEqual(payload["story_outline"], "先描述误会升级，再安排角色正面回应。")
+            self.assertIsNotNone(model.messages)
+            self.assertEqual(model.messages[0]["role"], "system")
+            self.assertIn("通用前缀", model.messages[0]["content"])
+            self.assertIn("主要故事设定：\n角色设定", model.messages[0]["content"])
+            self.assertEqual(model.messages[1]["role"], "user")
+            self.assertIn("完整世界图谱 JSON", model.messages[1]["content"])
+        finally:
+            graph.build_model = original_build_model
 
     async def test_world_graph_writeback_puts_story_setting_in_system_message(self):
         original_build_model = graph.build_model
@@ -352,6 +387,7 @@ class WorldGraphPromptPlacementTests(unittest.IsolatedAsyncioTestCase):
                 "structured_memory_text": "暂无结构化记忆。",
                 "numeric_computation_items": [],
                 "numeric_state": {},
+                "story_outline": "剧情先推进误会，再让角色给出回应。",
                 "history_text": "user: old",
                 "prompt": "继续推进剧情",
                 "world_graph_payload": {"meta": {"robotId": "robot-1"}, "nodes": [], "edges": [], "events": []},

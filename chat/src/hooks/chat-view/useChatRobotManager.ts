@@ -57,6 +57,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       commonPrompt: '',
       systemPrompt: '',
       memoryModelConfigId: '',
+      outlineModelConfigId: '',
       numericComputationModelConfigId: '',
       worldGraphModelConfigId: '',
       numericComputationEnabled: false,
@@ -120,6 +121,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.commonPrompt = String(source?.commonPrompt || '')
     mobileAgentDraft.systemPrompt = String(source?.systemPrompt || '')
     mobileAgentDraft.memoryModelConfigId = String(source?.memoryModelConfigId || '')
+    mobileAgentDraft.outlineModelConfigId = String(source?.outlineModelConfigId || '')
     mobileAgentDraft.numericComputationModelConfigId = String(source?.numericComputationModelConfigId || '')
     mobileAgentDraft.worldGraphModelConfigId = String(source?.worldGraphModelConfigId || '')
     mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
@@ -146,6 +148,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       commonPrompt: item.commonPrompt.trim(),
       systemPrompt: item.systemPrompt,
       memoryModelConfigId: String(item.memoryModelConfigId || '').trim(),
+      outlineModelConfigId: String(item.outlineModelConfigId || '').trim(),
       numericComputationModelConfigId: String(item.numericComputationModelConfigId || '').trim(),
       worldGraphModelConfigId: String(item.worldGraphModelConfigId || '').trim(),
       numericComputationEnabled: Boolean(item.numericComputationEnabled),
@@ -483,6 +486,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         commonPrompt: mobileAgentDraft.commonPrompt.trim(),
         systemPrompt: mobileAgentDraft.systemPrompt,
         memoryModelConfigId: String(mobileAgentDraft.memoryModelConfigId || '').trim(),
+        outlineModelConfigId: String(mobileAgentDraft.outlineModelConfigId || '').trim(),
         numericComputationModelConfigId: String(mobileAgentDraft.numericComputationModelConfigId || '').trim(),
         worldGraphModelConfigId: String(mobileAgentDraft.worldGraphModelConfigId || '').trim(),
         numericComputationEnabled: Boolean(mobileAgentDraft.numericComputationEnabled),

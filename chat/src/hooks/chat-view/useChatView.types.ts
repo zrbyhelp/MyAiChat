@@ -53,6 +53,7 @@ export type NormalizedStreamPayload = {
     | 'memory_status'
     | 'usage'
     | 'structured_memory'
+    | 'story_outline'
     | 'numeric_state_updated'
     | 'session_world_graph'
     | 'ui_loading'
@@ -67,6 +68,7 @@ export type NormalizedStreamPayload = {
   promptTokens?: number
   completionTokens?: number
   memory?: import('@/types/ai').StructuredMemoryState
+  storyOutline?: string
   state?: Record<string, unknown>
   graph?: RobotWorldGraph | null
   warnings?: string[]

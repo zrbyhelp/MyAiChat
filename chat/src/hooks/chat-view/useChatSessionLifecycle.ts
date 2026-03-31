@@ -26,6 +26,7 @@ interface UseChatSessionLifecycleOptions {
   sessionRobot: SessionRobotState
   currentSessionMemory: SessionMemoryState
   currentMemorySchema: MemorySchemaState
+  currentStoryOutline: Ref<string>
   activeModelConfig: Ref<AIModelConfigItem>
   currentModelLabel: Ref<string>
   activeModelConfigId: Ref<string>
@@ -36,6 +37,7 @@ interface UseChatSessionLifecycleOptions {
   applyStructuredMemory: (memory?: Partial<StructuredMemoryState> | null) => void
   applySessionUsage: (usage?: Partial<SessionUsageState> | null) => void
   applyNumericState: (value?: Record<string, unknown> | null) => void
+  applyStoryOutline: (value?: string | null) => void
   applySessionWorldGraph: (graph?: import('@/types/ai').RobotWorldGraph | null) => void
   applyChatMessages: (messages: ChatRenderMessage[]) => void
   loadCapabilities: () => Promise<void>
@@ -65,6 +67,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.applyMemorySchema(session.memorySchema)
       options.applyStructuredMemory(session.structuredMemory)
       options.applySessionUsage(session.usage)
+      options.applyStoryOutline(session.storyOutline || '')
       options.applySessionWorldGraph(session.worldGraph || null)
     } catch {
       // 忽略短暂刷新失败，保留当前状态。
@@ -82,6 +85,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
           commonPrompt: options.sessionRobot.commonPrompt,
           systemPrompt: options.sessionRobot.systemPrompt,
           memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
+          outlineModelConfigId: options.sessionRobot.outlineModelConfigId,
           numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
           worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
           numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
@@ -93,6 +97,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
           structuredMemoryHistoryLimit: options.sessionRobot.structuredMemoryHistoryLimit,
         },
         memory: options.currentSessionMemory,
+        storyOutline: options.currentStoryOutline.value,
         modelConfigId: options.activeModelConfig.value.id,
         modelLabel: options.currentModelLabel.value,
         memorySchema: options.currentMemorySchema,
@@ -107,6 +112,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.applyMemorySchema(response.session.memorySchema)
       options.applyStructuredMemory(response.session.structuredMemory)
       options.applySessionUsage(response.session.usage)
+      options.applyStoryOutline(response.session.storyOutline || '')
       options.applySessionWorldGraph(response.session.worldGraph || null)
     } else {
       const session = options.buildCurrentSessionDetail()
@@ -118,6 +124,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.applyMemorySchema(session.memorySchema)
       options.applyStructuredMemory(session.structuredMemory)
       options.applySessionUsage(session.usage)
+      options.applyStoryOutline(session.storyOutline || '')
       options.applySessionWorldGraph(session.worldGraph || null)
     }
     await options.refreshSessionHistory()
@@ -131,6 +138,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.sessionRobot.commonPrompt = session.robot.commonPrompt || ''
     options.sessionRobot.systemPrompt = session.robot.systemPrompt || ''
     options.sessionRobot.memoryModelConfigId = session.robot.memoryModelConfigId || ''
+    options.sessionRobot.outlineModelConfigId = session.robot.outlineModelConfigId || ''
     options.sessionRobot.numericComputationModelConfigId = session.robot.numericComputationModelConfigId || ''
     options.sessionRobot.worldGraphModelConfigId = session.robot.worldGraphModelConfigId || ''
     options.sessionRobot.numericComputationEnabled = Boolean(session.robot.numericComputationEnabled)
@@ -148,6 +156,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applyStructuredMemory(session.structuredMemory)
     options.applySessionUsage(session.usage)
     options.applyNumericState(session.numericState)
+    options.applyStoryOutline(session.storyOutline || '')
     options.applySessionWorldGraph(session.worldGraph || null)
     options.storeActiveSessionId(session.id)
 
@@ -172,6 +181,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.commonPrompt = robot.commonPrompt
       options.sessionRobot.systemPrompt = robot.systemPrompt
       options.sessionRobot.memoryModelConfigId = robot.memoryModelConfigId || ''
+      options.sessionRobot.outlineModelConfigId = robot.outlineModelConfigId || ''
       options.sessionRobot.numericComputationModelConfigId = robot.numericComputationModelConfigId || ''
       options.sessionRobot.worldGraphModelConfigId = robot.worldGraphModelConfigId || ''
       options.sessionRobot.numericComputationEnabled = Boolean(robot.numericComputationEnabled)
@@ -191,6 +201,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.commonPrompt = ''
       options.sessionRobot.systemPrompt = ''
       options.sessionRobot.memoryModelConfigId = ''
+      options.sessionRobot.outlineModelConfigId = ''
       options.sessionRobot.numericComputationModelConfigId = ''
       options.sessionRobot.worldGraphModelConfigId = ''
       options.sessionRobot.numericComputationEnabled = false
@@ -212,6 +223,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applyStructuredMemory(options.defaultStructuredMemory)
     options.applySessionUsage(options.defaultSessionUsage)
     options.applyNumericState({})
+    options.applyStoryOutline('')
     options.applySessionWorldGraph(null)
 
     options.sessionId.value = options.createSessionId()

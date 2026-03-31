@@ -47,7 +47,7 @@
     </aside>
 
     <section class="canvas-area">
-      <div class="graph-stage-shell">
+      <div class="graph-stage-shell" :class="{ 'with-timeline': showTimelineDock, collapsed: showTimelineDock && timelineCollapsed }">
         <WorldGraphCanvasX6
           :nodes="canvasNodes"
           :edges="canvasEdges"
@@ -58,6 +58,7 @@
           :current-sequence-index="currentSequenceIndex"
           :layout="meta.layout"
           :read-only="isReadOnly"
+          :fit-request-key="fitRequestKey"
           @select-node="selectNode"
           @select-edge="selectEdge"
           @clear-selection="clearGraphSelection"
@@ -362,9 +363,40 @@
             </div>
           </section>
         </div>
+
+        <div v-if="timelineEventDetailNode" class="editor-popup-layer" @click.self="closeTimelineEventDetail">
+          <section class="timeline-event-detail-popup">
+            <div class="editor-head">
+              <div>
+                <strong>{{ timelineEventDetailNode.name || '未命名事件' }}</strong>
+                <small>{{ buildTimelineLabel(timelineEventDetailNode, normalizeNumber(timelineEventDetailNode.timeline?.sequenceIndex, timelineEventDetailNode.startSequenceIndex)) }}</small>
+              </div>
+              <TButton variant="text" size="small" @click="closeTimelineEventDetail">关闭</TButton>
+            </div>
+            <div class="editor-body timeline-event-detail-body">
+              <div class="node-detail-section">
+                <span>事件详情</span>
+                <p>{{ timelineEventDetailNode.summary || '暂无详情' }}</p>
+              </div>
+              <div v-if="timelineEventDetailNode.tags.length" class="node-detail-section">
+                <span>标签</span>
+                <div class="node-tag-list">
+                  <em v-for="tag in timelineEventDetailNode.tags" :key="tag">{{ tag }}</em>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
 
-      <div v-if="activePanel === 'graph'" class="timeline-dock">
+      <div
+        v-if="showTimelineDock"
+        class="timeline-dock"
+        :class="{ collapsed: timelineCollapsed }"
+        @pointerdown.stop
+        @mousedown.stop
+        @touchstart.stop
+      >
         <div class="timeline-dock-head">
           <div class="timeline-current">
             <span>当前时间点</span>
@@ -372,6 +404,20 @@
             <small>可见对象 {{ canvasNodes.length }} / 关系 {{ canvasEdges.length }}</small>
           </div>
           <div class="timeline-actions">
+            <TButton
+              class="timeline-toggle-button"
+              size="small"
+              variant="outline"
+              :aria-expanded="String(!timelineCollapsed)"
+              @click="toggleTimelineCollapsed"
+            >
+              {{ timelineCollapsed ? '展开时间点' : '收起时间点' }}
+            </TButton>
+          </div>
+        </div>
+
+        <template v-if="!timelineCollapsed">
+          <div class="timeline-actions timeline-actions-expanded">
             <TButton size="small" variant="outline" :disabled="currentSequenceIndex === 0" @click="moveToPreviousPoint">上一个</TButton>
             <TButton size="small" variant="outline" :disabled="currentSequenceIndex === timelineMaxSequenceIndex" @click="moveToNextPoint">下一个</TButton>
             <TButton size="small" variant="outline" @click="toggleAutoplay">
@@ -387,20 +433,42 @@
             />
             <TButton v-if="!isReadOnly" size="small" theme="primary" @click="createEventAtCurrentPoint">在此时间点新增事件</TButton>
           </div>
-        </div>
 
-        <div class="timeline-range-wrap">
-          <input v-model.number="currentSequenceIndex" class="timeline-range" type="range" min="0" :max="timelineMaxSequenceIndex" step="1" />
-        </div>
+          <div class="timeline-range-wrap">
+            <input
+              :value="currentSequenceIndex"
+              class="timeline-range"
+              type="range"
+              min="0"
+              :max="timelineMaxSequenceIndex"
+              step="1"
+              @input="handleTimelineRangeInput"
+            />
+          </div>
 
-        <div class="timeline-event-strip">
-          <button v-for="eventNode in currentTimelineEvents" :key="eventNode.id" class="timeline-event-chip" @click="selectTimelineEvent(eventNode.id)">
-            <span>事件</span>
-            <strong>{{ eventNode.name }}</strong>
-            <small>{{ eventNode.summary || getTimelinePointLabel(currentSequenceIndex) }}</small>
-          </button>
-          <div v-if="!currentTimelineEvents.length" class="timeline-event-empty">当前时间点暂无事件，可直接新增事件或新增节点。</div>
-        </div>
+          <div
+            ref="timelineEventStripRef"
+            class="timeline-event-strip"
+            @pointerdown="handleTimelineEventStripPointerDown"
+            @pointermove="handleTimelineEventStripPointerMove"
+            @pointerup="handleTimelineEventStripPointerUp"
+            @pointercancel="handleTimelineEventStripPointerUp"
+            @lostpointercapture="handleTimelineEventStripPointerUp"
+          >
+            <button
+              v-for="eventNode in currentTimelineEvents"
+              :key="eventNode.id"
+              class="timeline-event-chip"
+              :data-event-id="eventNode.id"
+              @click="handleTimelineEventChipClick(eventNode.id, $event)"
+            >
+              <span>事件</span>
+              <strong>{{ eventNode.name }}</strong>
+              <small class="timeline-event-summary">{{ getTimelineEventPreviewText(eventNode) }}</small>
+            </button>
+            <div v-if="!currentTimelineEvents.length" class="timeline-event-empty">当前时间点暂无事件，可直接新增事件或新增节点。</div>
+          </div>
+        </template>
       </div>
     </section>
   </div>
@@ -420,6 +488,7 @@ import {
 } from 'tdesign-vue-next'
 
 import WorldGraphCanvasX6 from '@/components/chat/WorldGraphCanvasX6.vue'
+import { buildSessionGraphLayout } from '@/components/chat/worldGraphLayout'
 import {
   createRobotWorldEdge,
   createRobotWorldNode,
@@ -452,10 +521,14 @@ import type {
   WorldTimelineEffect,
 } from '@/types/ai'
 
+type GraphWorkspaceMode = 'editor' | 'session'
+
 const props = defineProps<{
   currentRobot: AIRobotCard | null
   graphData?: RobotWorldGraph | null
+  mode?: GraphWorkspaceMode
   readOnly?: boolean
+  active?: boolean
 }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
@@ -518,8 +591,17 @@ const isAutoplaying = ref(false)
 const playbackSpeed = ref<'1x' | '2x' | '4x'>('1x')
 const autoplayTimer = ref<number | null>(null)
 const layoutSaveTimer = ref<number | null>(null)
+const activationFitTimer = ref<number | null>(null)
 const pendingLayout = ref<WorldGraphLayout | null>(null)
 const lastPersistedLayout = ref<WorldGraphLayout>({ viewportX: 0, viewportY: 0, zoom: 1 })
+const fitRequestKey = ref(0)
+const timelineEventStripRef = ref<HTMLElement | null>(null)
+const timelineEventStripPointerId = ref<number | null>(null)
+const timelineEventStripStartX = ref(0)
+const timelineEventStripStartScrollLeft = ref(0)
+const timelineEventStripDragging = ref(false)
+const timelineEventStripSuppressClick = ref(false)
+const timelineEventDetailNodeId = ref('')
 const meta = reactive<RobotWorldGraphMeta>({
   robotId: '',
   title: '',
@@ -535,10 +617,14 @@ const playbackSpeedOptions = [
   { label: '2x', value: '2x' },
   { label: '4x', value: '4x' },
 ]
-const isReadOnly = computed(() => Boolean(props.readOnly))
+const graphMode = computed<GraphWorkspaceMode>(() => props.mode || (props.readOnly ? 'session' : 'editor'))
+const isSessionMode = computed(() => graphMode.value === 'session')
+const isReadOnly = computed(() => isSessionMode.value || Boolean(props.readOnly))
+const timelineCollapsed = ref(isSessionMode.value)
 const hasGraphSource = computed(() => Boolean(props.graphData || props.currentRobot?.persistToServer))
+const showTimelineDock = computed(() => activePanel.value === 'graph')
 const emptyStateText = computed(() =>
-  isReadOnly.value ? '当前会话还没有消息图谱。' : '仅支持已保存到服务器的智能体使用世界设定。',
+  isSessionMode.value ? '当前会话还没有消息图谱。' : '仅支持已保存到服务器的智能体使用世界设定。',
 )
 const showRelationTypeTab = computed(() => !isReadOnly.value)
 
@@ -552,6 +638,66 @@ function normalizeNumber(value: unknown, fallback = 0) {
 
 function normalizeString(value: unknown) {
   return String(value ?? '').trim()
+}
+
+function compareDisplayText(left: unknown, right: unknown) {
+  return normalizeString(left).localeCompare(normalizeString(right), 'zh-CN', { numeric: true, sensitivity: 'base' })
+}
+
+function parseChineseNumberToken(token: string) {
+  const normalized = token.replace(/两/g, '二').replace(/〇/g, '零')
+  const digitMap: Record<string, number> = { 零: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
+  let total = 0
+  let current = 0
+
+  for (const char of normalized) {
+    if (char === '千') {
+      total += (current || 1) * 1000
+      current = 0
+      continue
+    }
+    if (char === '百') {
+      total += (current || 1) * 100
+      current = 0
+      continue
+    }
+    if (char === '十') {
+      total += (current || 1) * 10
+      current = 0
+      continue
+    }
+    current = current * 10 + (digitMap[char] ?? 0)
+  }
+
+  return total + current
+}
+
+function extractTimelineOrderValue(value: unknown) {
+  const text = normalizeString(value)
+  if (!text) {
+    return null
+  }
+
+  const arabicMatch = text.match(/\d+/)
+  if (arabicMatch) {
+    return Number(arabicMatch[0])
+  }
+
+  const chineseMatch = text.match(/[零〇一二两三四五六七八九十百千]+/)
+  if (chineseMatch) {
+    return parseChineseNumberToken(chineseMatch[0])
+  }
+
+  return null
+}
+
+function compareTimelineLabelValue(left: unknown, right: unknown) {
+  const leftOrderValue = extractTimelineOrderValue(left)
+  const rightOrderValue = extractTimelineOrderValue(right)
+  if (leftOrderValue !== null && rightOrderValue !== null && leftOrderValue !== rightOrderValue) {
+    return leftOrderValue - rightOrderValue
+  }
+  return compareDisplayText(left, right)
 }
 
 function normalizeTimelineEffectNodeAttributeChangeClient(value?: Partial<WorldTimelineEffectNodeAttributeChange> | null): WorldTimelineEffectNodeAttributeChange {
@@ -661,6 +807,70 @@ function normalizeRelationTypeClient(type: RobotWorldRelationType): RobotWorldRe
     sourceObjectTypes: Array.isArray(type.sourceObjectTypes) ? type.sourceObjectTypes : [],
     targetObjectTypes: Array.isArray(type.targetObjectTypes) ? type.targetObjectTypes : [],
   }
+}
+
+function createResetViewportLayout(): WorldGraphLayout {
+  return {
+    viewportX: 0,
+    viewportY: 0,
+    zoom: 1,
+  }
+}
+
+function mergeAutoLayoutIntoNodes(nodes: WorldNode[], targets: WorldNode[]) {
+  const positionedNodes = buildSessionGraphLayout(targets)
+  const positionedNodeMap = new Map(positionedNodes.map((node) => [node.id, node.position] as const))
+  return nodes.map((node) => {
+    const nextPosition = positionedNodeMap.get(node.id)
+    return nextPosition ? { ...node, position: nextPosition } : node
+  })
+}
+
+function applySessionAutoLayout(nodes: WorldNode[]) {
+  if (!isSessionMode.value) {
+    return nodes
+  }
+
+  const visibleNodes = nodes.filter((node) => node.objectType !== 'event' && normalizeNumber(node.startSequenceIndex, 0) <= currentSequenceIndex.value)
+  if (!visibleNodes.length) {
+    return nodes
+  }
+
+  return mergeAutoLayoutIntoNodes(nodes, visibleNodes)
+}
+
+function requestSessionViewportFit() {
+  if (!isSessionMode.value) {
+    return
+  }
+  const nextLayout = createResetViewportLayout()
+  Object.assign(meta.layout, nextLayout)
+  lastPersistedLayout.value = cloneValue(nextLayout)
+  fitRequestKey.value += 1
+}
+
+function scheduleSessionViewportFit(delay = 0) {
+  if (!isSessionMode.value || props.active === false) {
+    return
+  }
+  if (activationFitTimer.value) {
+    window.clearTimeout(activationFitTimer.value)
+  }
+  activationFitTimer.value = window.setTimeout(() => {
+    requestSessionViewportFit()
+    activationFitTimer.value = null
+  }, delay)
+}
+
+function applyLoadedGraphPresentation() {
+  if (isSessionMode.value) {
+    currentSequenceIndex.value = timelineMaxSequenceIndex.value
+    rawNodes.value = applySessionAutoLayout(rawNodes.value)
+    requestSessionViewportFit()
+    return
+  }
+
+  currentSequenceIndex.value = Math.min(currentSequenceIndex.value, timelineMaxSequenceIndex.value)
 }
 
 function normalizeNodeSnapshot(value?: Partial<WorldNodeSnapshot> | null): WorldNodeSnapshot {
@@ -946,7 +1156,7 @@ const timelineMaxSequenceIndex = computed(() => {
 const currentTimelineEvents = computed(() =>
   currentWorldNodes.value
     .filter((node) => node.objectType === 'event' && normalizeNumber(node.timeline?.sequenceIndex, node.startSequenceIndex) === currentSequenceIndex.value)
-    .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')),
+    .sort(compareTimelineEventOrder),
 )
 
 function buildTimelineLabel(eventNode?: WorldNode | null, fallbackSequenceIndex?: number) {
@@ -960,6 +1170,33 @@ function buildTimelineLabel(eventNode?: WorldNode | null, fallbackSequenceIndex?
   return `时间点 ${fallbackSequenceIndex ?? 0}`
 }
 
+function compareTimelineEventOrder(left: WorldNode, right: WorldNode) {
+  const leftSequenceIndex = normalizeNumber(left.timeline?.sequenceIndex, left.startSequenceIndex)
+  const rightSequenceIndex = normalizeNumber(right.timeline?.sequenceIndex, right.startSequenceIndex)
+  if (leftSequenceIndex !== rightSequenceIndex) {
+    return leftSequenceIndex - rightSequenceIndex
+  }
+
+  for (const key of timelineLabelKeys) {
+    const compared = compareTimelineLabelValue(left.timeline?.[key], right.timeline?.[key])
+    if (compared !== 0) {
+      return compared
+    }
+  }
+
+  const createdAtCompared = compareDisplayText(left.createdAt, right.createdAt)
+  if (createdAtCompared !== 0) {
+    return createdAtCompared
+  }
+
+  const nameCompared = compareDisplayText(left.name, right.name)
+  if (nameCompared !== 0) {
+    return nameCompared
+  }
+
+  return compareDisplayText(left.id, right.id)
+}
+
 function getTimelinePointLabel(sequenceIndex: number) {
   const eventNode = allEventNodes.value.find((item) => normalizeNumber(item.timeline?.sequenceIndex, item.startSequenceIndex) === sequenceIndex) ?? null
   return buildTimelineLabel(eventNode, sequenceIndex)
@@ -969,7 +1206,17 @@ function getTimelinePointEventCount(sequenceIndex: number) {
   return allEventNodes.value.filter((item) => normalizeNumber(item.timeline?.sequenceIndex, item.startSequenceIndex) === sequenceIndex).length
 }
 
+function getTimelineEventPreviewText(eventNode: WorldNode) {
+  return normalizeString(eventNode.summary) || buildTimelineLabel(eventNode, normalizeNumber(eventNode.timeline?.sequenceIndex, eventNode.startSequenceIndex))
+}
+
 const currentTimelineLabel = computed(() => getTimelinePointLabel(currentSequenceIndex.value))
+const timelineEventDetailNode = computed(() => {
+  if (!timelineEventDetailNodeId.value) {
+    return null
+  }
+  return rawNodes.value.find((item) => item.id === timelineEventDetailNodeId.value && item.objectType === 'event') || null
+})
 const selectedNodeFields = computed(() => (nodeDraft.value?.objectType ? nodeFieldMap[nodeDraft.value.objectType] || [] : []))
 const selectedCanvasNode = computed(() => canvasNodeMap.value.get(selectedNodeId.value) || null)
 const selectedNodeDetailItems = computed(() => {
@@ -1177,12 +1424,13 @@ const sidebarItems = computed(() => {
 
 async function loadWorldGraph() {
   if (props.graphData) {
-    rawNodes.value = (Array.isArray(props.graphData.nodes) ? props.graphData.nodes : []).map(normalizeNodeClient)
+    const nextNodes = (Array.isArray(props.graphData.nodes) ? props.graphData.nodes : []).map(normalizeNodeClient)
     rawEdges.value = (Array.isArray(props.graphData.edges) ? props.graphData.edges : []).map(normalizeEdgeClient)
     relationTypes.value = (Array.isArray(props.graphData.relationTypes) ? props.graphData.relationTypes : []).map(normalizeRelationTypeClient)
     Object.assign(meta, cloneValue(props.graphData.meta))
     lastPersistedLayout.value = cloneValue(props.graphData.meta.layout)
-    currentSequenceIndex.value = Math.min(currentSequenceIndex.value, timelineMaxSequenceIndex.value)
+    rawNodes.value = nextNodes
+    applyLoadedGraphPresentation()
     return
   }
   if (!props.currentRobot?.id || !props.currentRobot.persistToServer) {
@@ -1194,12 +1442,13 @@ async function loadWorldGraph() {
   loading.value = true
   try {
     const response = await getRobotWorldGraph(props.currentRobot.id)
-    rawNodes.value = (Array.isArray(response.nodes) ? response.nodes : []).map(normalizeNodeClient)
+    const nextNodes = (Array.isArray(response.nodes) ? response.nodes : []).map(normalizeNodeClient)
     rawEdges.value = (Array.isArray(response.edges) ? response.edges : []).map(normalizeEdgeClient)
     relationTypes.value = (Array.isArray(response.relationTypes) ? response.relationTypes : []).map(normalizeRelationTypeClient)
     Object.assign(meta, response.meta)
     lastPersistedLayout.value = cloneValue(response.meta.layout)
-    currentSequenceIndex.value = Math.min(currentSequenceIndex.value, timelineMaxSequenceIndex.value)
+    rawNodes.value = nextNodes
+    applyLoadedGraphPresentation()
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '加载世界设定失败')
   } finally {
@@ -1209,6 +1458,11 @@ async function loadWorldGraph() {
 
 function setCurrentSequenceIndex(sequenceIndex: number) {
   currentSequenceIndex.value = Math.max(0, Math.min(timelineMaxSequenceIndex.value, Math.round(sequenceIndex)))
+}
+
+function handleTimelineRangeInput(event: Event) {
+  const nextValue = Number((event.target as HTMLInputElement | null)?.value ?? currentSequenceIndex.value)
+  setCurrentSequenceIndex(nextValue)
 }
 
 function stopAutoplay() {
@@ -1249,6 +1503,10 @@ function moveToPreviousPoint() {
 
 function moveToNextPoint() {
   setCurrentSequenceIndex(currentSequenceIndex.value + 1)
+}
+
+function toggleTimelineCollapsed() {
+  timelineCollapsed.value = !timelineCollapsed.value
 }
 
 function toggleAutoplay() {
@@ -1359,17 +1617,105 @@ function selectEdge(edgeId: string) {
 }
 
 function selectTimelineEvent(nodeId: string) {
-  if (isReadOnly.value) {
-    return
-  }
   const node = currentTimelineEvents.value.find((item) => item.id === nodeId) || rawNodes.value.find((item) => item.id === nodeId && item.objectType === 'event')
   if (!node) {
+    return
+  }
+  if (isSessionMode.value) {
+    timelineEventDetailNodeId.value = node.id
+    return
+  }
+  if (isReadOnly.value) {
     return
   }
   selectedNodeId.value = ''
   selectedEdgeId.value = ''
   selectedTypeId.value = ''
   openNodeEditorFromProjected(node)
+}
+
+function closeTimelineEventDetail() {
+  timelineEventDetailNodeId.value = ''
+}
+
+function handleTimelineEventChipClick(nodeId: string, event: MouseEvent) {
+  if (timelineEventStripSuppressClick.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    timelineEventStripSuppressClick.value = false
+    return
+  }
+  selectTimelineEvent(nodeId)
+}
+
+function handleTimelineEventStripPointerDown(event: PointerEvent) {
+  if (event.pointerType === 'mouse' && event.button !== 0) {
+    return
+  }
+  const strip = timelineEventStripRef.value
+  if (!strip) {
+    return
+  }
+
+  timelineEventStripPointerId.value = event.pointerId
+  timelineEventStripStartX.value = event.clientX
+  timelineEventStripStartScrollLeft.value = strip.scrollLeft
+  timelineEventStripDragging.value = false
+
+  strip.setPointerCapture?.(event.pointerId)
+}
+
+function handleTimelineEventStripPointerMove(event: PointerEvent) {
+  const strip = timelineEventStripRef.value
+  if (!strip || timelineEventStripPointerId.value !== event.pointerId) {
+    return
+  }
+
+  const deltaX = event.clientX - timelineEventStripStartX.value
+  if (!timelineEventStripDragging.value && Math.abs(deltaX) < 6) {
+    return
+  }
+
+  timelineEventStripDragging.value = true
+  timelineEventStripSuppressClick.value = true
+  strip.scrollLeft = timelineEventStripStartScrollLeft.value - deltaX
+  event.preventDefault()
+}
+
+function handleTimelineEventStripPointerUp(event: PointerEvent) {
+  const strip = timelineEventStripRef.value
+  if (!strip || timelineEventStripPointerId.value !== event.pointerId) {
+    return
+  }
+
+  if (strip.hasPointerCapture?.(event.pointerId)) {
+    strip.releasePointerCapture?.(event.pointerId)
+  }
+
+  timelineEventStripPointerId.value = null
+  timelineEventStripStartX.value = 0
+  timelineEventStripStartScrollLeft.value = strip.scrollLeft
+
+  if (!timelineEventStripDragging.value) {
+    const pointerTarget = document.elementFromPoint(event.clientX, event.clientY)
+    const eventChip = pointerTarget instanceof Element ? pointerTarget.closest<HTMLElement>('.timeline-event-chip') : null
+    const eventId = eventChip?.dataset.eventId
+    if (eventId) {
+      timelineEventStripSuppressClick.value = true
+      selectTimelineEvent(eventId)
+      window.setTimeout(() => {
+        timelineEventStripSuppressClick.value = false
+      }, 0)
+      return
+    }
+    timelineEventStripSuppressClick.value = false
+    return
+  }
+
+  timelineEventStripDragging.value = false
+  window.setTimeout(() => {
+    timelineEventStripSuppressClick.value = false
+  }, 0)
 }
 
 function startLinkingFromDetail() {
@@ -1953,6 +2299,20 @@ async function persistNodePosition(nodeId: string, x: number, y: number) {
 }
 
 function handleNodeMove(payload: { nodeId: string; x: number; y: number }) {
+  if (isReadOnly.value) {
+    rawNodes.value = rawNodes.value.map((node) =>
+      node.id === payload.nodeId
+        ? {
+            ...node,
+            position: {
+              x: Math.round(payload.x),
+              y: Math.round(payload.y),
+            },
+          }
+        : node,
+    )
+    return
+  }
   void persistNodePosition(payload.nodeId, payload.x, payload.y)
 }
 
@@ -1960,16 +2320,20 @@ async function autoLayout() {
   if (isReadOnly.value || !props.currentRobot?.id || !rawNodes.value.length) {
     return
   }
-  const centerX = 560
-  const centerY = 320
-  const radius = Math.max(220, rawNodes.value.length * 28)
-  const nextNodes = rawNodes.value.map((node, index) => {
-    const angle = (Math.PI * 2 * index) / Math.max(rawNodes.value.length, 1)
-    return { ...cloneValue(node), position: { x: Math.round(centerX + Math.cos(angle) * radius), y: Math.round(centerY + Math.sin(angle) * radius) } }
+  const previousNodes = rawNodes.value
+  const targetNodes = rawNodes.value.filter((node) => node.objectType !== 'event')
+  if (!targetNodes.length) {
+    return
+  }
+  const nextNodes = mergeAutoLayoutIntoNodes(previousNodes, targetNodes)
+  const previousNodeMap = new Map(previousNodes.map((node) => [node.id, node] as const))
+  const changedNodes = nextNodes.filter((node) => {
+    const previousNode = previousNodeMap.get(node.id)
+    return !previousNode || previousNode.position.x !== node.position.x || previousNode.position.y !== node.position.y
   })
   rawNodes.value = nextNodes
   try {
-    const results = await Promise.all(nextNodes.map((node) => updateRobotWorldNode(props.currentRobot!.id, node.id, node)))
+    const results = await Promise.all(changedNodes.map((node) => updateRobotWorldNode(props.currentRobot!.id, node.id, node)))
     const nextMap = new Map(results.map((item) => {
       const node = normalizeNodeClient(item.node)
       return [node.id, node] as const
@@ -2011,12 +2375,34 @@ function updateGraphLayout(layout: WorldGraphLayout) {
 }
 
 watch(
-  () => [props.currentRobot?.id, props.graphData, props.readOnly],
+  () => [props.currentRobot?.id, props.graphData, props.mode, props.readOnly],
   () => {
-    if (isReadOnly.value) {
+    if (isSessionMode.value) {
       activePanel.value = 'graph'
     }
     void loadWorldGraph()
+  },
+  { immediate: true },
+)
+watch(
+  () => graphMode.value,
+  (value, previousValue) => {
+    if (value !== previousValue) {
+      timelineCollapsed.value = value === 'session'
+    }
+  },
+)
+watch(
+  () => props.active,
+  (value) => {
+    if (!value) {
+      if (activationFitTimer.value) {
+        window.clearTimeout(activationFitTimer.value)
+        activationFitTimer.value = null
+      }
+      return
+    }
+    scheduleSessionViewportFit(180)
   },
   { immediate: true },
 )
@@ -2042,6 +2428,11 @@ watch(projectedEdges, (edges) => {
     if (editorMode.value === 'edge') {
       closeEditor()
     }
+  }
+})
+watch(timelineEventDetailNode, (value) => {
+  if (!value && timelineEventDetailNodeId.value) {
+    timelineEventDetailNodeId.value = ''
   }
 })
 watch(typeDraft, (value) => {
@@ -2073,6 +2464,9 @@ onBeforeUnmount(() => {
   if (layoutSaveTimer.value) {
     window.clearTimeout(layoutSaveTimer.value)
   }
+  if (activationFitTimer.value) {
+    window.clearTimeout(activationFitTimer.value)
+  }
 })
 </script>
 
@@ -2098,7 +2492,9 @@ onBeforeUnmount(() => {
 .create-menu-item{height:40px;padding:0 12px;border:0;border-radius:12px;background:#f3f4f6;color:#20242a;text-align:left;cursor:pointer}
 .create-button,.close-button{width:100%}
 .canvas-area{position:relative;min-width:0;min-height:0;overflow:hidden}
-.graph-stage-shell{position:absolute;inset:0 0 176px}
+.graph-stage-shell{position:absolute;inset:0;transition:inset .18s ease}
+.graph-stage-shell.with-timeline{inset:0 0 176px}
+.graph-stage-shell.with-timeline.collapsed{inset:0 0 88px}
 .node-detail-panel{position:absolute;top:24px;right:24px;z-index:8;display:flex;flex-direction:column;gap:14px;width:320px;max-height:calc(100% - 48px);padding:18px;border:1px solid rgba(15,23,42,.08);border-radius:24px;background:rgba(255,255,255,.96);box-shadow:0 22px 48px rgba(15,23,42,.12);backdrop-filter:blur(18px)}
 .node-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .node-detail-head strong{display:block;color:#111827;font-size:22px;line-height:1.2}
@@ -2119,6 +2515,7 @@ onBeforeUnmount(() => {
 .relation-picker,.editor-popup{width:min(520px,calc(100vw - 48px));overflow:auto;border-radius:28px;background:rgba(255,255,255,.98);box-shadow:0 28px 80px rgba(15,23,42,.2)}
 .relation-picker{display:grid;gap:12px;padding:22px}
 .editor-popup{display:flex;flex-direction:column;max-height:min(720px,calc(100vh - 140px))}
+.timeline-event-detail-popup{display:flex;flex-direction:column;width:min(560px,calc(100vw - 48px));max-height:min(620px,calc(100vh - 140px));border-radius:28px;background:rgba(255,255,255,.98);box-shadow:0 28px 80px rgba(15,23,42,.2);overflow:hidden}
 .relation-picker-title{color:#111827;font-size:20px;font-weight:700}
 .relation-picker-subtitle{color:#6b7280;font-size:13px}
 .relation-picker-item{height:44px;padding:0 14px;border:0;border-radius:14px;background:#eef0f3;color:#111827;text-align:left;cursor:pointer}
@@ -2136,7 +2533,11 @@ onBeforeUnmount(() => {
 .effect-mode-chip,.effect-field-toggle{height:34px;padding:0 12px;border:0;border-radius:999px;background:#e5e7eb;color:#374151;cursor:pointer;transition:.18s ease}
 .effect-mode-chip.active,.effect-field-toggle.active{background:#111827;color:#fff}
 .effect-field-row{display:grid;gap:8px}
-.timeline-dock{position:absolute;right:0;bottom:0;left:0;display:grid;gap:16px;min-height:176px;padding:18px 24px 20px;background:linear-gradient(180deg,rgba(243,243,243,.78),rgba(255,255,255,.98));border-top:1px solid rgba(15,23,42,.08);backdrop-filter:blur(18px)}
+.timeline-dock{position:absolute;right:0;bottom:0;left:0;z-index:9;display:grid;gap:16px;min-height:176px;padding:18px 24px 20px;background:linear-gradient(180deg,rgba(243,243,243,.78),rgba(255,255,255,.98));border-top:1px solid rgba(15,23,42,.08);backdrop-filter:blur(18px);transition:min-height .18s ease,padding .18s ease,gap .18s ease}
+.timeline-dock.collapsed{gap:10px;min-height:88px;padding:14px 20px 16px}
+.timeline-dock.collapsed .timeline-dock-head{align-items:center}
+.timeline-dock.collapsed .timeline-current{gap:2px}
+.timeline-dock.collapsed .timeline-current strong{font-size:16px}
 .timeline-dock-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .timeline-current{display:grid;gap:4px}
 .timeline-current span,.timeline-current small{color:#6b7280;font-size:13px}
@@ -2144,11 +2545,14 @@ onBeforeUnmount(() => {
 .timeline-actions{display:flex;flex-wrap:wrap;gap:8px}
 .timeline-speed-select{width:92px}
 .timeline-range-wrap{display:grid}
-.timeline-range{width:100%}
-.timeline-event-strip{display:flex;gap:10px;overflow-x:auto}
-.timeline-event-chip{display:grid;gap:4px;min-width:180px;padding:14px 16px;border:0;border-radius:18px;background:#fff;color:#111827;text-align:left;box-shadow:0 12px 28px rgba(15,23,42,.08);cursor:pointer}
+.timeline-range{width:100%;position:relative;z-index:1}
+.timeline-event-strip{display:flex;gap:10px;overflow-x:auto;cursor:grab;user-select:none;touch-action:pan-x}
+.timeline-event-strip:active{cursor:grabbing}
+.timeline-event-chip{display:grid;gap:4px;width:220px;min-width:220px;max-width:220px;padding:14px 16px;border:0;border-radius:18px;background:#fff;color:#111827;text-align:left;box-shadow:0 12px 28px rgba(15,23,42,.08);cursor:pointer;flex:0 0 auto}
+.timeline-event-summary{display:-webkit-box;width:100%;max-width:100%;overflow:hidden;line-height:1.5;white-space:normal;word-break:break-word;text-overflow:ellipsis;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.timeline-event-detail-body{display:grid;gap:14px}
 .timeline-event-chip span,.timeline-event-chip small,.timeline-event-empty,.sidebar-empty{color:#6b7280;font-size:13px}
 .timeline-event-chip strong{font-size:15px}
 .timeline-event-empty,.sidebar-empty{padding:16px}
-@media (max-width:1080px){.world-shell{grid-template-columns:1fr}.sidebar{height:280px;border-right:0;border-bottom:1px solid rgba(15,23,42,.08)}.graph-stage-shell{inset:0 0 228px}.node-detail-panel{top:16px;right:16px;width:min(320px,calc(100% - 32px));max-height:calc(100% - 32px)}.timeline-dock-head{flex-direction:column}}
+@media (max-width:1080px){.world-shell{grid-template-columns:1fr}.sidebar{height:280px;border-right:0;border-bottom:1px solid rgba(15,23,42,.08)}.graph-stage-shell.with-timeline{inset:0 0 228px}.graph-stage-shell.with-timeline.collapsed{inset:0 0 96px}.node-detail-panel{top:16px;right:16px;width:min(320px,calc(100% - 32px));max-height:calc(100% - 32px)}.timeline-dock-head{flex-direction:column}}
 </style>

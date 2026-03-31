@@ -296,6 +296,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   })
   const currentUsage = reactive<SessionUsageState>({ ...DEFAULT_SESSION_USAGE })
   const currentNumericState = ref<Record<string, unknown>>({})
+  const currentStoryOutline = ref('')
   const currentSessionWorldGraph = ref<RobotWorldGraph | null>(null)
 
   const sessionRobot = reactive<SessionRobotState>({
@@ -305,6 +306,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     commonPrompt: '',
     systemPrompt: '',
     memoryModelConfigId: '',
+    outlineModelConfigId: '',
     numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
     numericComputationEnabled: false,
@@ -320,6 +322,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     commonPrompt: '',
     systemPrompt: '',
     memoryModelConfigId: '',
+    outlineModelConfigId: '',
     numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
     numericComputationEnabled: false,
@@ -408,6 +411,10 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
       typeof value === 'object' && value !== null ? { ...value } : {}
   }
 
+  function applyStoryOutline(value?: string | null) {
+    currentStoryOutline.value = typeof value === 'string' ? value : ''
+  }
+
   function applySessionWorldGraph(graph?: RobotWorldGraph | null) {
     currentSessionWorldGraph.value = graph ? JSON.parse(JSON.stringify(graph)) as RobotWorldGraph : null
   }
@@ -420,6 +427,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   function openSessionRobotDialog() {
     sessionRobotDraft.id = sessionRobot.id
     sessionRobotDraft.memoryModelConfigId = sessionRobot.memoryModelConfigId
+    sessionRobotDraft.outlineModelConfigId = sessionRobot.outlineModelConfigId
     sessionRobotDraft.numericComputationModelConfigId = sessionRobot.numericComputationModelConfigId
     sessionRobotDraft.worldGraphModelConfigId = sessionRobot.worldGraphModelConfigId
     sessionRobotVisible.value = true
@@ -428,6 +436,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   async function applySessionRobot() {
     sessionRobot.id = String(sessionRobotDraft.id || '').trim()
     sessionRobot.memoryModelConfigId = String(sessionRobotDraft.memoryModelConfigId || '').trim()
+    sessionRobot.outlineModelConfigId = String(sessionRobotDraft.outlineModelConfigId || '').trim()
     sessionRobot.numericComputationModelConfigId = String(sessionRobotDraft.numericComputationModelConfigId || '').trim()
     sessionRobot.worldGraphModelConfigId = String(sessionRobotDraft.worldGraphModelConfigId || '').trim()
     sessionRobotVisible.value = false
@@ -461,12 +470,14 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     applyMemorySchema,
     applySessionUsage,
     applyNumericState,
+    applyStoryOutline,
     applySessionWorldGraph,
     openMemoryDialog,
     openSessionRobotDialog,
     applySessionRobot,
     applySessionMemorySettings,
     currentNumericState,
+    currentStoryOutline,
     currentSessionWorldGraph,
   }
 }

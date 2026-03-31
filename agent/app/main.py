@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
@@ -19,6 +20,7 @@ from .graph import (
     extract_usage,
     memory_node,
     refresh_state_memory_context,
+    story_outline_node,
     world_graph_writeback_node,
 )
 from .schemas import StructuredMemory
@@ -27,6 +29,7 @@ from .schemas import ChatMessage, RunRequest, ThreadState
 
 app = FastAPI(title="MyAiChat Agent Service")
 store = ThreadStore()
+logger = logging.getLogger(__name__)
 
 
 @app.on_event("startup")
@@ -88,6 +91,7 @@ async def run_stream(request: RunRequest):
     structured_memory = normalize_structured_memory(memory_schema, raw_structured_memory.model_dump())
     if thread:
         request.numeric_state = thread.numeric_state
+        request.story_outline = thread.story_outline or request.story_outline
     debug_log("[numeric-agent:input]", {
         "thread_id": request.thread_id,
         "session_id": request.session_id,
@@ -114,6 +118,17 @@ async def run_stream(request: RunRequest):
             yield sse({"type": "numeric_state_updated", "state": state.get("numeric_state") or {}})
 
             has_world_graph = bool(str((state.get("world_graph_payload") or {}).get("meta", {}).get("robotId") or "").strip())
+            try:
+                yield sse({"type": "story_outline_started"})
+                outline_payload = await story_outline_node(state)
+            except Exception as error:
+                raise RuntimeError(format_stage_error(request, "故事梗概阶段", error)) from error
+            state.update(outline_payload)
+            usage = outline_payload.get("usage") or usage
+            yield sse({
+                "type": "story_outline_completed",
+                "story_outline": state.get("story_outline") or "",
+            })
             debug_log("[answerer:numeric-input]", {
                 "thread_id": request.thread_id,
                 "session_id": request.session_id,
@@ -169,6 +184,11 @@ async def run_stream(request: RunRequest):
                 usage = world_graph_writeback_payload.get("usage") or usage
                 yield sse({"type": "world_graph_writeback_ready"})
             except Exception as error:
+                logger.exception(
+                    "world graph writeback failed for thread=%s session=%s",
+                    request.thread_id,
+                    request.session_id,
+                )
                 debug_log("[world-graph-writeback:error]", {
                     "thread_id": request.thread_id,
                     "session_id": request.session_id,
@@ -184,6 +204,7 @@ async def run_stream(request: RunRequest):
                         memory_schema=memory_schema,
                         structured_memory=final_memory,
                         numeric_state=state.get("numeric_state") or {},
+                        story_outline=state.get("story_outline") or "",
                     )
                 )
             except Exception as error:
@@ -195,6 +216,7 @@ async def run_stream(request: RunRequest):
                 "message": final_response,
                 "memory": final_memory.model_dump(),
                 "numeric_state": state.get("numeric_state") or {},
+                "story_outline": state.get("story_outline") or "",
                 "world_graph_writeback_ops": state.get("world_graph_writeback_ops") or {},
                 "usage": usage,
             })

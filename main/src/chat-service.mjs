@@ -265,6 +265,7 @@ async function buildAgentRequest(payload, user, session) {
       common_prompt: String(robot?.commonPrompt || ''),
       system_prompt: robot?.systemPrompt || payload.systemPrompt || '',
       memory_model_config_id: String(robot?.memoryModelConfigId || ''),
+      outline_model_config_id: String(robot?.outlineModelConfigId || ''),
       numeric_computation_model_config_id: String(robot?.numericComputationModelConfigId || ''),
       world_graph_model_config_id: String(robot?.worldGraphModelConfigId || ''),
       numeric_computation_enabled: Boolean(robot?.numericComputationEnabled),
@@ -290,11 +291,26 @@ async function buildAgentRequest(payload, user, session) {
       typeof session?.numericState === 'object' && session?.numericState !== null
         ? session.numericState
         : {},
+    story_outline: String(session?.storyOutline || payload.sessionSnapshot?.storyOutline || ''),
     auxiliary_model_configs: {
       memory: (() => {
         const config = resolveAuxiliaryModelConfig(robot?.memoryModelConfigId)
         return {
           model_config_id: String(robot?.memoryModelConfigId || ''),
+          provider: config.provider,
+          base_url:
+            config.provider === 'ollama'
+              ? getOllamaChatBaseUrl(config.baseUrl)
+              : sanitizeBaseUrl(config.baseUrl),
+          api_key: String(config.apiKey || ''),
+          model: String(config.model || ''),
+          temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
+        }
+      })(),
+      outline: (() => {
+        const config = resolveAuxiliaryModelConfig(robot?.outlineModelConfigId)
+        return {
+          model_config_id: String(robot?.outlineModelConfigId || ''),
           provider: config.provider,
           base_url:
             config.provider === 'ollama'
@@ -414,6 +430,7 @@ async function commitSession(payload, user, result, existingSession) {
     modelConfigId: payload.modelConfigId || existing?.modelConfigId || '',
     modelLabel: payload.modelLabel || existing?.modelLabel || payload.model || '',
     threadId: result.threadId || existing?.threadId || payload.sessionId,
+    storyOutline: String(result.storyOutline || existing?.storyOutline || ''),
     messages: nextMessages,
     memory: existing?.memory,
     memorySchema: normalizeMemorySchema(existing?.memorySchema || payload.robot?.memorySchema),
@@ -480,6 +497,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
   let finalSuggestions = []
   let finalForm = null
   let finalNumericState = session?.numericState || {}
+  let finalStoryOutline = String(session?.storyOutline || payload.sessionSnapshot?.storyOutline || '')
   let finalWorldGraph = await loadWorldGraphPayload(user, payload, session)
   let finalWorldGraphWritebackOps = null
   const structuredStreamState = createStructuredStreamParser()
@@ -557,6 +575,14 @@ async function runAgentAndCollect(payload, user, onEvent) {
         if (parsed.type === 'numeric_state_updated' && parsed.state) {
           finalNumericState = parsed.state
         }
+        if (parsed.type === 'story_outline_completed') {
+          finalStoryOutline =
+            typeof parsed.story_outline === 'string'
+              ? parsed.story_outline
+              : typeof parsed.storyOutline === 'string'
+                ? parsed.storyOutline
+                : finalStoryOutline
+        }
         if (parsed.type === 'response_completed') {
           finalizeStructuredAssistantOutput(String(parsed.message || ''))
           receivedResponseCompleted = true
@@ -580,6 +606,12 @@ async function runAgentAndCollect(payload, user, onEvent) {
                 ? parsed.numericState
                 : finalNumericState
           finalUsage = normalizeUsage(parsed.usage || finalUsage)
+          finalStoryOutline =
+            typeof parsed.story_outline === 'string'
+              ? parsed.story_outline
+              : typeof parsed.storyOutline === 'string'
+                ? parsed.storyOutline
+                : finalStoryOutline
           finalWorldGraphWritebackOps =
             parsed.world_graph_writeback_ops && typeof parsed.world_graph_writeback_ops === 'object'
               ? parsed.world_graph_writeback_ops
@@ -612,6 +644,13 @@ async function runAgentAndCollect(payload, user, onEvent) {
         graph: finalWorldGraph,
       })
     } catch (error) {
+      console.error('[world-graph-writeback:apply-failed]', {
+        sessionId: payload.sessionId,
+        robotId: resolveSessionRobotId(payload, session),
+        threadId: finalThreadId,
+        message: error instanceof Error ? error.message : '世界图谱写回失败',
+        ops: finalWorldGraphWritebackOps,
+      })
       await onEvent?.({
         type: 'world_graph_update_failed',
         message: error instanceof Error ? error.message : '世界图谱写回失败',
@@ -627,6 +666,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
       suggestions: finalSuggestions,
       form: finalForm,
       numericState: finalNumericState,
+      storyOutline: finalStoryOutline,
       memory: finalMemory,
       usage: finalUsage,
       worldGraph: finalWorldGraph,
@@ -641,6 +681,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
     form: finalForm,
     numericState: finalNumericState,
     memory: finalMemory,
+    storyOutline: finalStoryOutline,
     usage: finalUsage,
     responseCompleted: receivedResponseCompleted,
     session: savedSession || normalizeSession({
@@ -650,6 +691,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
       preview: finalMessage,
       updatedAt: new Date().toISOString(),
       threadId: finalThreadId,
+      storyOutline: finalStoryOutline,
       structuredMemory: finalMemory,
       numericState: finalNumericState,
       worldGraph: finalWorldGraph,
@@ -693,7 +735,23 @@ export function mapAgentEventToChatEvents(payload) {
   }
 
   if (payload.type === 'response_completed') {
-    return [{ type: 'done' }]
+    return []
+  }
+
+  if (payload.type === 'story_outline_started') {
+    return [{ type: 'ui_loading', message: '正在生成故事梗概' }]
+  }
+
+  if (payload.type === 'story_outline_completed') {
+    return [{
+      type: 'story_outline',
+      storyOutline:
+        typeof payload.story_outline === 'string'
+          ? payload.story_outline
+          : typeof payload.storyOutline === 'string'
+            ? payload.storyOutline
+            : '',
+    }]
   }
 
   if (payload.type === 'suggestion') {
@@ -776,9 +834,6 @@ export async function handleChatStream(payload, res, user) {
       forwardAgentEvent(res, event)
     })
 
-    if (!result.responseCompleted) {
-      sendSSE(res, { type: 'done' })
-    }
     sendUsageSSE(res, result.session)
     sendSSE(res, {
       type: 'structured_memory',
@@ -793,6 +848,7 @@ export async function handleChatStream(payload, res, user) {
       graph: result.session.worldGraph || null,
     })
     sendSSE(res, { type: 'background_done' })
+    sendSSE(res, { type: 'done' })
   } catch (error) {
     sendSSE(res, {
       type: 'error',

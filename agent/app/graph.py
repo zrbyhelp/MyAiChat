@@ -38,6 +38,7 @@ class AgentState(TypedDict):
     numeric_computation_prompt: str
     numeric_computation_items: list[dict]
     numeric_state: dict
+    story_outline: str
     world_graph_payload: dict
     world_graph_writeback_ops: dict
     final_response: NotRequired[str]
@@ -128,6 +129,10 @@ def resolve_system_prompt(state: AgentState) -> str:
 
 def resolve_numeric_computation_prompt(state: AgentState) -> str:
     return str(state.get("numeric_computation_prompt") or PROMPT_CONFIG.defaults.numeric_computation_prompt or "").strip()
+
+
+def resolve_story_outline(state: AgentState) -> str:
+    return str(state.get("story_outline") or "").strip()
 
 
 def parse_json_object(raw: str, fallback: dict) -> dict:
@@ -604,7 +609,8 @@ async def update_memory_patch(
                     f"当前已有记忆：\n{state['structured_memory_payload_json']}\n\n"
                     f"历史消息：\n{state['history_text']}\n\n"
                     f"用户最新输入：{state['prompt']}\n\n"
-                    f"助手最终回复：{state.get('final_response', '')}"
+                    f"助手最终回复：{state.get('final_response', '')}\n\n"
+                    f"内部故事梗概：\n{resolve_story_outline(state) or '暂无故事梗概。'}"
                 ),
             },
         ]
@@ -627,6 +633,35 @@ async def answerer_node(state: AgentState) -> dict:
     return {"final_response": content.strip(), "usage": usage}
 
 
+async def story_outline_node(state: AgentState) -> dict:
+    model = build_model(resolve_node_model_config(state, "outline"))
+    response = await model.ainvoke(
+        [
+            {
+                "role": "system",
+                "content": compose_system_prompt(
+                    resolve_common_prompt(state),
+                    f"主要故事设定：\n{resolve_system_prompt(state)}",
+                    PROMPT_CONFIG.templates.story_outline.system_instruction,
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"结构化记忆：\n{state['structured_memory_text']}\n\n"
+                    f"完整世界图谱 JSON：\n{world_graph_json_text(state.get('world_graph_payload') or {})}\n\n"
+                    f"数值信息：\n{json.dumps(numeric_payload_for_answerer(state.get('numeric_computation_items') or [], state.get('numeric_state')), ensure_ascii=False)}\n\n"
+                    f"历史消息：\n{state['history_text']}\n\n"
+                    f"用户最新输入：{state['prompt']}"
+                ),
+            },
+        ]
+    )
+    usage = extract_usage(response)
+    content = response.content if isinstance(response.content, str) else str(response.content)
+    return {"story_outline": content.strip(), "usage": usage}
+
+
 def build_answerer_messages(
     state: AgentState,
 ) -> list[dict]:
@@ -644,6 +679,7 @@ def build_answerer_messages(
         {
             "role": "user",
             "content": (
+                f"内部故事梗概：\n{resolve_story_outline(state) or '暂无故事梗概。'}\n\n"
                 f"结构化记忆：\n{state['structured_memory_text']}\n\n"
                 f"完整世界图谱 JSON：\n{world_graph_json_text(state.get('world_graph_payload') or {})}\n\n"
                 f"{PROMPT_CONFIG.templates.answerer.numeric_guardrail}\n\n"
@@ -743,6 +779,7 @@ async def world_graph_writeback_node(state: AgentState) -> dict:
                     f"历史消息：\n{state['history_text']}\n\n"
                     f"用户最新输入：{state['prompt']}\n\n"
                     f"最终正文：\n{state.get('final_response', '')}\n\n"
+                    f"内部故事梗概：\n{resolve_story_outline(state) or '暂无故事梗概。'}\n\n"
                     f"完整世界图谱 JSON：\n{world_graph_json_text(world_graph_payload)}"
                 ),
             },
@@ -806,6 +843,7 @@ def build_initial_state(
         "numeric_computation_prompt": request.robot.numeric_computation_prompt or PROMPT_CONFIG.defaults.numeric_computation_prompt,
         "numeric_computation_items": normalized_numeric_items,
         "numeric_state": request.numeric_state or {},
+        "story_outline": request.story_outline or "",
         "world_graph_payload": request.world_graph or {},
         "world_graph_writeback_ops": normalize_world_graph_writeback_ops({}),
         "model_config": request.model_settings.model_dump(),

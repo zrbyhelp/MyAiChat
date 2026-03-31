@@ -40,6 +40,7 @@ class ThreadStore:
                 Column("memory_schema_json", large_text, nullable=False),
                 Column("structured_memory_json", large_text, nullable=False),
                 Column("numeric_state_json", large_text, nullable=False),
+                Column("story_outline_text", large_text, nullable=False),
             )
             metadata.create_all(self.engine)
             inspector = inspect(self.engine)
@@ -52,11 +53,16 @@ class ThreadStore:
                 with self.engine.begin() as conn:
                     conn.execute(text("ALTER TABLE agent_threads ADD COLUMN numeric_state_json TEXT NOT NULL"))
                     conn.execute(text("UPDATE agent_threads SET numeric_state_json='{}' WHERE numeric_state_json IS NULL OR numeric_state_json = ''"))
+            if "story_outline_text" not in columns:
+                with self.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE agent_threads ADD COLUMN story_outline_text TEXT NOT NULL"))
+                    conn.execute(text("UPDATE agent_threads SET story_outline_text='' WHERE story_outline_text IS NULL"))
             with self.engine.begin() as conn:
                 conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN messages_json LONGTEXT NOT NULL"))
                 conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN memory_schema_json LONGTEXT NOT NULL"))
                 conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN structured_memory_json LONGTEXT NOT NULL"))
                 conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN numeric_state_json LONGTEXT NOT NULL"))
+                conn.execute(text("ALTER TABLE agent_threads MODIFY COLUMN story_outline_text LONGTEXT NOT NULL"))
         else:
             self.file_dir.mkdir(parents=True, exist_ok=True)
         self._ready = True
@@ -73,6 +79,7 @@ class ThreadStore:
                         self.table.c.memory_schema_json,
                         self.table.c.structured_memory_json,
                         self.table.c.numeric_state_json,
+                        self.table.c.story_outline_text,
                     ).where(self.table.c.thread_id == thread_id)
                 ).mappings().first()
             if not row:
@@ -84,6 +91,7 @@ class ThreadStore:
                     "memory_schema": json.loads(row["memory_schema_json"] or "{}"),
                     "structured_memory": json.loads(row["structured_memory_json"] or "{}"),
                     "numeric_state": json.loads(row["numeric_state_json"] or "{}"),
+                    "story_outline": row["story_outline_text"] or "",
                 }
             )
 
@@ -104,6 +112,7 @@ class ThreadStore:
                 "memory_schema_json": json.dumps(state_payload["memory_schema"], ensure_ascii=False),
                 "structured_memory_json": json.dumps(state_payload["structured_memory"], ensure_ascii=False),
                 "numeric_state_json": json.dumps(state_payload["numeric_state"], ensure_ascii=False),
+                "story_outline_text": str(state_payload.get("story_outline") or ""),
             }
             stmt = mysql_insert(self.table).values(**payload)
             with self.engine.begin() as conn:
@@ -113,6 +122,7 @@ class ThreadStore:
                         memory_schema_json=stmt.inserted.memory_schema_json,
                         structured_memory_json=stmt.inserted.structured_memory_json,
                         numeric_state_json=stmt.inserted.numeric_state_json,
+                        story_outline_text=stmt.inserted.story_outline_text,
                     )
                 )
             return

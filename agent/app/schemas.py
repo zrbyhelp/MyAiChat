@@ -104,6 +104,10 @@ class RobotProfile(CompatibleModel):
         default="",
         validation_alias=AliasChoices("memory_model_config_id", "memoryModelConfigId"),
     )
+    outline_model_config_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("outline_model_config_id", "outlineModelConfigId"),
+    )
     numeric_computation_model_config_id: str = Field(
         default="",
         validation_alias=AliasChoices("numeric_computation_model_config_id", "numericComputationModelConfigId"),
@@ -145,6 +149,7 @@ class RunUser(CompatibleModel):
 
 class AuxiliaryModelConfigs(CompatibleModel):
     memory: ModelConfig | None = None
+    outline: ModelConfig | None = None
     numeric_computation: ModelConfig | None = Field(
         default=None,
         validation_alias=AliasChoices("numeric_computation", "numericComputation"),
@@ -182,6 +187,10 @@ class RunRequest(CompatibleModel):
         default_factory=dict,
         validation_alias=AliasChoices("numeric_state", "numericState"),
     )
+    story_outline: str = Field(
+        default="",
+        validation_alias=AliasChoices("story_outline", "storyOutline"),
+    )
     world_graph: dict[str, Any] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("world_graph", "worldGraph"),
@@ -196,6 +205,10 @@ class ThreadState(CompatibleModel):
     numeric_state: dict[str, Any] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("numeric_state", "numericState"),
+    )
+    story_outline: str = Field(
+        default="",
+        validation_alias=AliasChoices("story_outline", "storyOutline"),
     )
 
 

@@ -57,6 +57,7 @@ export interface AIRobotCard {
   commonPrompt: string
   systemPrompt: string
   memoryModelConfigId: string
+  outlineModelConfigId: string
   numericComputationModelConfigId: string
   worldGraphModelConfigId: string
   numericComputationEnabled: boolean
@@ -93,6 +94,7 @@ export interface SessionRobotState {
   commonPrompt: string
   systemPrompt: string
   memoryModelConfigId: string
+  outlineModelConfigId: string
   numericComputationModelConfigId: string
   worldGraphModelConfigId: string
   numericComputationEnabled: boolean
@@ -193,6 +195,7 @@ export interface ChatSessionSummary {
 
 export interface ChatSessionDetail extends ChatSessionSummary {
   threadId: string
+  storyOutline?: string
   robot: SessionRobotState
   messages: ChatSessionMessage[]
   memory: SessionMemoryState

@@ -10,14 +10,21 @@ test('maps world graph writeback started to ui loading message', () => {
   )
 })
 
+test('maps story outline started to ui loading message', () => {
+  assert.deepEqual(
+    mapAgentEventToChatEvents({ type: 'story_outline_started' }),
+    [{ type: 'ui_loading', message: '正在生成故事梗概' }],
+  )
+})
+
 test('ignores message_done because structured ui is parsed from the main reply stream', () => {
   assert.deepEqual(mapAgentEventToChatEvents({ type: 'message_done' }), [])
 })
 
-test('maps response completed to done so the client can unlock early', () => {
+test('ignores response completed so done is emitted only after all server-side work finishes', () => {
   assert.deepEqual(
     mapAgentEventToChatEvents({ type: 'response_completed' }),
-    [{ type: 'done' }],
+    [],
   )
 })
 

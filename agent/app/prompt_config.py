@@ -28,6 +28,10 @@ class NumericAgentPromptTemplate(BaseModel):
     user_prompt_label: str = "用户配置的数值计算提示词："
 
 
+class StoryOutlinePromptTemplate(BaseModel):
+    system_instruction: str
+
+
 class WorldGraphWritebackPromptTemplate(BaseModel):
     system_instruction: str
 
@@ -36,6 +40,7 @@ class PromptTemplates(BaseModel):
     answerer: AnswererPromptTemplate
     memory_patch: MemoryPatchPromptTemplate = Field(alias="memory_patch")
     numeric_agent: NumericAgentPromptTemplate = Field(alias="numeric_agent")
+    story_outline: StoryOutlinePromptTemplate = Field(alias="story_outline")
     world_graph_writeback: WorldGraphWritebackPromptTemplate = Field(alias="world_graph_writeback")
 
 

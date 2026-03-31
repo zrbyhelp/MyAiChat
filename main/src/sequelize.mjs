@@ -156,6 +156,12 @@ export function getModels() {
       defaultValue: '',
       field: 'memory_model_config_id',
     },
+    outlineModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'outline_model_config_id',
+    },
     numericComputationModelConfigId: {
       type: DataTypes.STRING(120),
       allowNull: false,
@@ -392,6 +398,12 @@ export function getModels() {
       defaultValue: '',
       field: 'robot_memory_model_config_id',
     },
+    robotOutlineModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_outline_model_config_id',
+    },
     robotNumericComputationModelConfigId: {
       type: DataTypes.STRING(120),
       allowNull: false,
@@ -474,6 +486,11 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'thread_id',
+    },
+    storyOutline: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      field: 'story_outline',
     },
     memorySummary: {
       type: DataTypes.TEXT,
