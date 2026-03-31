@@ -36,6 +36,14 @@
               </TFormItem>
             </div>
             <div class="form-grid-2">
+              <TFormItem label="知识检索模型">
+                <TSelect
+                  v-model="sessionRobotDraft.knowledgeRetrievalModelConfigId"
+                  :options="auxModelOptions"
+                  placeholder="未单独配置，默认跟随正文模型"
+                  clearable
+                />
+              </TFormItem>
               <TFormItem label="世界图谱模型">
                 <TSelect
                   v-model="sessionRobotDraft.worldGraphModelConfigId"
@@ -94,6 +102,14 @@
               </TFormItem>
             </div>
             <div class="form-grid-2">
+              <TFormItem label="知识检索模型">
+                <TSelect
+                  v-model="sessionRobotDraft.knowledgeRetrievalModelConfigId"
+                  :options="auxModelOptions"
+                  placeholder="未单独配置，默认跟随正文模型"
+                  clearable
+                />
+              </TFormItem>
               <TFormItem label="世界图谱模型">
                 <TSelect
                   v-model="sessionRobotDraft.worldGraphModelConfigId"

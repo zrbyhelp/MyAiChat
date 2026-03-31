@@ -141,10 +141,21 @@ def parse_json_object(raw: str, fallback: dict) -> dict:
         text = text.strip("`")
         if "\n" in text:
             text = text.split("\n", 1)[1]
-    try:
-        return json.loads(text)
-    except Exception:
-        return fallback
+    candidates = [text]
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        snippet = text[start:end + 1].strip()
+        if snippet and snippet not in candidates:
+            candidates.append(snippet)
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return fallback
 
 
 def truncate_text(value, limit: int) -> str:

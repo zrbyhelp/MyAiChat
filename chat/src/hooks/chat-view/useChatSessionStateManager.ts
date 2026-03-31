@@ -307,6 +307,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     systemPrompt: '',
     memoryModelConfigId: '',
     outlineModelConfigId: '',
+    knowledgeRetrievalModelConfigId: '',
     numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
     numericComputationEnabled: false,
@@ -323,6 +324,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     systemPrompt: '',
     memoryModelConfigId: '',
     outlineModelConfigId: '',
+    knowledgeRetrievalModelConfigId: '',
     numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
     numericComputationEnabled: false,
@@ -428,6 +430,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionRobotDraft.id = sessionRobot.id
     sessionRobotDraft.memoryModelConfigId = sessionRobot.memoryModelConfigId
     sessionRobotDraft.outlineModelConfigId = sessionRobot.outlineModelConfigId
+    sessionRobotDraft.knowledgeRetrievalModelConfigId = sessionRobot.knowledgeRetrievalModelConfigId
     sessionRobotDraft.numericComputationModelConfigId = sessionRobot.numericComputationModelConfigId
     sessionRobotDraft.worldGraphModelConfigId = sessionRobot.worldGraphModelConfigId
     sessionRobotVisible.value = true
@@ -437,6 +440,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionRobot.id = String(sessionRobotDraft.id || '').trim()
     sessionRobot.memoryModelConfigId = String(sessionRobotDraft.memoryModelConfigId || '').trim()
     sessionRobot.outlineModelConfigId = String(sessionRobotDraft.outlineModelConfigId || '').trim()
+    sessionRobot.knowledgeRetrievalModelConfigId = String(sessionRobotDraft.knowledgeRetrievalModelConfigId || '').trim()
     sessionRobot.numericComputationModelConfigId = String(sessionRobotDraft.numericComputationModelConfigId || '').trim()
     sessionRobot.worldGraphModelConfigId = String(sessionRobotDraft.worldGraphModelConfigId || '').trim()
     sessionRobotVisible.value = false

@@ -4,6 +4,8 @@ import { useChatRobotManager } from './useChatRobotManager'
 import type { AIRobotCard, MemorySchemaState } from '@/types/ai'
 
 const {
+  createRobotGenerationTask,
+  getRobotGenerationTask,
   getRobots,
   getRobotWorldGraph,
   replaceRobotWorldGraph,
@@ -15,6 +17,8 @@ const {
   error,
 } = vi.hoisted(() => ({
   getRobots: vi.fn(),
+  createRobotGenerationTask: vi.fn(),
+  getRobotGenerationTask: vi.fn(),
   getRobotWorldGraph: vi.fn(),
   replaceRobotWorldGraph: vi.fn(),
   saveRobots: vi.fn(),
@@ -26,6 +30,8 @@ const {
 }))
 
 vi.mock('@/lib/api', () => ({
+  createRobotGenerationTask,
+  getRobotGenerationTask,
   getRobots,
   getRobotWorldGraph,
   replaceRobotWorldGraph,
@@ -76,6 +82,7 @@ function createRobot(overrides: Partial<AIRobotCard> = {}): AIRobotCard {
     systemPrompt: overrides.systemPrompt || '系统提示',
     memoryModelConfigId: '',
     outlineModelConfigId: '',
+    knowledgeRetrievalModelConfigId: '',
     numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
     numericComputationEnabled: false,
@@ -150,6 +157,8 @@ describe('useChatRobotManager', () => {
     deleteLocalRobot.mockResolvedValue(undefined)
     success.mockReset()
     error.mockReset()
+    createRobotGenerationTask.mockReset()
+    getRobotGenerationTask.mockReset()
     getRobots.mockClear()
     getRobotWorldGraph.mockClear()
     replaceRobotWorldGraph.mockClear()
@@ -241,5 +250,29 @@ describe('useChatRobotManager', () => {
     expect(putLocalRobot).not.toHaveBeenCalled()
     expect(saveRobots).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalledWith('模板文件无法解密')
+  })
+
+  it('requires a document generation model before submitting', async () => {
+    const manager = createManager()
+
+    manager.setDocumentGenerationFile(new File(['hello'], 'demo.txt', { type: 'text/plain' }))
+    manager.documentGenerationEmbeddingModelConfigId.value = 'embedding-1'
+
+    await manager.submitDocumentGeneration()
+
+    expect(createRobotGenerationTask).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith('请选择文档生成模型')
+  })
+
+  it('requires an embedding model before submitting', async () => {
+    const manager = createManager()
+
+    manager.setDocumentGenerationFile(new File(['hello'], 'demo.txt', { type: 'text/plain' }))
+    manager.documentGenerationModelConfigId.value = 'model-1'
+
+    await manager.submitDocumentGeneration()
+
+    expect(createRobotGenerationTask).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith('请选择向量 Embedding 模型')
   })
 })

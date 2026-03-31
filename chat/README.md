@@ -1,73 +1,63 @@
 # chat
 
-This template should help get you started developing with Vue 3 in Vite.
+`chat/` 是 MyAiChat 的用户侧聊天前端，基于 Vue 3 + TypeScript + Vite 构建。
 
-## Recommended IDE Setup
+## 当前承载的功能
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- 流式聊天界面与 SSE 事件消费
+- 会话历史与会话切换
+- 智能体创建、编辑、模板导入导出
+- 结构化记忆编辑
+- 机器人世界图谱编辑器与会话镜像图谱查看
+- 移动端与桌面端双布局
 
-## Recommended Browser Setup
+## 关键目录
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Type Support for `.vue` Imports in TS
-
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
-
-```sh
-npm install
+```text
+chat/
+├─ src/components/chat/      # 聊天主界面、记忆编辑、世界图谱组件
+├─ src/components/tabs/      # Discover / Agent / Mine 等页签
+├─ src/hooks/chat-view/      # 会话生命周期、流式状态、机器人管理
+├─ src/lib/api.ts            # 对 main 服务的 API 封装
+├─ src/router/               # 路由与世界图谱页面入口
+└─ e2e/                      # Playwright 用例
 ```
 
-### Compile and Hot-Reload for Development
+## 环境变量
 
-```sh
-npm run dev
+复制 `chat/.env.example` 为 `chat/.env`：
+
+```bash
+cp chat/.env.example chat/.env
 ```
 
-### Type-Check, Compile and Minify for Production
+当前主要变量：
 
-```sh
-npm run build
+- `VITE_CLERK_PUBLISHABLE_KEY`：Clerk 前端公钥
+
+## 开发命令
+
+```bash
+cd chat
+pnpm install
+pnpm dev
+pnpm type-check
+pnpm test:unit --run
+pnpm test:e2e
+pnpm build
+pnpm lint
+pnpm spell:check
 ```
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+## 开发约定
 
-```sh
-npm run test:unit
-```
+- 组件命名使用 PascalCase
+- 组合式函数使用 `useXxx`
+- 优先复用 `src/hooks/chat-view/` 现有状态编排
+- 世界图谱相关类型与接口集中在 `src/types/ai.ts` 和 `src/lib/api.ts`
 
-### Run End-to-End Tests with [Playwright](https://playwright.dev)
+## 联调说明
 
-```sh
-# Install browsers for the first run
-npx playwright install
-
-# When testing on CI, must build the project first
-npm run build
-
-# Runs the end-to-end tests
-npm run test:e2e
-# Runs the tests only on Chromium
-npm run test:e2e -- --project=chromium
-# Runs the tests of a specific file
-npm run test:e2e -- tests/example.spec.ts
-# Runs the tests in debug mode
-npm run test:e2e -- --debug
-```
-
-### Lint with [ESLint](https://eslint.org/)
-
-```sh
-npm run lint
-```
+- 默认通过 `main` 的 `/api/*` 与 `/admin-api/*` 交互
+- 本地前端默认地址：`http://localhost:5173`
+- 若聊天链路异常，优先检查浏览器 Network 中 `POST /api/chat/stream` 的 SSE 返回

@@ -41,6 +41,15 @@ services:
     volumes:
       - neo4j-data:/data
 
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+
   main:
     build:
       context: ./main
@@ -70,12 +79,22 @@ services:
       NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4jpassword}
       NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      ROBOT_IMPORT_MAX_FILE_SIZE_MB: ${ROBOT_IMPORT_MAX_FILE_SIZE_MB:-100}
+      ROBOT_GENERATION_CONCURRENCY: ${ROBOT_GENERATION_CONCURRENCY:-1}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_COLLECTION_PREFIX: ${QDRANT_COLLECTION_PREFIX:-robot_knowledge}
+      KNOWLEDGE_EMBEDDING_MODEL: ${KNOWLEDGE_EMBEDDING_MODEL:-}
+      KNOWLEDGE_EMBEDDING_BASE_URL: ${KNOWLEDGE_EMBEDDING_BASE_URL:-}
+      KNOWLEDGE_EMBEDDING_API_KEY: ${KNOWLEDGE_EMBEDDING_API_KEY:-}
+      KNOWLEDGE_EMBEDDING_PROVIDER: ${KNOWLEDGE_EMBEDDING_PROVIDER:-}
     depends_on:
       mysql:
         condition: service_healthy
       agent:
         condition: service_started
       neo4j:
+        condition: service_started
+      qdrant:
         condition: service_started
     ports:
       - "${PORT:-3000}:3000"
@@ -146,3 +165,4 @@ volumes:
   mysql-data:
   minio-data:
   neo4j-data:
+  qdrant-data:

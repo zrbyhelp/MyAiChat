@@ -36,12 +36,30 @@ class WorldGraphWritebackPromptTemplate(BaseModel):
     system_instruction: str
 
 
+class DocumentSummaryPromptTemplate(BaseModel):
+    segment_system_instruction: str
+    aggregate_system_instruction: str
+
+
+class RobotGenerationPromptTemplate(BaseModel):
+    core_system_instruction: str
+    memory_schema_system_instruction: str
+    world_graph_evolution_system_instruction: str
+
+
+class RetrievalSummaryPromptTemplate(BaseModel):
+    system_instruction: str
+
+
 class PromptTemplates(BaseModel):
     answerer: AnswererPromptTemplate
     memory_patch: MemoryPatchPromptTemplate = Field(alias="memory_patch")
     numeric_agent: NumericAgentPromptTemplate = Field(alias="numeric_agent")
     story_outline: StoryOutlinePromptTemplate = Field(alias="story_outline")
     world_graph_writeback: WorldGraphWritebackPromptTemplate = Field(alias="world_graph_writeback")
+    document_summary: DocumentSummaryPromptTemplate = Field(alias="document_summary")
+    robot_generation: RobotGenerationPromptTemplate = Field(alias="robot_generation")
+    retrieval_summary: RetrievalSummaryPromptTemplate = Field(alias="retrieval_summary")
 
 
 class PromptConfig(BaseModel):

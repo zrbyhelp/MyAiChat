@@ -229,20 +229,35 @@
     v-model:new-chat-visible="newChatVisible"
     v-model:agent-manage-visible="agentManageVisible"
     v-model:mobile-agent-editor-visible="mobileAgentEditorVisible"
+    :document-generation-visible="documentGenerationVisible"
     v-model:selected-new-chat-robot-id="selectedNewChatRobotId"
     :robot-templates="robotTemplates"
     :is-editing-agent-draft="isEditingAgentDraft"
     :agent-editor-step="agentEditorStep"
     :mobile-agent-draft="mobileAgentDraft"
     :saving-mobile-agent="savingMobileAgent"
+    :document-generation-submitting="documentGenerationSubmitting"
+    :document-generation-running="documentGenerationRunning"
+    :document-generation-task="documentGenerationTask"
+    :document-generation-guidance="documentGenerationGuidance"
+    :document-generation-file-name="documentGenerationFile?.name || ''"
+    :document-generation-model-config-id="documentGenerationModelConfigId"
+    :document-generation-embedding-model-config-id="documentGenerationEmbeddingModelConfigId"
     :aux-model-options="auxModelOptions"
     :agent-card-action-options="agentCardActionOptions"
     @confirm-start-new-chat="confirmStartNewChat"
+    @update:document-generation-visible="(value) => value ? openDocumentGenerationDialog() : closeDocumentGenerationDialog()"
+    @update:document-generation-guidance="handleDocumentGenerationGuidanceChange"
+    @update:document-generation-model-config-id="handleDocumentGenerationModelConfigChange"
+    @update:document-generation-embedding-model-config-id="handleDocumentGenerationEmbeddingModelConfigChange"
     @open-mobile-agent-edit-dialog="openMobileAgentEditDialog"
     @handle-agent-card-action="handleRobotCardAction"
     @open-mobile-agent-create-dialog="openMobileAgentCreateDialog"
+    @open-document-generation-dialog="openDocumentGenerationDialog"
     @add-agent-template="addAgentTemplate"
     @import-agent-template="importRobotTemplate"
+    @set-document-generation-file="setDocumentGenerationFile"
+    @submit-document-generation="submitDocumentGeneration"
     @next-agent-editor-step="nextAgentEditorStep"
     @previous-agent-editor-step="previousAgentEditorStep"
     @skip-agent-structure-setup="skipAgentStructureSetup"
@@ -522,11 +537,19 @@ const {
   defaultModelConfigs: DEFAULT_MODEL_CONFIGS,
   onSyncCurrentSessionMeta: syncCurrentSessionMeta,
 })
-const {
+  const {
   agentManageVisible,
   mobileAgentEditorVisible,
   savingMobileAgent,
+  documentGenerationVisible,
+  documentGenerationSubmitting,
   robotTemplates,
+  documentGenerationTask,
+  documentGenerationGuidance,
+  documentGenerationFile,
+  documentGenerationModelConfigId,
+  documentGenerationEmbeddingModelConfigId,
+  documentGenerationRunning,
   selectedNewChatRobotId,
   agentEditorStep,
   mobileAgentDraft,
@@ -539,6 +562,10 @@ const {
   importRobotTemplate,
   loadRobotTemplates,
   openAgentManageDialog,
+  openDocumentGenerationDialog,
+  closeDocumentGenerationDialog,
+  setDocumentGenerationFile,
+  submitDocumentGeneration,
   addAgentTemplate,
   openMobileAgentCreateDialog,
   openMobileAgentEditDialog,
@@ -654,6 +681,7 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
       systemPrompt: sessionRobot.systemPrompt,
       memoryModelConfigId: sessionRobot.memoryModelConfigId,
       outlineModelConfigId: sessionRobot.outlineModelConfigId,
+      knowledgeRetrievalModelConfigId: sessionRobot.knowledgeRetrievalModelConfigId,
       numericComputationModelConfigId: sessionRobot.numericComputationModelConfigId,
       worldGraphModelConfigId: sessionRobot.worldGraphModelConfigId,
       numericComputationEnabled: sessionRobot.numericComputationEnabled,
@@ -841,6 +869,18 @@ function handleWorldGraphVisibleChange(value: boolean) {
   if (!value) {
     currentWorldGraphRobotId.value = ''
   }
+}
+
+function handleDocumentGenerationGuidanceChange(value: string) {
+  documentGenerationGuidance.value = value
+}
+
+function handleDocumentGenerationModelConfigChange(value: string) {
+  documentGenerationModelConfigId.value = value
+}
+
+function handleDocumentGenerationEmbeddingModelConfigChange(value: string) {
+  documentGenerationEmbeddingModelConfigId.value = value
 }
 
 async function saveMobileAgentAndOpenWorldGraph() {

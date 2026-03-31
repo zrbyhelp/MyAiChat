@@ -1,4 +1,7 @@
 import express from 'express'
+import multer from 'multer'
+import { randomUUID } from 'node:crypto'
+import { extname } from 'node:path'
 
 import { attachAdminBackoffice } from './admin-backoffice.mjs'
 import { attachClerkAuth, requireApiAuth } from './auth.mjs'
@@ -25,6 +28,11 @@ import {
   writeRobots,
 } from './storage.mjs'
 import {
+  createRobotGenerationImportTask,
+  getRobotImportTempDir,
+  readRobotGenerationTask,
+} from './robot-generation-service.mjs'
+import {
   addTimelineEffect,
   createWorldRelationType,
   deleteTimelineEffect,
@@ -43,10 +51,85 @@ import {
   updateWorldRelationType,
 } from './world-graph-service.mjs'
 
+function pickObjectKeys(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return []
+  }
+
+  return Object.keys(value).slice(0, 30)
+}
+
+function serializeError(error) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause instanceof Error
+        ? {
+          name: error.cause.name,
+          message: error.cause.message,
+          stack: error.cause.stack,
+        }
+        : error.cause,
+    }
+  }
+
+  return {
+    message: typeof error === 'string' ? error : 'Non-error value thrown',
+    detail: error,
+  }
+}
+
+function logRequestError(error, req) {
+  console.error('[api:error]', {
+    timestamp: new Date().toISOString(),
+    requestId: req.requestId || null,
+    method: req.method,
+    url: req.originalUrl,
+    ip: req.ip,
+    userId: req.authUser?.id || null,
+    userAgent: req.get('user-agent') || null,
+    contentType: req.get('content-type') || null,
+    params: req.params || {},
+    queryKeys: pickObjectKeys(req.query),
+    bodyKeys: pickObjectKeys(req.body),
+    error: serializeError(error),
+  })
+}
+
 export function createApp() {
   const app = express()
+  const supportedImportExtensions = new Set(['.txt', '.pdf', '.epub'])
+  const robotImportUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, callback) => {
+        callback(null, getRobotImportTempDir())
+      },
+      filename: (_req, file, callback) => {
+        const extension = extname(String(file?.originalname || '')).toLowerCase()
+        callback(null, `${Date.now()}-${randomUUID()}${extension}`)
+      },
+    }),
+    limits: {
+      fileSize: Math.max(1, Number(process.env.ROBOT_IMPORT_MAX_FILE_SIZE_MB || 100)) * 1024 * 1024,
+    },
+    fileFilter: (_req, file, callback) => {
+      const extension = extname(String(file?.originalname || '')).toLowerCase()
+      if (!supportedImportExtensions.has(extension)) {
+        callback(new Error('仅支持 txt、pdf、epub 文档导入'))
+        return
+      }
+      callback(null, true)
+    },
+  })
 
   app.use(express.json({ limit: process.env.API_BODY_LIMIT || '20mb' }))
+  app.use((req, res, next) => {
+    req.requestId = randomUUID()
+    res.setHeader('X-Request-Id', req.requestId)
+    next()
+  })
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
@@ -215,6 +298,55 @@ export function createApp() {
       const robots = normalizeRobots(req.body?.robots)
       await writeRobots(req.authUser, robots)
       res.json({ robots })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/robots/generation-tasks', robotImportUpload.single('file'), async (req, res, next) => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ message: '请上传 txt、pdf 或 epub 文档' })
+        return
+      }
+
+      const modelConfigId = String(req.body?.modelConfigId || '').trim()
+      if (!modelConfigId) {
+        res.status(400).json({ message: '请选择文档生成模型' })
+        return
+      }
+
+      const embeddingModelConfigId = String(req.body?.embeddingModelConfigId || '').trim()
+      if (!embeddingModelConfigId) {
+        res.status(400).json({ message: '请选择向量 Embedding 模型' })
+        return
+      }
+
+      const extension = extname(String(req.file.originalname || '')).toLowerCase()
+      const task = await createRobotGenerationImportTask(req.authUser, {
+        tempFilePath: req.file.path,
+        sourceName: req.file.originalname,
+        sourceType: extension.replace(/^\./, ''),
+        sourceSize: req.file.size,
+        guidance: String(req.body?.guidance || ''),
+        modelConfigId,
+        embeddingModelConfigId,
+      })
+
+      res.status(202).json({ task })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.get('/api/robots/generation-tasks/:taskId', async (req, res, next) => {
+    try {
+      const task = await readRobotGenerationTask(req.authUser, req.params.taskId)
+      if (!task) {
+        res.status(404).json({ message: '任务不存在' })
+        return
+      }
+      res.json({ task })
     } catch (error) {
       next(error)
     }
@@ -406,8 +538,12 @@ export function createApp() {
     await handleChatStream(req.body, res, req.authUser)
   })
 
-  app.use((error, _req, res, _next) => {
-    res.status(500).json({ message: error instanceof Error ? error.message : '服务异常' })
+  app.use((error, req, res, _next) => {
+    logRequestError(error, req)
+    res.status(500).json({
+      message: error instanceof Error ? error.message : '服务异常',
+      requestId: req.requestId || null,
+    })
   })
 
   return app

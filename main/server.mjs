@@ -6,6 +6,7 @@ import dotenv from 'dotenv'
 
 import { createApp } from './src/app.mjs'
 import { initializeAdminBackoffice } from './src/admin-backoffice.mjs'
+import { initializeRobotGenerationService } from './src/robot-generation-service.mjs'
 import { initializeStorage } from './src/storage.mjs'
 
 const currentDir = dirname(fileURLToPath(import.meta.url))
@@ -19,6 +20,7 @@ const app = createApp()
 
 initializeStorage()
   .then(() => initializeAdminBackoffice())
+  .then(() => initializeRobotGenerationService())
   .then(() => {
     createServer(app).listen(PORT, () => {
       console.log(`AI server running at http://127.0.0.1:${PORT}`)

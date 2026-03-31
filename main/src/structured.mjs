@@ -208,6 +208,34 @@ export function reconcileAssistantStructuredOutput(text, suggestions, form) {
   }
 }
 
+export function getUnstreamedStructuredTextSuffix(streamedText, completeText) {
+  const streamed = String(streamedText || '')
+  const complete = String(completeText || '')
+
+  if (!complete) {
+    return ''
+  }
+  if (!streamed) {
+    return complete
+  }
+  if (complete.startsWith(streamed)) {
+    return complete.slice(streamed.length)
+  }
+
+  const trimmedStreamed = streamed.trimEnd()
+  if (!trimmedStreamed) {
+    return complete
+  }
+  if (complete === trimmedStreamed) {
+    return ''
+  }
+  if (complete.startsWith(trimmedStreamed)) {
+    return complete.slice(trimmedStreamed.length)
+  }
+
+  return ''
+}
+
 export function extractStructuredPayloadsFromText(text) {
   let visibleText = String(text || '')
   let suggestions = []

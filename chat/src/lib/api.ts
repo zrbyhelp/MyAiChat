@@ -15,6 +15,7 @@ import type {
   RobotWorldGraph,
   RobotWorldGraphMeta,
   RobotWorldRelationType,
+  RobotGenerationTaskResponse,
   RobotsResponse,
   TestConnectionResponse,
   WorldEdge,
@@ -138,6 +139,38 @@ export function saveRobots(robots: AIRobotCard[]) {
     },
     body: JSON.stringify({ robots }),
   })
+}
+
+export async function createRobotGenerationTask(
+  file: File,
+  guidance: string,
+  modelConfigId = '',
+  embeddingModelConfigId = '',
+) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('guidance', guidance)
+  if (modelConfigId) {
+    formData.append('modelConfigId', modelConfigId)
+  }
+  if (embeddingModelConfigId) {
+    formData.append('embeddingModelConfigId', embeddingModelConfigId)
+  }
+
+  const response = await requestWithAuth('/api/robots/generation-tasks', {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+
+  return response.json() as Promise<RobotGenerationTaskResponse>
+}
+
+export function getRobotGenerationTask(taskId: string) {
+  return requestJson<RobotGenerationTaskResponse>(`/api/robots/generation-tasks/${encodeURIComponent(taskId)}`)
 }
 
 export async function getModels(provider: string, baseUrl: string, apiKey: string) {

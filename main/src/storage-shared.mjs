@@ -122,6 +122,9 @@ export function normalizeRobots(input) {
     systemPrompt: String(robot?.systemPrompt || ''),
     memoryModelConfigId: String(robot?.memoryModelConfigId || robot?.memory_model_config_id || '').trim(),
     outlineModelConfigId: String(robot?.outlineModelConfigId || robot?.outline_model_config_id || '').trim(),
+    knowledgeRetrievalModelConfigId: String(
+      robot?.knowledgeRetrievalModelConfigId || robot?.knowledge_retrieval_model_config_id || '',
+    ).trim(),
     numericComputationModelConfigId: String(
       robot?.numericComputationModelConfigId || robot?.numeric_computation_model_config_id || '',
     ).trim(),
@@ -152,6 +155,9 @@ export function normalizeSessionRobot(input) {
     systemPrompt: String(input?.systemPrompt || ''),
     memoryModelConfigId: String(input?.memoryModelConfigId || input?.memory_model_config_id || '').trim(),
     outlineModelConfigId: String(input?.outlineModelConfigId || input?.outline_model_config_id || '').trim(),
+    knowledgeRetrievalModelConfigId: String(
+      input?.knowledgeRetrievalModelConfigId || input?.knowledge_retrieval_model_config_id || '',
+    ).trim(),
     numericComputationModelConfigId: String(
       input?.numericComputationModelConfigId || input?.numeric_computation_model_config_id || '',
     ).trim(),

@@ -17,11 +17,13 @@ import {
   consumeStructuredStreamChunk,
   extractStructuredPayloadsFromText,
   finalizeStructuredStream,
+  getUnstreamedStructuredTextSuffix,
   normalizeFormSchema,
   normalizeSuggestionItems,
   reconcileAssistantStructuredOutput,
 } from './structured.mjs'
 import { enqueueBackgroundJob } from './background-job-queue.mjs'
+import { retrieveRobotKnowledgeBySummary } from './robot-generation-service.mjs'
 import {
   applyWorldGraphWritebackOps,
   applyWorldGraphWritebackToSnapshot,
@@ -244,6 +246,53 @@ function backgroundLog(label, payload, level = 'info') {
   logger(label, payload)
 }
 
+function buildKnowledgeContextText(result) {
+  const items = Array.isArray(result?.items) ? result.items : []
+  if (!items.length) {
+    return ''
+  }
+
+  return [
+    '以下是从当前智能体知识库中按“对话摘要”检索得到的内部参考信息，仅在与当前问题相关时使用，不要机械照抄：',
+    ...items.map((item, index) => [
+      `知识片段 ${index + 1}（来源：${String(item.sourceName || '未命名文档').trim() || '未命名文档'}，相关度：${Number(item.score || 0).toFixed(3)}）`,
+      `摘要：${String(item.summary || '').trim() || '无'}`,
+      `摘录：${String(item.excerpt || '').trim() || '无'}`,
+    ].join('\n')),
+  ].join('\n\n')
+}
+
+async function maybeResolveKnowledgeContext(user, payload, session, robot) {
+  const robotId = String(robot?.id || '').trim()
+  if (!robotId) {
+    return ''
+  }
+
+  try {
+    const retrieval = await retrieveRobotKnowledgeBySummary(user, {
+      robotId,
+      modelConfigId: payload.modelConfigId,
+      knowledgeRetrievalModelConfigId: robot?.knowledgeRetrievalModelConfigId || '',
+      robotName: robot?.name,
+      robotDescription: robot?.description || '',
+      storyOutline: session?.storyOutline || payload.sessionSnapshot?.storyOutline || '',
+      prompt: String(payload.prompt || ''),
+      history: (session?.messages || []).map((item) => ({
+        role: item.role,
+        content: item.content,
+      })),
+    })
+    return buildKnowledgeContextText(retrieval)
+  } catch (error) {
+    backgroundLog('[knowledge-retrieval:failed]', {
+      sessionId: payload.sessionId,
+      robotId,
+      message: error instanceof Error ? error.message : '知识检索失败',
+    }, 'error')
+    return ''
+  }
+}
+
 function buildStructuredMemoryTriggerMeta(agentRequest) {
   const history = Array.isArray(agentRequest?.history) ? agentRequest.history : []
   const existingUserTurnCount = countUserTurns(history)
@@ -318,6 +367,10 @@ async function loadWorldGraphPayload(user, payload, session) {
 async function buildAgentRequest(payload, user, session) {
   const memory = session?.memory || DEFAULT_SESSION_MEMORY
   const robot = session?.robot || payload.robot || DEFAULT_SESSION_ROBOT
+  const knowledgeContextText = await maybeResolveKnowledgeContext(user, payload, session, {
+    ...robot,
+    description: payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || '',
+  })
   const structuredMemoryInterval = normalizePositiveInteger(
     memory?.structuredMemoryInterval,
     normalizePositiveInteger(robot?.structuredMemoryInterval, DEFAULT_SESSION_MEMORY.structuredMemoryInterval),
@@ -389,7 +442,7 @@ async function buildAgentRequest(payload, user, session) {
         DEFAULT_SESSION_ROBOT.structuredMemoryHistoryLimit,
       ),
     },
-    system_prompt: payload.systemPrompt || '',
+    system_prompt: [payload.systemPrompt || robot?.systemPrompt || '', knowledgeContextText].filter(Boolean).join('\n\n'),
     history: (session?.messages || []).map((item) => ({
       role: item.role,
       content: item.content,
@@ -673,20 +726,23 @@ async function runAgentAndCollect(payload, user, onEvent) {
   let structuredStreamClosed = false
   let receivedResponseCompleted = false
   let receivedRunCompleted = false
+  let streamedVisibleMessage = ''
 
   function finalizeStructuredAssistantOutput(rawMessage = '') {
     if (structuredStreamClosed) {
-      return
+      return ''
     }
 
     const finalized = String(rawMessage || '').trim()
       ? extractStructuredPayloadsFromText(rawMessage)
       : finalizeStructuredStream(structuredStreamState)
     const reconciled = reconcileAssistantStructuredOutput(finalized.text, finalized.suggestions, finalized.form)
+    const missingVisibleText = getUnstreamedStructuredTextSuffix(streamedVisibleMessage, reconciled.text)
     structuredStreamClosed = true
     finalMessage = reconciled.text
     finalSuggestions = normalizeSuggestionItems(reconciled.suggestions)
     finalForm = normalizeFormSchema(reconciled.form)
+    return missingVisibleText
   }
 
   try {
@@ -721,11 +777,16 @@ async function runAgentAndCollect(payload, user, onEvent) {
         if (parsed.type === 'message_delta' && parsed.text) {
           const visibleText = consumeStructuredStreamChunk(structuredStreamState, parsed.text)
           if (visibleText) {
+            streamedVisibleMessage += String(visibleText)
             finalMessage += String(visibleText)
             forwardedEvents.push({ type: 'message_delta', text: visibleText })
           }
         } else if (parsed.type === 'message_done') {
-          finalizeStructuredAssistantOutput(String(parsed.text || ''))
+          const missingVisibleText = finalizeStructuredAssistantOutput(String(parsed.text || ''))
+          if (missingVisibleText) {
+            streamedVisibleMessage += missingVisibleText
+            forwardedEvents.push({ type: 'message_delta', text: missingVisibleText })
+          }
           forwardedEvents.push({ type: 'message_done', text: finalMessage })
           if (finalForm?.fields?.length) {
             forwardedEvents.push({ type: 'form', form: finalForm })
@@ -754,7 +815,11 @@ async function runAgentAndCollect(payload, user, onEvent) {
                 : finalStoryOutline
         }
         if (parsed.type === 'response_completed') {
-          finalizeStructuredAssistantOutput(String(parsed.message || ''))
+          const missingVisibleText = finalizeStructuredAssistantOutput(String(parsed.message || ''))
+          if (missingVisibleText) {
+            streamedVisibleMessage += missingVisibleText
+            forwardedEvents.unshift({ type: 'message_delta', text: missingVisibleText })
+          }
           receivedResponseCompleted = true
           finalThreadId = String(parsed.threadId || finalThreadId)
           finalNumericState =
@@ -765,7 +830,11 @@ async function runAgentAndCollect(payload, user, onEvent) {
                 : finalNumericState
         }
         if (parsed.type === 'run_completed') {
-          finalizeStructuredAssistantOutput(String(parsed.message || ''))
+          const missingVisibleText = finalizeStructuredAssistantOutput(String(parsed.message || ''))
+          if (missingVisibleText) {
+            streamedVisibleMessage += missingVisibleText
+            forwardedEvents.unshift({ type: 'message_delta', text: missingVisibleText })
+          }
           receivedRunCompleted = true
           finalThreadId = String(parsed.threadId || finalThreadId)
           finalMemory = normalizeStructuredMemory(parsed.memory || finalMemory)

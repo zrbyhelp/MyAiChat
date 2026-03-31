@@ -70,6 +70,18 @@ function createThinkingChunk(text: string, done = false): AIMessageContent {
 }
 
 export function useChatStreaming(options: UseChatStreamingOptions) {
+  let loadingRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+  function scheduleLoadingRefreshCleanup() {
+    if (loadingRefreshTimer) {
+      clearTimeout(loadingRefreshTimer)
+    }
+    loadingRefreshTimer = setTimeout(() => {
+      loadingRefreshTimer = null
+      options.applyChatMessages(options.rawChatMessages.value)
+    }, 0)
+  }
+
   function formatChatErrorMessage(error?: unknown) {
     const robotName = String(options.sessionRobot.name || '').trim() || '当前智能体'
     const rawMessage = error instanceof Error ? String(error.message || '').trim() : ''
@@ -143,6 +155,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             systemPrompt: options.sessionRobot.systemPrompt,
             memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
             outlineModelConfigId: options.sessionRobot.outlineModelConfigId,
+            knowledgeRetrievalModelConfigId: options.sessionRobot.knowledgeRetrievalModelConfigId,
             numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
             worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
             numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
@@ -208,9 +221,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       if (payload.type === 'text' && payload.text) {
         if (options.currentAssistantLoadingText.value) {
           options.currentAssistantLoadingText.value = ''
-          nextTick(() => {
-            options.applyChatMessages(options.chatMessages.value)
-          })
+          scheduleLoadingRefreshCleanup()
         }
         return { type: 'markdown', strategy: 'merge', data: payload.text }
       }

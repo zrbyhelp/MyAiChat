@@ -38,6 +38,53 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
 const minioConfig = getMinioConfig()
 const minioClient = createMinioClient(minioConfig)
 
+function pickObjectKeys(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return []
+  }
+
+  return Object.keys(value).slice(0, 30)
+}
+
+function serializeError(error) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: error.cause instanceof Error
+        ? {
+          name: error.cause.name,
+          message: error.cause.message,
+          stack: error.cause.stack,
+        }
+        : error.cause,
+    }
+  }
+
+  return {
+    message: typeof error === 'string' ? error : 'Non-error value thrown',
+    detail: error,
+  }
+}
+
+function logRequestError(error, req) {
+  console.error('[upload:error]', {
+    timestamp: new Date().toISOString(),
+    requestId: req.requestId || null,
+    method: req.method,
+    url: req.originalUrl,
+    ip: req.ip,
+    userId: req.authUser?.id || null,
+    userAgent: req.get('user-agent') || null,
+    contentType: req.get('content-type') || null,
+    params: req.params || {},
+    queryKeys: pickObjectKeys(req.query),
+    bodyKeys: pickObjectKeys(req.body),
+    error: serializeError(error),
+  })
+}
+
 const app = express()
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -47,6 +94,11 @@ const upload = multer({
 })
 
 app.use(attachClerkAuth)
+app.use((req, res, next) => {
+  req.requestId = randomUUID()
+  res.setHeader('X-Request-Id', req.requestId)
+  next()
+})
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
@@ -100,12 +152,16 @@ app.post('/api/upload/image', requireApiAuth, upload.single('file'), async (req,
   }
 })
 
-app.use((error, _req, res, _next) => {
+app.use((error, req, res, _next) => {
   if (error?.code === 'LIMIT_FILE_SIZE') {
     res.status(400).json({ message: `图片大小不能超过 ${MAX_FILE_SIZE_MB}MB` })
     return
   }
-  res.status(500).json({ message: error instanceof Error ? error.message : '上传服务异常' })
+  logRequestError(error, req)
+  res.status(500).json({
+    message: error instanceof Error ? error.message : '上传服务异常',
+    requestId: req.requestId || null,
+  })
 })
 
 async function bootstrap() {

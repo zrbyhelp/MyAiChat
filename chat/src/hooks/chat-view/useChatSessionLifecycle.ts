@@ -82,6 +82,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
         systemPrompt: options.sessionRobot.systemPrompt,
         memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
         outlineModelConfigId: options.sessionRobot.outlineModelConfigId,
+        knowledgeRetrievalModelConfigId: options.sessionRobot.knowledgeRetrievalModelConfigId,
         numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
         worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
         numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
@@ -121,6 +122,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.sessionRobot.systemPrompt = session.robot.systemPrompt || ''
     options.sessionRobot.memoryModelConfigId = session.robot.memoryModelConfigId || ''
     options.sessionRobot.outlineModelConfigId = session.robot.outlineModelConfigId || ''
+    options.sessionRobot.knowledgeRetrievalModelConfigId = session.robot.knowledgeRetrievalModelConfigId || ''
     options.sessionRobot.numericComputationModelConfigId = session.robot.numericComputationModelConfigId || ''
     options.sessionRobot.worldGraphModelConfigId = session.robot.worldGraphModelConfigId || ''
     options.sessionRobot.numericComputationEnabled = Boolean(session.robot.numericComputationEnabled)
@@ -166,6 +168,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.systemPrompt = robot.systemPrompt
       options.sessionRobot.memoryModelConfigId = robot.memoryModelConfigId || ''
       options.sessionRobot.outlineModelConfigId = robot.outlineModelConfigId || ''
+      options.sessionRobot.knowledgeRetrievalModelConfigId = robot.knowledgeRetrievalModelConfigId || ''
       options.sessionRobot.numericComputationModelConfigId = robot.numericComputationModelConfigId || ''
       options.sessionRobot.worldGraphModelConfigId = robot.worldGraphModelConfigId || ''
       options.sessionRobot.numericComputationEnabled = Boolean(robot.numericComputationEnabled)
@@ -193,6 +196,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.systemPrompt = ''
       options.sessionRobot.memoryModelConfigId = ''
       options.sessionRobot.outlineModelConfigId = ''
+      options.sessionRobot.knowledgeRetrievalModelConfigId = ''
       options.sessionRobot.numericComputationModelConfigId = ''
       options.sessionRobot.worldGraphModelConfigId = ''
       options.sessionRobot.numericComputationEnabled = false

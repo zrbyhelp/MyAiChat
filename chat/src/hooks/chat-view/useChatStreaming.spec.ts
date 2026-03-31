@@ -59,6 +59,7 @@ function createStreamingTestContext() {
       systemPrompt: '',
       memoryModelConfigId: '',
       outlineModelConfigId: '',
+      knowledgeRetrievalModelConfigId: '',
       numericComputationModelConfigId: '',
       worldGraphModelConfigId: '',
       numericComputationEnabled: false,
@@ -189,7 +190,8 @@ describe('useChatStreaming', () => {
   })
 
   it('clears loading text when the first response text chunk arrives', async () => {
-    const { chatServiceConfig, chatMessages, currentAssistantLoadingText, applyChatMessages } =
+    vi.useFakeTimers()
+    const { chatServiceConfig, currentAssistantLoadingText, applyChatMessages } =
       createStreamingTestContext()
 
     chatServiceConfig.value.onMessage?.({
@@ -209,10 +211,12 @@ describe('useChatStreaming', () => {
     } as never)
 
     await Promise.resolve()
+    await vi.runAllTimersAsync()
 
     expect(result).toMatchObject({ type: 'markdown', data: '正文开始' })
     expect(currentAssistantLoadingText.value).toBe('')
-    expect(applyChatMessages).toHaveBeenCalledWith(chatMessages.value)
+    expect(applyChatMessages).toHaveBeenCalled()
+    vi.useRealTimers()
   })
 
   it('completes the visible response on done without triggering session sync directly', async () => {

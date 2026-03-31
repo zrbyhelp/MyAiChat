@@ -162,6 +162,12 @@ export function getModels() {
       defaultValue: '',
       field: 'outline_model_config_id',
     },
+    knowledgeRetrievalModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'knowledge_retrieval_model_config_id',
+    },
     numericComputationModelConfigId: {
       type: DataTypes.STRING(120),
       allowNull: false,
@@ -333,6 +339,204 @@ export function getModels() {
     },
   })
 
+  const RobotGenerationTask = sequelize.define('RobotGenerationTask', {
+    id: {
+      type: DataTypes.STRING(120),
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      field: 'user_id',
+    },
+    status: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: 'pending',
+    },
+    stage: {
+      type: DataTypes.STRING(64),
+      allowNull: false,
+      defaultValue: 'queued',
+    },
+    progress: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    message: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+    },
+    sourceName: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: '',
+      field: 'source_name',
+    },
+    sourceType: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: '',
+      field: 'source_type',
+    },
+    sourceSize: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'source_size',
+    },
+    guidance: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '',
+    },
+    modelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'model_config_id',
+    },
+    embeddingModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'embedding_model_config_id',
+    },
+    robotId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_id',
+    },
+    documentId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'document_id',
+    },
+    statsJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{}',
+      field: 'stats_json',
+    },
+    resultJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{}',
+      field: 'result_json',
+    },
+    error: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '',
+    },
+    startedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'started_at',
+    },
+    completedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      field: 'completed_at',
+    },
+  })
+
+  const RobotKnowledgeDocument = sequelize.define('RobotKnowledgeDocument', {
+    id: {
+      type: DataTypes.STRING(120),
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      field: 'user_id',
+    },
+    robotId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      field: 'robot_id',
+    },
+    status: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: 'processing',
+    },
+    sourceName: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: '',
+      field: 'source_name',
+    },
+    sourceType: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: '',
+      field: 'source_type',
+    },
+    sourceSize: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'source_size',
+    },
+    guidance: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '',
+    },
+    summary: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '',
+    },
+    retrievalSummary: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '',
+      field: 'retrieval_summary',
+    },
+    chunkCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'chunk_count',
+    },
+    characterCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      field: 'character_count',
+    },
+    qdrantCollection: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: '',
+      field: 'qdrant_collection',
+    },
+    embeddingModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'embedding_model_config_id',
+    },
+    embeddingModel: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      defaultValue: '',
+      field: 'embedding_model',
+    },
+    metaJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{}',
+      field: 'meta_json',
+    },
+  })
+
   const Session = sequelize.define('Session', {
     id: {
       type: DataTypes.STRING(120),
@@ -403,6 +607,12 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'robot_outline_model_config_id',
+    },
+    robotKnowledgeRetrievalModelConfigId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_knowledge_retrieval_model_config_id',
     },
     robotNumericComputationModelConfigId: {
       type: DataTypes.STRING(120),
@@ -653,6 +863,14 @@ export function getModels() {
     foreignKey: 'userId',
     as: 'sessions',
   })
+  User.hasMany(RobotGenerationTask, {
+    foreignKey: 'userId',
+    as: 'robotGenerationTasks',
+  })
+  User.hasMany(RobotKnowledgeDocument, {
+    foreignKey: 'userId',
+    as: 'robotKnowledgeDocuments',
+  })
   ModelConfig.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
@@ -672,6 +890,13 @@ export function getModels() {
     foreignKey: 'robotId',
     sourceKey: 'id',
     as: 'worldRelationTypes',
+    onDelete: 'CASCADE',
+    hooks: true,
+  })
+  Robot.hasMany(RobotKnowledgeDocument, {
+    foreignKey: 'robotId',
+    sourceKey: 'id',
+    as: 'knowledgeDocuments',
     onDelete: 'CASCADE',
     hooks: true,
   })
@@ -697,6 +922,19 @@ export function getModels() {
     foreignKey: 'userId',
     as: 'user',
   })
+  RobotGenerationTask.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  })
+  RobotKnowledgeDocument.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  })
+  RobotKnowledgeDocument.belongsTo(Robot, {
+    foreignKey: 'robotId',
+    targetKey: 'id',
+    as: 'robot',
+  })
   SessionMessage.belongsTo(Session, {
     foreignKey: 'sessionId',
     as: 'session',
@@ -709,6 +947,8 @@ export function getModels() {
     Robot,
     RobotWorldGraph,
     RobotWorldRelationType,
+    RobotGenerationTask,
+    RobotKnowledgeDocument,
     Session,
     SessionMessage,
   }

@@ -58,6 +58,7 @@ export interface AIRobotCard {
   systemPrompt: string
   memoryModelConfigId: string
   outlineModelConfigId: string
+  knowledgeRetrievalModelConfigId: string
   numericComputationModelConfigId: string
   worldGraphModelConfigId: string
   numericComputationEnabled: boolean
@@ -96,6 +97,7 @@ export interface SessionRobotState {
   systemPrompt: string
   memoryModelConfigId: string
   outlineModelConfigId: string
+  knowledgeRetrievalModelConfigId: string
   numericComputationModelConfigId: string
   worldGraphModelConfigId: string
   numericComputationEnabled: boolean
@@ -213,6 +215,33 @@ export interface ModelConfigsResponse {
 
 export interface RobotsResponse {
   robots: AIRobotCard[]
+}
+
+export interface RobotGenerationTask {
+  id: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  stage: string
+  progress: number
+  message: string
+  sourceName: string
+  sourceType: string
+  sourceSize: number
+  guidance: string
+  modelConfigId: string
+  embeddingModelConfigId: string
+  robotId: string
+  documentId: string
+  stats: Record<string, unknown>
+  result: Record<string, unknown>
+  error: string
+  createdAt: string
+  updatedAt: string
+  startedAt: string
+  completedAt: string
+}
+
+export interface RobotGenerationTaskResponse {
+  task: RobotGenerationTask
 }
 
 export interface ModelsResponse {

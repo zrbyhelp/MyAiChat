@@ -94,6 +94,90 @@
     hidden
     @change="handleAgentTemplateImportChange"
   />
+  <input
+    ref="documentGenerationInputRef"
+    type="file"
+    accept=".txt,.pdf,.epub,text/plain,application/pdf,application/epub+zip"
+    hidden
+    @change="handleDocumentGenerationFileChange"
+  />
+
+  <TDialog
+    :visible="documentGenerationVisible"
+    header="文档生成智能体"
+    width="680px"
+    :footer="false"
+    :confirm-btn="null"
+    :cancel-btn="null"
+    @update:visible="handleDocumentGenerationVisibleChange"
+  >
+    <div class="document-generation-dialog">
+      <div class="document-generation-card">
+        <div class="document-generation-copy">
+          <strong>导入文档</strong>
+          <span>支持 `txt / pdf / epub`，单文件最大 100MB，系统会异步解析并生成智能体与知识库。</span>
+        </div>
+        <div class="document-generation-actions">
+          <TButton variant="outline" @click="triggerDocumentGenerationFileSelect">选择文档</TButton>
+          <span class="document-generation-file-name">
+            {{ documentGenerationFileName || '未选择文件' }}
+          </span>
+        </div>
+      </div>
+
+      <TForm label-align="top">
+        <div class="form-grid-2">
+          <TFormItem label="文档生成模型">
+            <TSelect
+              :model-value="documentGenerationModelConfigId"
+              :options="documentGenerationModelOptions"
+              placeholder="请选择文档生成模型"
+              @update:model-value="handleDocumentGenerationModelConfigInput"
+            />
+          </TFormItem>
+          <TFormItem label="向量 Embedding 模型">
+            <TSelect
+              :model-value="documentGenerationEmbeddingModelConfigId"
+              :options="documentGenerationModelOptions"
+              placeholder="请选择向量 Embedding 模型"
+              @update:model-value="handleDocumentGenerationEmbeddingModelConfigInput"
+            />
+          </TFormItem>
+        </div>
+        <TFormItem label="生成引导语">
+          <TTextarea
+            :model-value="documentGenerationGuidance"
+            :autosize="{ minRows: 5, maxRows: 8 }"
+            placeholder="例如：请把这份设定生成为偏悬疑推理的角色扮演智能体，强化组织势力、时间线和人物关系。"
+            @update:model-value="handleDocumentGenerationGuidanceInput"
+          />
+        </TFormItem>
+      </TForm>
+
+      <div v-if="documentGenerationTask" class="document-generation-progress">
+        <div class="document-generation-progress-head">
+          <span>{{ documentGenerationTask.stage || 'queued' }}</span>
+          <span>{{ Math.round(documentGenerationTask.progress || 0) }}%</span>
+        </div>
+        <TProgress :percentage="Math.max(0, Math.min(100, documentGenerationTask.progress || 0))" />
+        <div class="document-generation-progress-text">
+          {{ documentGenerationTask.message || '任务已创建' }}
+        </div>
+      </div>
+
+      <div class="document-generation-footer">
+        <TButton variant="outline" @click="handleDocumentGenerationVisibleChange(false)">关闭</TButton>
+        <TButton
+          theme="primary"
+          :loading="documentGenerationSubmitting || documentGenerationRunning"
+          :disabled="!documentGenerationReady || documentGenerationRunning"
+          @click="emit('submit-document-generation')"
+        >
+          {{ documentGenerationRunning ? '生成中' : '开始生成' }}
+        </TButton>
+      </div>
+    </div>
+  </TDialog>
 
   <TDrawer
     v-if="isMobile"
@@ -341,6 +425,14 @@
             </TFormItem>
           </div>
           <div class="form-grid-2">
+            <TFormItem label="知识检索模型">
+              <TSelect
+                v-model="mobileAgentDraft.knowledgeRetrievalModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
             <TFormItem label="世界图谱模型">
               <TSelect
                 v-model="mobileAgentDraft.worldGraphModelConfigId"
@@ -349,6 +441,8 @@
                 clearable
               />
             </TFormItem>
+          </div>
+          <div class="form-grid-2">
             <TFormItem label="数值计算模型">
               <TSelect
                 v-model="mobileAgentDraft.numericComputationModelConfigId"
@@ -650,6 +744,14 @@
             </TFormItem>
           </div>
           <div class="form-grid-2">
+            <TFormItem label="知识检索模型">
+              <TSelect
+                v-model="mobileAgentDraft.knowledgeRetrievalModelConfigId"
+                :options="auxModelOptions"
+                placeholder="未单独配置，默认跟随正文模型"
+                clearable
+              />
+            </TFormItem>
             <TFormItem label="世界图谱模型">
               <TSelect
                 v-model="mobileAgentDraft.worldGraphModelConfigId"
@@ -658,6 +760,8 @@
                 clearable
               />
             </TFormItem>
+          </div>
+          <div class="form-grid-2">
             <TFormItem label="数值计算模型">
               <TSelect
                 v-model="mobileAgentDraft.numericComputationModelConfigId"
@@ -726,6 +830,7 @@ import {
   Input as TInput,
   InputNumber as TInputNumber,
   Popup as TPopup,
+  Progress as TProgress,
   Select as TSelect,
   StepItem as TStepItem,
   Steps as TSteps,
@@ -737,7 +842,7 @@ import {
 
 import MemorySchemaEditor from '@/components/chat/MemorySchemaEditor.vue'
 import { uploadImageFile } from '@/lib/api'
-import type { AIRobotCard, NumericComputationItem } from '@/types/ai'
+import type { AIRobotCard, NumericComputationItem, RobotGenerationTask } from '@/types/ai'
 import type {
   RequestMethodResponse,
   SuccessContext,
@@ -761,6 +866,10 @@ const props = defineProps({
     required: true,
   },
   mobileAgentEditorVisible: {
+    type: Boolean,
+    required: true,
+  },
+  documentGenerationVisible: {
     type: Boolean,
     required: true,
   },
@@ -788,6 +897,34 @@ const props = defineProps({
     type: Boolean,
     required: true,
   },
+  documentGenerationSubmitting: {
+    type: Boolean,
+    required: true,
+  },
+  documentGenerationRunning: {
+    type: Boolean,
+    required: true,
+  },
+  documentGenerationTask: {
+    type: Object as PropType<RobotGenerationTask | null>,
+    required: true,
+  },
+  documentGenerationGuidance: {
+    type: String,
+    required: true,
+  },
+  documentGenerationFileName: {
+    type: String,
+    required: true,
+  },
+  documentGenerationModelConfigId: {
+    type: String,
+    required: true,
+  },
+  documentGenerationEmbeddingModelConfigId: {
+    type: String,
+    required: true,
+  },
   auxModelOptions: {
     type: Array as PropType<Array<{ label: string; value: string }>>,
     required: true,
@@ -803,24 +940,34 @@ const {
   newChatVisible,
   agentManageVisible,
   mobileAgentEditorVisible,
+  documentGenerationVisible,
   robotTemplates,
   selectedNewChatRobotId,
   isEditingAgentDraft,
   agentEditorStep,
   mobileAgentDraft,
   savingMobileAgent,
+  documentGenerationSubmitting,
+  documentGenerationRunning,
+  documentGenerationTask,
+  documentGenerationGuidance,
+  documentGenerationFileName,
+  documentGenerationModelConfigId,
+  documentGenerationEmbeddingModelConfigId,
   auxModelOptions,
   agentCardActionOptions,
 } = toRefs(props)
 
 const avatarUploadRef = ref<UploadInstanceFunctions | null>(null)
 const agentTemplateImportInputRef = ref<HTMLInputElement | null>(null)
+const documentGenerationInputRef = ref<HTMLInputElement | null>(null)
 const pendingAvatarUploadFiles = ref<UploadFile[]>([])
 const localPreviewUrls = new Set<string>()
 const savingAvatarOnSubmit = ref(false)
 const addAgentEntryOptions = [
   { content: '新增模板', value: 'create' },
   { content: '导入模板', value: 'import' },
+  { content: '文档生成', value: 'generate' },
 ]
 
 const avatarUploadFiles = computed<UploadFile[]>(() => {
@@ -843,6 +990,16 @@ const avatarUploadFiles = computed<UploadFile[]>(() => {
 
 const hasPendingAvatarFile = computed(() =>
   pendingAvatarUploadFiles.value.some((item) => item.raw instanceof File),
+)
+const documentGenerationModelOptions = computed(() =>
+  auxModelOptions.value.filter((item) => String(item?.value || '').trim()),
+)
+const documentGenerationReady = computed(() =>
+  Boolean(
+    documentGenerationFileName.value
+      && documentGenerationModelConfigId.value.trim()
+      && documentGenerationEmbeddingModelConfigId.value.trim(),
+  ),
 )
 const savedServerRobotForDraft = computed(() => {
   const agentId = String(mobileAgentDraft.value.id || '').trim()
@@ -928,9 +1085,18 @@ function handleSelectImportAgent() {
   agentTemplateImportInputRef.value?.click()
 }
 
+function handleSelectGenerateAgent() {
+  emit('open-document-generation-dialog')
+}
+
 function handleAddAgentEntryClick(data: { value?: string | number | Record<string, unknown> }) {
   if (String(data?.value || '') === 'import') {
     handleSelectImportAgent()
+    return
+  }
+
+  if (String(data?.value || '') === 'generate') {
+    handleSelectGenerateAgent()
     return
   }
 
@@ -946,6 +1112,35 @@ function handleAgentTemplateImportChange(event: Event) {
 
   emit('import-agent-template', file)
   target.value = ''
+}
+
+function triggerDocumentGenerationFileSelect() {
+  documentGenerationInputRef.value?.click()
+}
+
+function handleDocumentGenerationFileChange(event: Event) {
+  const target = event.target as HTMLInputElement | null
+  const file = target?.files?.[0] || null
+  emit('set-document-generation-file', file)
+  if (target) {
+    target.value = ''
+  }
+}
+
+function handleDocumentGenerationVisibleChange(value: boolean) {
+  emit('update:documentGenerationVisible', value)
+}
+
+function handleDocumentGenerationGuidanceInput(value: string) {
+  emit('update:documentGenerationGuidance', String(value || ''))
+}
+
+function handleDocumentGenerationModelConfigInput(value: string) {
+  emit('update:documentGenerationModelConfigId', String(value || ''))
+}
+
+function handleDocumentGenerationEmbeddingModelConfigInput(value: string) {
+  emit('update:documentGenerationEmbeddingModelConfigId', String(value || ''))
 }
 
 async function handleOpenWorldGraphFromEditor() {
@@ -1052,6 +1247,10 @@ const emit = defineEmits<{
   (e: 'update:newChatVisible', value: boolean): void
   (e: 'update:agentManageVisible', value: boolean): void
   (e: 'update:mobileAgentEditorVisible', value: boolean): void
+  (e: 'update:documentGenerationVisible', value: boolean): void
+  (e: 'update:documentGenerationGuidance', value: string): void
+  (e: 'update:documentGenerationModelConfigId', value: string): void
+  (e: 'update:documentGenerationEmbeddingModelConfigId', value: string): void
   (e: 'update:selectedNewChatRobotId', value: string): void
   (e: 'confirm-start-new-chat'): void
   (e: 'open-mobile-agent-edit-dialog', agentId: string): void
@@ -1061,8 +1260,11 @@ const emit = defineEmits<{
     action?: string | number | Record<string, unknown>,
   ): void
   (e: 'open-mobile-agent-create-dialog'): void
+  (e: 'open-document-generation-dialog'): void
   (e: 'add-agent-template'): void
   (e: 'import-agent-template', file: File): void
+  (e: 'set-document-generation-file', file: File | null): void
+  (e: 'submit-document-generation'): void
   (e: 'next-agent-editor-step'): void
   (e: 'previous-agent-editor-step'): void
   (e: 'skip-agent-structure-setup'): void
@@ -1075,6 +1277,80 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
+.document-generation-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.document-generation-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #f6f8f3 0%, #f8fafc 100%);
+}
+
+.document-generation-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.document-generation-copy span {
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.document-generation-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.document-generation-file-name {
+  min-width: 180px;
+  max-width: 280px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.document-generation-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.document-generation-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.document-generation-progress-text {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.document-generation-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .story-world-graph-entry {
   display: grid;
   grid-template-columns: 160px minmax(0, 1fr) auto;

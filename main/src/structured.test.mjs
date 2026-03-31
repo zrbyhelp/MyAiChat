@@ -6,6 +6,7 @@ import {
   consumeStructuredStreamChunk,
   extractStructuredPayloadsFromText,
   finalizeStructuredStream,
+  getUnstreamedStructuredTextSuffix,
   reconcileAssistantStructuredOutput,
 } from './structured.mjs'
 
@@ -84,4 +85,11 @@ test('falls back to a continue suggestion when the assistant returns no form or 
 
   assert.equal(result.form, null)
   assert.deepEqual(result.suggestions, [{ title: '继续', prompt: '继续' }])
+})
+
+test('returns the missing visible suffix when structured parsing held back the tail', () => {
+  assert.equal(
+    getUnstreamedStructuredTextSuffix('稳了。\n\n“是怎么在动手', '稳了。\n\n“是怎么在动手脚的？”'),
+    '脚的？”',
+  )
 })
