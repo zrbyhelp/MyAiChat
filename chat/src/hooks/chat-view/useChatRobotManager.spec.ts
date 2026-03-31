@@ -5,6 +5,8 @@ import type { AIRobotCard, MemorySchemaState } from '@/types/ai'
 
 const {
   getRobots,
+  getRobotWorldGraph,
+  replaceRobotWorldGraph,
   saveRobots,
   listLocalRobots,
   putLocalRobot,
@@ -13,6 +15,8 @@ const {
   error,
 } = vi.hoisted(() => ({
   getRobots: vi.fn(),
+  getRobotWorldGraph: vi.fn(),
+  replaceRobotWorldGraph: vi.fn(),
   saveRobots: vi.fn(),
   listLocalRobots: vi.fn(),
   putLocalRobot: vi.fn(),
@@ -23,6 +27,8 @@ const {
 
 vi.mock('@/lib/api', () => ({
   getRobots,
+  getRobotWorldGraph,
+  replaceRobotWorldGraph,
   saveRobots,
 }))
 
@@ -78,6 +84,7 @@ function createRobot(overrides: Partial<AIRobotCard> = {}): AIRobotCard {
     structuredMemoryInterval: 3,
     structuredMemoryHistoryLimit: 12,
     memorySchema: overrides.memorySchema || defaultMemorySchema,
+    worldGraph: overrides.worldGraph || null,
   }
 }
 
@@ -98,13 +105,44 @@ function createManager() {
 
 describe('useChatRobotManager', () => {
   let localRobots: AIRobotCard[]
+  let serverRobots: AIRobotCard[]
   let createObjectUrlSpy: ReturnType<typeof vi.spyOn>
   let revokeObjectUrlSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     localRobots = []
-    getRobots.mockResolvedValue({ robots: [createRobot()] })
-    saveRobots.mockResolvedValue({ robots: [] })
+    serverRobots = [createRobot()]
+    getRobots.mockImplementation(async () => ({ robots: serverRobots }))
+    getRobotWorldGraph.mockResolvedValue({
+      meta: {
+        robotId: 'robot-1',
+        title: '测试模板 世界设定',
+        summary: '',
+        graphVersion: 1,
+        calendar: {
+          calendarId: 'default',
+          calendarName: '默认历法',
+          eras: ['新纪元'],
+          monthNames: ['一月'],
+          dayNames: ['周一'],
+          timeOfDayLabels: ['白天'],
+          formatTemplate: '{yearLabel}',
+        },
+        layout: {
+          viewportX: 0,
+          viewportY: 0,
+          zoom: 1,
+        },
+      },
+      relationTypes: [],
+      nodes: [],
+      edges: [],
+    })
+    replaceRobotWorldGraph.mockResolvedValue(undefined)
+    saveRobots.mockImplementation(async (robots: AIRobotCard[]) => {
+      serverRobots = robots
+      return { robots }
+    })
     listLocalRobots.mockImplementation(async () => localRobots)
     putLocalRobot.mockImplementation(async (robot: AIRobotCard) => {
       localRobots = [...localRobots.filter((item) => item.id !== robot.id), robot]
@@ -113,6 +151,8 @@ describe('useChatRobotManager', () => {
     success.mockReset()
     error.mockReset()
     getRobots.mockClear()
+    getRobotWorldGraph.mockClear()
+    replaceRobotWorldGraph.mockClear()
     saveRobots.mockClear()
     listLocalRobots.mockClear()
     putLocalRobot.mockClear()
@@ -137,11 +177,12 @@ describe('useChatRobotManager', () => {
     expect(typeof exported.iv).toBe('string')
     expect(typeof exported.payload).toBe('string')
     expect(exported.template).toBeUndefined()
+    expect(getRobotWorldGraph).toHaveBeenCalledWith('robot-1')
     expect(success).toHaveBeenCalledWith('模板已导出')
     expect(revokeObjectUrlSpy).toHaveBeenCalledWith('blob:agent-template')
   })
 
-  it('imports a template as a local copy without overwriting existing robots', async () => {
+  it('imports a template to the server and restores its world graph', async () => {
     const manager = createManager()
     await manager.loadRobotTemplates()
 
@@ -152,12 +193,14 @@ describe('useChatRobotManager', () => {
 
     await manager.importRobotTemplate(file)
 
-    expect(putLocalRobot).toHaveBeenCalledTimes(1)
-    const importedRobot = putLocalRobot.mock.calls[0]?.[0] as AIRobotCard
-    expect(importedRobot.persistToServer).toBe(false)
-    expect(importedRobot.id).not.toBe('robot-existing')
-    expect(importedRobot.name).toBe('测试模板（导入）')
-    expect(success).toHaveBeenCalledWith('模板已导入到本地')
+    expect(saveRobots).toHaveBeenCalledTimes(1)
+    expect(putLocalRobot).not.toHaveBeenCalled()
+    const importedRobot = (saveRobots.mock.calls[0]?.[0] as AIRobotCard[]).find((item) => item.name === '测试模板（导入）')
+    expect(importedRobot?.persistToServer).toBe(true)
+    expect(importedRobot?.id).not.toBe('robot-existing')
+    expect(importedRobot?.name).toBe('测试模板（导入）')
+    expect(replaceRobotWorldGraph).toHaveBeenCalledTimes(1)
+    expect(success).toHaveBeenCalledWith('模板已导入到服务器')
     expect(manager.robotTemplates.value.some((item) => item.name === '测试模板（导入）')).toBe(true)
   })
 
@@ -170,6 +213,7 @@ describe('useChatRobotManager', () => {
     await manager.importRobotTemplate(file)
 
     expect(putLocalRobot).not.toHaveBeenCalled()
+    expect(saveRobots).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalledWith('模板文件不是有效的 JSON')
   })
 
@@ -195,6 +239,7 @@ describe('useChatRobotManager', () => {
     await manager.importRobotTemplate(file)
 
     expect(putLocalRobot).not.toHaveBeenCalled()
+    expect(saveRobots).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalledWith('模板文件无法解密')
   })
 })

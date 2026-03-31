@@ -2,7 +2,6 @@ import { ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 
 import { deleteSession, getSession, getSessions } from '@/lib/api'
-import { deleteLocalSession, getLocalSession, listLocalSessions } from '@/lib/local-db'
 import type { ChatSessionDetail, ChatSessionSummary } from '@/types/ai'
 
 const ACTIVE_SESSION_STORAGE_KEY = 'myaichat.active-session-id'
@@ -35,34 +34,12 @@ export function useChatSession(options: UseChatSessionOptions) {
   const batchDeletingSessionIds = ref<string[]>([])
   const historySelectionMode = ref(false)
   const selectedSessionIds = ref<string[]>([])
-  const sessionSourceMap = ref<Record<string, { hasServer: boolean; hasLocal: boolean }>>({})
-
-  function mergeSessions(serverSessions: ChatSessionSummary[], localSessions: ChatSessionSummary[]) {
-    const nextSourceMap: Record<string, { hasServer: boolean; hasLocal: boolean }> = {}
-    const mergedById = new Map<string, ChatSessionSummary>()
-
-    for (const session of serverSessions) {
-      nextSourceMap[session.id] = { hasServer: true, hasLocal: nextSourceMap[session.id]?.hasLocal ?? false }
-      mergedById.set(session.id, session)
-    }
-
-    for (const session of localSessions) {
-      nextSourceMap[session.id] = { hasServer: nextSourceMap[session.id]?.hasServer ?? false, hasLocal: true }
-      if (!mergedById.has(session.id)) {
-        mergedById.set(session.id, session)
-      }
-    }
-
-    sessionSourceMap.value = nextSourceMap
-
-    return Array.from(mergedById.values()).sort(
-      (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-    )
-  }
 
   async function refreshSessionHistory() {
-    const [serverResponse, localSessions] = await Promise.all([getSessions(), listLocalSessions()])
-    sessionHistory.value = mergeSessions(serverResponse.sessions, localSessions)
+    const serverResponse = await getSessions()
+    sessionHistory.value = [...serverResponse.sessions].sort(
+      (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+    )
     if (!historySelectionMode.value) {
       selectedSessionIds.value = []
       return
@@ -107,46 +84,13 @@ export function useChatSession(options: UseChatSessionOptions) {
     setSessionSelection(targetSessionId, nextSelected)
   }
 
-  async function deleteSessionCopies(targetSessionId: string) {
-    const sources = sessionSourceMap.value[targetSessionId]
-
-    if (sources?.hasServer && sources?.hasLocal) {
-      const [serverResult, localResult] = await Promise.allSettled([
-        deleteSession(targetSessionId),
-        deleteLocalSession(targetSessionId),
-      ])
-
-      if (serverResult.status === 'rejected') {
-        throw serverResult.reason
-      }
-
-      if (localResult.status === 'rejected') {
-        throw localResult.reason
-      }
-
-      return
-    }
-
-    if (sources?.hasLocal) {
-      await deleteLocalSession(targetSessionId)
-      return
-    }
-
+  async function deleteSessionRecord(targetSessionId: string) {
     await deleteSession(targetSessionId)
   }
 
   async function loadSessionRecord(targetSessionId: string) {
-    const targetSummary = sessionHistory.value.find((item) => item.id === targetSessionId)
-    if (targetSummary?.persistToServer === false) {
-      return getLocalSession(targetSessionId)
-    }
-
-    try {
-      const response = await getSession(targetSessionId)
-      return response.session
-    } catch {
-      return getLocalSession(targetSessionId)
-    }
+    const response = await getSession(targetSessionId)
+    return response.session
   }
 
   async function openHistorySession(targetSessionId: string) {
@@ -185,7 +129,7 @@ export function useChatSession(options: UseChatSessionOptions) {
       sessionId.value === targetSessionId ? remainingSessions[0]?.id || '' : sessionId.value
 
     try {
-      await deleteSessionCopies(targetSessionId)
+      await deleteSessionRecord(targetSessionId)
       await refreshSessionHistory()
 
       if (sessionId.value === targetSessionId) {
@@ -231,7 +175,7 @@ export function useChatSession(options: UseChatSessionOptions) {
 
     try {
       for (const targetSessionId of targetIds) {
-        await deleteSessionCopies(targetSessionId)
+        await deleteSessionRecord(targetSessionId)
       }
 
       await refreshSessionHistory()

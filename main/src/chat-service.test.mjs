@@ -21,7 +21,7 @@ test('ignores message_done because structured ui is parsed from the main reply s
   assert.deepEqual(mapAgentEventToChatEvents({ type: 'message_done' }), [])
 })
 
-test('ignores response completed so done is emitted only after all server-side work finishes', () => {
+test('ignores response completed because done is emitted by the main service after history is saved', () => {
   assert.deepEqual(
     mapAgentEventToChatEvents({ type: 'response_completed' }),
     [],

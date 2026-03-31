@@ -379,7 +379,6 @@ import ChatModelDomain from '@/components/chat/ChatModelDomain.vue'
 import RobotWorldGraphWorkspace from '@/components/chat/RobotWorldGraphDialog.vue'
 import ChatSessionDomain from '@/components/chat/ChatSessionDomain.vue'
 import SessionHistoryPanel from '@/components/chat/SessionHistoryPanel.vue'
-import { putLocalSession } from '@/lib/local-db'
 import { useAuth } from '@clerk/vue'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -869,10 +868,6 @@ function syncChatResponse(options?: { refreshSession?: boolean }) {
   if (options?.refreshSession) {
     refreshCurrentSessionState().catch(() => {})
     refreshSessionHistory().catch(() => {})
-  } else {
-    putLocalSession(buildCurrentSessionDetail())
-      .then(() => refreshSessionHistory())
-      .catch(() => {})
   }
 }
 const { chatServiceConfig } = useChatStreaming({

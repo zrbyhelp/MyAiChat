@@ -621,10 +621,10 @@ const graphMode = computed<GraphWorkspaceMode>(() => props.mode || (props.readOn
 const isSessionMode = computed(() => graphMode.value === 'session')
 const isReadOnly = computed(() => isSessionMode.value || Boolean(props.readOnly))
 const timelineCollapsed = ref(isSessionMode.value)
-const hasGraphSource = computed(() => Boolean(props.graphData || props.currentRobot?.persistToServer))
+const hasGraphSource = computed(() => Boolean(props.graphData || props.currentRobot?.id))
 const showTimelineDock = computed(() => activePanel.value === 'graph')
 const emptyStateText = computed(() =>
-  isSessionMode.value ? '当前会话还没有消息图谱。' : '仅支持已保存到服务器的智能体使用世界设定。',
+  isSessionMode.value ? '当前会话还没有消息图谱。' : '当前智能体还没有世界设定图谱。',
 )
 const showRelationTypeTab = computed(() => !isReadOnly.value)
 
@@ -1433,7 +1433,7 @@ async function loadWorldGraph() {
     applyLoadedGraphPresentation()
     return
   }
-  if (!props.currentRobot?.id || !props.currentRobot.persistToServer) {
+  if (!props.currentRobot?.id) {
     rawNodes.value = []
     rawEdges.value = []
     relationTypes.value = []

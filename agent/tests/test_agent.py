@@ -32,6 +32,8 @@ class FakeModel:
             return FakeMessage('{"hp": 10}', 11, 7)
         if self.kind == "memory":
             return FakeMessage('{"updated_at":"2026-03-27T00:00:00Z","categories":[]}', 17, 6)
+        if self.kind == "world_graph":
+            return FakeMessage('{"upsert_nodes":[],"upsert_edges":[],"upsert_events":[]}', 13, 5)
         return FakeMessage("stub-final", 19, 9)
 
     async def astream(self, messages):
@@ -45,6 +47,8 @@ def fake_build_model(config):
         return FakeModel("numeric")
     if name == "memory-model":
         return FakeModel("memory")
+    if name == "graph-model":
+        return FakeModel("world_graph")
     return FakeModel("answer")
 
 
@@ -236,10 +240,8 @@ class RunStreamTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("numeric_state_updated", response.text)
                 self.assertIn("message_done", response.text)
                 self.assertIn("response_completed", response.text)
-                self.assertIn("memory_updated", response.text)
                 self.assertIn("run_completed", response.text)
                 self.assertIn('"hp": 10.0', response.text)
-                self.assertLess(response.text.index("response_completed"), response.text.index("memory_updated"))
             finally:
                 graph.build_model = original_graph_build_model
                 main.build_model = original_main_build_model
@@ -249,7 +251,7 @@ class RunStreamTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     os.environ["AGENT_FILE_STORE_DIR"] = previous_dir
 
-    async def test_runs_stream_emits_world_graph_started_events_when_graph_is_enabled(self):
+    async def test_runs_stream_does_not_emit_world_graph_writeback_events(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             previous_dir = os.environ.get("AGENT_FILE_STORE_DIR")
             original_graph_build_model = graph.build_model
@@ -297,7 +299,158 @@ class RunStreamTests(unittest.IsolatedAsyncioTestCase):
                     )
 
                 self.assertEqual(response.status_code, 200)
-                self.assertIn("world_graph_writeback_started", response.text)
+                self.assertNotIn("world_graph_writeback_started", response.text)
+                self.assertNotIn("world_graph_writeback_ready", response.text)
+            finally:
+                graph.build_model = original_graph_build_model
+                main.build_model = original_main_build_model
+                main.store = original_store
+                if previous_dir is None:
+                    os.environ.pop("AGENT_FILE_STORE_DIR", None)
+                else:
+                    os.environ["AGENT_FILE_STORE_DIR"] = previous_dir
+
+    async def test_runs_memory_updates_thread_store(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            previous_dir = os.environ.get("AGENT_FILE_STORE_DIR")
+            original_graph_build_model = graph.build_model
+            original_main_build_model = main.build_model
+            original_store = main.store
+            try:
+                os.environ["AGENT_FILE_STORE_DIR"] = temp_dir
+                graph.build_model = fake_build_model
+                main.build_model = fake_build_model
+                main.store = ThreadStore()
+                main.store.ensure_ready()
+
+                main.store.save(
+                    ThreadState.model_validate(
+                        {
+                            "thread_id": "thread-memory-job",
+                            "messages": [
+                                {"role": "user", "content": "old"},
+                                {"role": "assistant", "content": "old-answer"},
+                            ],
+                            "memory_schema": {"categories": []},
+                            "structured_memory": {"updated_at": "", "categories": []},
+                            "numeric_state": {"hp": 1},
+                            "story_outline": "old-outline",
+                        }
+                    )
+                )
+
+                transport = httpx.ASGITransport(app=main.app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                    response = await client.post(
+                        "/runs/memory",
+                        json={
+                            "thread_id": "thread-memory-job",
+                            "session_id": "session-memory-job",
+                            "prompt": "测试",
+                            "final_response": "最终回复",
+                            "user": {"id": "u1"},
+                            "model_config": {
+                                "provider": "openai",
+                                "base_url": "http://example.com",
+                                "api_key": "test-key",
+                                "model": "answer-model",
+                                "temperature": 0.7,
+                            },
+                            "robot": {
+                                "memory_model_config_id": "memory-config",
+                            },
+                            "auxiliary_model_configs": {
+                                "memory": {
+                                    "provider": "openai",
+                                    "base_url": "http://example.com",
+                                    "api_key": "test-key",
+                                    "model": "memory-model",
+                                    "temperature": 0.7,
+                                }
+                            },
+                            "memory_schema": {"categories": []},
+                            "structured_memory": {"updated_at": "", "categories": []},
+                            "history": [{"role": "user", "content": "old"}],
+                            "numeric_state": {},
+                        },
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("memory", response.json())
+                stored = main.store.load("thread-memory-job")
+                self.assertIsNotNone(stored)
+                assert stored is not None
+                self.assertEqual(stored.structured_memory.updated_at, "2026-03-27T00:00:00Z")
+                self.assertEqual(stored.story_outline, "old-outline")
+            finally:
+                graph.build_model = original_graph_build_model
+                main.build_model = original_main_build_model
+                main.store = original_store
+                if previous_dir is None:
+                    os.environ.pop("AGENT_FILE_STORE_DIR", None)
+                else:
+                    os.environ["AGENT_FILE_STORE_DIR"] = previous_dir
+
+    async def test_runs_world_graph_writeback_returns_ops(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            previous_dir = os.environ.get("AGENT_FILE_STORE_DIR")
+            original_graph_build_model = graph.build_model
+            original_main_build_model = main.build_model
+            original_store = main.store
+            try:
+                os.environ["AGENT_FILE_STORE_DIR"] = temp_dir
+                graph.build_model = fake_build_model
+                main.build_model = fake_build_model
+                main.store = ThreadStore()
+                main.store.ensure_ready()
+
+                transport = httpx.ASGITransport(app=main.app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                    response = await client.post(
+                        "/runs/world-graph-writeback",
+                        json={
+                            "thread_id": "thread-graph-job",
+                            "session_id": "session-graph-job",
+                            "prompt": "测试",
+                            "final_response": "最终回复",
+                            "user": {"id": "u1"},
+                            "model_config": {
+                                "provider": "openai",
+                                "base_url": "http://example.com",
+                                "api_key": "test-key",
+                                "model": "answer-model",
+                                "temperature": 0.7,
+                            },
+                            "robot": {
+                                "world_graph_model_config_id": "graph-config",
+                            },
+                            "auxiliary_model_configs": {
+                                "world_graph": {
+                                    "provider": "openai",
+                                    "base_url": "http://example.com",
+                                    "api_key": "test-key",
+                                    "model": "graph-model",
+                                    "temperature": 0.7,
+                                }
+                            },
+                            "memory_schema": {"categories": []},
+                            "structured_memory": {"updated_at": "", "categories": []},
+                            "history": [{"role": "user", "content": "old"}],
+                            "numeric_state": {},
+                            "world_graph": {
+                                "meta": {"robotId": "robot-1", "robotName": "测试智能体"},
+                                "nodes": [],
+                                "edges": [],
+                                "events": [],
+                            },
+                        },
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.json()["world_graph_writeback_ops"],
+                    {"upsert_nodes": [], "upsert_edges": [], "upsert_events": [], "append_node_snapshots": [], "append_edge_snapshots": [], "append_event_effects": []},
+                )
             finally:
                 graph.build_model = original_graph_build_model
                 main.build_model = original_main_build_model
@@ -340,6 +493,8 @@ class WorldGraphPromptPlacementTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("角色沉浸感", messages[0]["content"])
         self.assertIn("内部故事梗概只用于你规划本轮推进", messages[0]["content"])
         self.assertIn("suggestions", messages[0]["content"])
+        self.assertIn("必须返回 form，而不是 suggestions", messages[0]["content"])
+        self.assertIn("不取决于用户之前是否已经主动说过什么", messages[0]["content"])
         self.assertEqual(messages[1]["role"], "user")
         self.assertIn("内部故事梗概", messages[1]["content"])
         self.assertIn("剧情先推进误会", messages[1]["content"])

@@ -6,6 +6,7 @@ import {
   consumeStructuredStreamChunk,
   extractStructuredPayloadsFromText,
   finalizeStructuredStream,
+  reconcileAssistantStructuredOutput,
 } from './structured.mjs'
 
 test('extracts suggestions from the main reply and strips the visible text', () => {
@@ -48,4 +49,39 @@ test('extracts a form from streamed chunks and keeps only visible text in the de
       },
     ],
   })
+})
+
+test('forces a generic form when the assistant text explicitly asks the user to input content', () => {
+  const result = reconcileAssistantStructuredOutput(
+    '请补充一下你想要的角色背景和性格设定。',
+    [{ title: '示例选项', prompt: '示例选项' }],
+    null,
+  )
+
+  assert.equal(result.suggestions.length, 0)
+  assert.deepEqual(result.form, {
+    title: '请补充信息',
+    description: '请补充一下你想要的角色背景和性格设定。',
+    submitText: '提交',
+    fields: [
+      {
+        name: 'content',
+        label: '补充内容',
+        type: 'input',
+        placeholder: '请按上文要求填写',
+        required: true,
+        inputType: 'text',
+        multiple: false,
+        options: [],
+        defaultValue: '',
+      },
+    ],
+  })
+})
+
+test('falls back to a continue suggestion when the assistant returns no form or options', () => {
+  const result = reconcileAssistantStructuredOutput('剧情先推进到这里。', [], null)
+
+  assert.equal(result.form, null)
+  assert.deepEqual(result.suggestions, [{ title: '继续', prompt: '继续' }])
 })

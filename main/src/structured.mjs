@@ -23,6 +23,15 @@ export function normalizeSuggestionItems(input) {
     .filter((item) => item.title)
 }
 
+export function ensureAssistantSuggestionFallback(suggestions, form) {
+  const normalizedSuggestions = normalizeSuggestionItems(suggestions)
+  const normalizedForm = normalizeFormSchema(form)
+  if (normalizedSuggestions.length || normalizedForm?.fields?.length) {
+    return normalizedSuggestions
+  }
+  return [{ title: '继续', prompt: '继续' }]
+}
+
 export function normalizeFormOptions(input) {
   const list = Array.isArray(input) ? input : []
   return list
@@ -91,6 +100,112 @@ export function parseFormJson(raw) {
   }
   const parsed = safeJsonParse(source, null)
   return normalizeFormSchema(parsed)
+}
+
+const ASSISTANT_INPUT_REQUEST_PATTERNS = [
+  /请(?:先)?(?:继续)?(?:填写|补充|输入|提供|描述|说明|写下|回复|提交)/u,
+  /需要你(?:先)?(?:填写|补充|输入|提供|描述|说明|回复|提交)/u,
+  /麻烦你(?:先)?(?:填写|补充|输入|提供|描述|说明|回复|提交)/u,
+  /请把.+?(?:告诉我|写下来|填一下|发给我|回复我)/u,
+  /把.+?(?:告诉我|写下来|填一下|发给我|回复我)/u,
+  /告诉我.+?(?:内容|信息|资料|设定|想法|需求|原因|经历|背景|细节)/u,
+  /补充一下/u,
+  /填写一下/u,
+  /输入一下/u,
+  /提供一下/u,
+  /描述一下/u,
+  /说明一下/u,
+]
+
+const ASSISTANT_CHOICE_PROMPT_PATTERNS = [
+  /请选择/u,
+  /选一个/u,
+  /选哪(?:个|种|条|项|边)/u,
+  /你想要哪(?:个|种|条|一步|项)/u,
+  /你希望我继续哪(?:个|种|条|一步|项)/u,
+  /下面(?:这)?几个方向/u,
+  /从.+?中选择/u,
+  /以下哪(?:个|种|条|项)/u,
+]
+
+function normalizeAssistantTextForIntent(text) {
+  return String(text || '').replace(/\s+/gu, ' ').trim()
+}
+
+export function shouldPreferAssistantForm(text) {
+  const normalizedText = normalizeAssistantTextForIntent(text)
+  if (!normalizedText) {
+    return false
+  }
+  return ASSISTANT_INPUT_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizedText))
+}
+
+export function shouldPreferAssistantSuggestions(text) {
+  const normalizedText = normalizeAssistantTextForIntent(text)
+  if (!normalizedText) {
+    return false
+  }
+  return ASSISTANT_CHOICE_PROMPT_PATTERNS.some((pattern) => pattern.test(normalizedText))
+}
+
+function createGenericAssistantForm(text) {
+  const normalizedText = String(text || '').trim()
+  return {
+    title: '请补充信息',
+    description: normalizedText,
+    submitText: '提交',
+    fields: [
+      {
+        name: 'content',
+        label: '补充内容',
+        type: 'input',
+        placeholder: '请按上文要求填写',
+        required: true,
+        inputType: 'text',
+        multiple: false,
+        options: [],
+        defaultValue: '',
+      },
+    ],
+  }
+}
+
+export function reconcileAssistantStructuredOutput(text, suggestions, form) {
+  const normalizedText = String(text || '').trim()
+  const normalizedSuggestions = normalizeSuggestionItems(suggestions)
+  const normalizedForm = normalizeFormSchema(form)
+  const prefersForm = shouldPreferAssistantForm(normalizedText)
+  const prefersSuggestions = shouldPreferAssistantSuggestions(normalizedText)
+
+  if (prefersForm) {
+    return {
+      text: normalizedText,
+      suggestions: [],
+      form: normalizedForm?.fields?.length ? normalizedForm : createGenericAssistantForm(normalizedText),
+    }
+  }
+
+  if (normalizedForm?.fields?.length) {
+    return {
+      text: normalizedText,
+      suggestions: [],
+      form: normalizedForm,
+    }
+  }
+
+  if (normalizedSuggestions.length) {
+    return {
+      text: normalizedText,
+      suggestions: normalizedSuggestions,
+      form: null,
+    }
+  }
+
+  return {
+    text: normalizedText,
+    suggestions: prefersSuggestions ? [{ title: '继续', prompt: '继续' }] : ensureAssistantSuggestionFallback([], null),
+    form: null,
+  }
 }
 
 export function extractStructuredPayloadsFromText(text) {

@@ -1,7 +1,6 @@
 import { nextTick, type Ref } from 'vue'
 
-import { deleteSession, getSession, upsertSession } from '@/lib/api'
-import { deleteLocalSession, getLocalSession, putLocalSession } from '@/lib/local-db'
+import { getRobotWorldGraph, getSession, upsertSession } from '@/lib/api'
 import type {
   AIModelConfigItem,
   AIRobotCard,
@@ -57,9 +56,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     }
 
     try {
-      const session = options.currentSessionMemory.persistToServer
-        ? (await getSession(options.sessionId.value)).session
-        : await getLocalSession(options.sessionId.value)
+      const session = (await getSession(options.sessionId.value)).session
       if (!session) {
         return
       }
@@ -75,58 +72,43 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
   }
 
   async function syncCurrentSessionMeta() {
-    if (options.currentSessionMemory.persistToServer) {
-      const response = await upsertSession({
-        id: options.sessionId.value,
-        robot: {
-          id: options.sessionRobot.id,
-          name: options.sessionRobot.name,
-          avatar: options.sessionRobot.avatar,
-          commonPrompt: options.sessionRobot.commonPrompt,
-          systemPrompt: options.sessionRobot.systemPrompt,
-          memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
-          outlineModelConfigId: options.sessionRobot.outlineModelConfigId,
-          numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
-          worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
-          numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
-          numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
-          numericComputationItems: options.cloneNumericComputationItems(
-            options.sessionRobot.numericComputationItems,
-          ),
-          structuredMemoryInterval: options.sessionRobot.structuredMemoryInterval,
-          structuredMemoryHistoryLimit: options.sessionRobot.structuredMemoryHistoryLimit,
-        },
-        memory: options.currentSessionMemory,
-        storyOutline: options.currentStoryOutline.value,
-        modelConfigId: options.activeModelConfig.value.id,
-        modelLabel: options.currentModelLabel.value,
-        memorySchema: options.currentMemorySchema,
-        worldGraph: options.buildCurrentSessionDetail().worldGraph || null,
-        persistToServer: true,
-      })
+    const response = await upsertSession({
+      id: options.sessionId.value,
+      robot: {
+        id: options.sessionRobot.id,
+        name: options.sessionRobot.name,
+        avatar: options.sessionRobot.avatar,
+        commonPrompt: options.sessionRobot.commonPrompt,
+        systemPrompt: options.sessionRobot.systemPrompt,
+        memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
+        outlineModelConfigId: options.sessionRobot.outlineModelConfigId,
+        numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
+        worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
+        numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
+        numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
+        numericComputationItems: options.cloneNumericComputationItems(
+          options.sessionRobot.numericComputationItems,
+        ),
+        structuredMemoryInterval: options.sessionRobot.structuredMemoryInterval,
+        structuredMemoryHistoryLimit: options.sessionRobot.structuredMemoryHistoryLimit,
+      },
+      memory: options.currentSessionMemory,
+      storyOutline: options.currentStoryOutline.value,
+      modelConfigId: options.activeModelConfig.value.id,
+      modelLabel: options.currentModelLabel.value,
+      memorySchema: options.currentMemorySchema,
+      worldGraph: options.buildCurrentSessionDetail().worldGraph || null,
+      persistToServer: true,
+    })
 
-      await deleteLocalSession(options.sessionId.value).catch(() => {})
-      options.storeActiveSessionId(response.session.id)
-      options.sessionId.value = response.session.id
-      options.applySessionMemory(response.session.memory)
-      options.applyMemorySchema(response.session.memorySchema)
-      options.applyStructuredMemory(response.session.structuredMemory)
-      options.applySessionUsage(response.session.usage)
-      options.applyStoryOutline(response.session.storyOutline || '')
-      options.applySessionWorldGraph(response.session.worldGraph || null)
-    } else {
-      const session = options.buildCurrentSessionDetail()
-      await putLocalSession(session)
-      await deleteSession(session.id).catch(() => {})
-      options.storeActiveSessionId(session.id)
-      options.sessionId.value = session.id
-      options.applySessionMemory(session.memory)
-      options.applyMemorySchema(session.memorySchema)
-      options.applyStructuredMemory(session.structuredMemory)
-      options.applySessionUsage(session.usage)
-      options.applyStoryOutline(session.storyOutline || '')
-      options.applySessionWorldGraph(session.worldGraph || null)
-    }
+    options.storeActiveSessionId(response.session.id)
+    options.sessionId.value = response.session.id
+    options.applySessionMemory(response.session.memory)
+    options.applyMemorySchema(response.session.memorySchema)
+    options.applyStructuredMemory(response.session.structuredMemory)
+    options.applySessionUsage(response.session.usage)
+    options.applyStoryOutline(response.session.storyOutline || '')
+    options.applySessionWorldGraph(response.session.worldGraph || null)
     await options.refreshSessionHistory()
   }
 
@@ -174,6 +156,8 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
   }
 
   async function createNewChat(robot?: AIRobotCard | null) {
+    let nextWorldGraph = robot?.worldGraph || null
+
     if (robot) {
       options.sessionRobot.id = robot.id
       options.sessionRobot.name = robot.name.trim() || '当前智能体'
@@ -194,6 +178,13 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.sessionRobot.structuredMemoryHistoryLimit =
         robot.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit
       options.applyMemorySchema(robot.memorySchema)
+      if (robot.persistToServer && robot.id) {
+        try {
+          nextWorldGraph = await getRobotWorldGraph(robot.id)
+        } catch {
+          nextWorldGraph = robot.worldGraph || null
+        }
+      }
     } else {
       options.sessionRobot.id = ''
       options.sessionRobot.name = '当前智能体'
@@ -214,7 +205,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
 
     options.applySessionMemory({
       ...options.defaultSessionMemory,
-      persistToServer: Boolean(robot?.persistToServer ?? true),
+      persistToServer: true,
       structuredMemoryInterval:
         robot?.structuredMemoryInterval || options.defaultStructuredMemoryInterval,
       structuredMemoryHistoryLimit:
@@ -224,7 +215,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applySessionUsage(options.defaultSessionUsage)
     options.applyNumericState({})
     options.applyStoryOutline('')
-    options.applySessionWorldGraph(null)
+    options.applySessionWorldGraph(nextWorldGraph)
 
     options.sessionId.value = options.createSessionId()
     options.storeActiveSessionId(options.sessionId.value)

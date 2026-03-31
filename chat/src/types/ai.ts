@@ -66,6 +66,7 @@ export interface AIRobotCard {
   structuredMemoryInterval: number
   structuredMemoryHistoryLimit: number
   memorySchema: MemorySchemaState
+  worldGraph?: RobotWorldGraph | null
 }
 
 export interface AgentTemplateFileV1 {

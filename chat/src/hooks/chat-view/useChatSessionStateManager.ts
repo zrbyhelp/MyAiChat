@@ -129,7 +129,7 @@ export function normalizeSessionMemory(memory?: Partial<SessionMemoryState> | nu
     updatedAt: typeof memory?.updatedAt === 'string' ? memory.updatedAt : '',
     sourceMessageCount:
       typeof memory?.sourceMessageCount === 'number' ? memory.sourceMessageCount : 0,
-    persistToServer: Boolean(memory?.persistToServer ?? true),
+    persistToServer: true,
     threshold:
       typeof memory?.threshold === 'number' && memory.threshold > 0
         ? Math.round(memory.threshold)
@@ -381,7 +381,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     currentSessionMemory.summary = normalized.summary
     currentSessionMemory.updatedAt = normalized.updatedAt
     currentSessionMemory.sourceMessageCount = normalized.sourceMessageCount
-    currentSessionMemory.persistToServer = normalized.persistToServer
+    currentSessionMemory.persistToServer = true
     currentSessionMemory.threshold = normalized.threshold
     currentSessionMemory.recentMessageLimit = normalized.recentMessageLimit
     currentSessionMemory.structuredMemoryInterval = normalized.structuredMemoryInterval

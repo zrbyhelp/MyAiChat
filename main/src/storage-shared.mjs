@@ -258,7 +258,7 @@ export function normalizeSessionMemory(input) {
       typeof input?.sourceMessageCount === 'number' && Number.isInteger(input.sourceMessageCount) && input.sourceMessageCount >= 0
         ? input.sourceMessageCount
         : 0,
-    persistToServer: Boolean(input?.persistToServer ?? input?.persist_to_server ?? true),
+    persistToServer: true,
     threshold,
     recentMessageLimit,
     prompt: typeof input?.prompt === 'string' && input.prompt.trim() ? input.prompt : DEFAULT_MEMORY_PROMPT,
@@ -371,13 +371,7 @@ export function normalizeSession(input, index = 0) {
     preview,
     createdAt,
     updatedAt,
-    persistToServer: Boolean(
-      input?.persistToServer
-        ?? input?.persist_to_server
-        ?? input?.memory?.persistToServer
-        ?? input?.memory?.persist_to_server
-        ?? true,
-    ),
+    persistToServer: true,
     robot: normalizeSessionRobot(input?.robot),
     modelConfigId: String(input?.modelConfigId || ''),
     modelLabel: String(input?.modelLabel || ''),

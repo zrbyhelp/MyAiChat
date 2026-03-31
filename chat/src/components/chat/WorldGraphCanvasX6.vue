@@ -209,12 +209,22 @@ function createEdgeCell(edge: WorldEdge) {
     },
     labels: [
       {
+        markup: [
+          {
+            tagName: 'text',
+            selector: 'label',
+          },
+        ],
         position: 0.52,
         attrs: {
-          text: {
+          label: {
             text: resolveEdgeLabel(edge),
             fill: '#3f4349',
             fontSize: 13,
+            fontWeight: 500,
+            textAnchor: 'middle',
+            textVerticalAnchor: 'middle',
+            pointerEvents: 'none',
           },
         },
       },

@@ -33,6 +33,7 @@ import {
   deleteWorldRelationType,
   getWorldGraph,
   listWorldRelationTypes,
+  replaceWorldGraph,
   saveWorldEdge,
   saveWorldNode,
   updateTimelineEffect,
@@ -222,6 +223,14 @@ export function createApp() {
   app.get('/api/robots/:id/world-graph', async (req, res, next) => {
     try {
       res.json(await getWorldGraph(req.authUser, req.params.id))
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.put('/api/robots/:id/world-graph', async (req, res, next) => {
+    try {
+      res.json(await replaceWorldGraph(req.authUser, req.params.id, req.body))
     } catch (error) {
       next(error)
     }

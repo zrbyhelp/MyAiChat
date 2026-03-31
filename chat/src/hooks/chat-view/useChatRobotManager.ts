@@ -1,7 +1,7 @@
 import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, reactive, ref } from 'vue'
 
-import { getRobots, saveRobots } from '@/lib/api'
+import { getRobotWorldGraph, getRobots, replaceRobotWorldGraph, saveRobots } from '@/lib/api'
 import { UnauthorizedError } from '@/lib/auth'
 import { deleteLocalRobot, listLocalRobots, putLocalRobot } from '@/lib/local-db'
 import type {
@@ -9,6 +9,7 @@ import type {
   AIRobotCard,
   MemorySchemaState,
   NumericComputationItem,
+  RobotWorldGraph,
 } from '@/types/ai'
 
 interface UseChatRobotManagerOptions {
@@ -66,7 +67,12 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       structuredMemoryInterval: options.defaultStructuredMemoryInterval,
       structuredMemoryHistoryLimit: options.defaultStructuredMemoryHistoryLimit,
       memorySchema: options.normalizeMemorySchema(options.defaultMemorySchema),
+      worldGraph: null,
     }
+  }
+
+  function cloneWorldGraph(graph?: RobotWorldGraph | null) {
+    return graph ? JSON.parse(JSON.stringify(graph)) as RobotWorldGraph : null
   }
 
   function cloneNumericComputationItems(items?: NumericComputationItem[] | null) {
@@ -136,6 +142,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         ? Math.round(source.structuredMemoryHistoryLimit)
         : fallback.structuredMemoryHistoryLimit
     mobileAgentDraft.memorySchema = options.normalizeMemorySchema(source?.memorySchema || fallback.memorySchema)
+    mobileAgentDraft.worldGraph = cloneWorldGraph(source?.worldGraph)
   }
 
   function normalizeRobotDraft(item: AIRobotCard, index: number): AIRobotCard {
@@ -163,6 +170,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         Math.round(item.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit),
       ),
       memorySchema: options.normalizeMemorySchema(item.memorySchema),
+      worldGraph: cloneWorldGraph(item.worldGraph),
     }
   }
 
@@ -381,6 +389,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       ...normalized,
       id: createRobotId(),
       persistToServer: false,
+      worldGraph: cloneWorldGraph(template.worldGraph),
     }
   }
 
@@ -426,7 +435,13 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       return
     }
 
-    const encrypted = await encryptTemplatePayload(normalizeRobotDraft(target, 0))
+    const worldGraph = target.persistToServer && target.id
+      ? await getRobotWorldGraph(target.id)
+      : cloneWorldGraph(target.worldGraph)
+    const encrypted = await encryptTemplatePayload({
+      ...normalizeRobotDraft(target, 0),
+      worldGraph,
+    })
     const payload: AgentTemplateFileV1 = {
       kind: AGENT_TEMPLATE_FILE_KIND,
       version: 1,
@@ -453,12 +468,16 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       const importedRobot: AIRobotCard = {
         ...normalized,
         name: createImportedAgentName(normalized.name, existingNames),
-        persistToServer: false,
+        persistToServer: true,
       }
 
-      await putLocalRobot(importedRobot)
+      const serverResponse = await getRobots()
+      await saveRobots([...serverResponse.robots, { ...importedRobot, worldGraph: undefined }])
+      if (importedRobot.worldGraph && importedRobot.id) {
+        await replaceRobotWorldGraph(importedRobot.id, importedRobot.worldGraph)
+      }
       await reloadRobotTemplates()
-      await persistRobotTemplates(robotTemplates.value, '模板已导入到本地')
+      await persistRobotTemplates(robotTemplates.value, '模板已导入到服务器')
     } catch (error) {
       const message =
         error instanceof Error && /decrypt|operation-specific|AES-GCM|cipher|too small|invalid/i.test(error.message)

@@ -209,9 +209,6 @@
                 @remove="handleAvatarUploadRemove"
               />
             </TFormItem>
-            <TFormItem class="form-grid-span-2" label="新建聊天记录保存在服务器">
-              <TSwitch v-model="mobileAgentDraft.persistToServer" />
-            </TFormItem>
           </div>
         </TForm>
         <TForm v-else-if="agentEditorStep === 2" label-align="top">
@@ -520,9 +517,6 @@
                 @fail="handleAvatarUploadFail"
                 @remove="handleAvatarUploadRemove"
               />
-            </TFormItem>
-            <TFormItem class="form-grid-span-2" label="新建聊天记录保存在服务器">
-              <TSwitch v-model="mobileAgentDraft.persistToServer" />
             </TFormItem>
           </div>
         </TForm>
@@ -861,35 +855,19 @@ const savedServerRobotForDraft = computed(() => {
     ) || null
   )
 })
-const canOpenWorldGraph = computed(() => mobileAgentDraft.value.persistToServer)
+const canOpenWorldGraph = computed(() => true)
 const worldGraphEntryHint = computed(() => {
-  if (!mobileAgentDraft.value.persistToServer) {
-    return '开启保存到服务器后可编辑人物关系'
-  }
   return savedServerRobotForDraft.value ? '点击进入人物与关系编辑' : '保存后自动进入人物与关系编辑'
 })
 const worldGraphEntryActionLabel = computed(() => {
-  if (!mobileAgentDraft.value.persistToServer) {
-    return '需存服务端'
-  }
   return savedServerRobotForDraft.value ? '进入编辑' : '保存并进入'
 })
 
 const avatarUploadTips = computed(() =>
-  mobileAgentDraft.value.persistToServer
-    ? '支持 jpg/png/webp/gif/svg/avif，最大 10MB；点击“确定”时上传头像'
-    : '当前未开启“上传到服务器”，不会执行头像上传',
+  '支持 jpg/png/webp/gif/svg/avif，最大 10MB；点击“确定”时上传头像',
 )
 
 async function requestAvatarUpload(files: UploadFile | UploadFile[]): Promise<RequestMethodResponse> {
-  if (!mobileAgentDraft.value.persistToServer) {
-    return {
-      status: 'fail',
-      error: '请先开启“上传到服务器”再上传头像',
-      response: {},
-    }
-  }
-
   const currentFile = Array.isArray(files) ? files[0] : files
   const rawFile = currentFile?.raw
   if (!(rawFile instanceof File)) {
@@ -971,11 +949,6 @@ function handleAgentTemplateImportChange(event: Event) {
 }
 
 async function handleOpenWorldGraphFromEditor() {
-  if (!mobileAgentDraft.value.persistToServer) {
-    MessagePlugin.warning('请先开启“新建聊天记录保存在服务器”')
-    return
-  }
-
   if (savingAvatarOnSubmit.value || savingMobileAgent.value) {
     return
   }
@@ -1002,7 +975,7 @@ async function handleOpenWorldGraphFromEditor() {
 }
 
 async function handleSaveMobileAgent() {
-  if (!mobileAgentDraft.value.persistToServer || !hasPendingAvatarFile.value) {
+  if (!hasPendingAvatarFile.value) {
     emit('save-mobile-agent')
     return
   }

@@ -19,7 +19,6 @@ from .graph import (
     numeric_payload_for_answerer,
     extract_usage,
     memory_node,
-    refresh_state_memory_context,
     story_outline_node,
     world_graph_writeback_node,
 )
@@ -69,6 +68,47 @@ def should_refresh_structured_memory(history: list[ChatMessage], _structured_mem
     return next_user_turn_index % normalize_positive_int(interval, 3) == 0
 
 
+def build_request_state(request: RunRequest) -> tuple[dict, StructuredMemory]:
+    memory_schema = request.memory_schema
+    structured_memory = normalize_structured_memory(memory_schema, request.structured_memory.model_dump())
+    state = build_initial_state(request, request.history, memory_schema, structured_memory)
+    if request.final_response:
+        state["final_response"] = request.final_response
+    return state, structured_memory
+
+
+def save_memory_to_thread(request: RunRequest, memory: StructuredMemory, state: dict) -> None:
+    current_thread = store.load(request.thread_id)
+    if current_thread:
+        store.save(
+            ThreadState(
+                thread_id=request.thread_id,
+                messages=current_thread.messages,
+                memory_schema=current_thread.memory_schema,
+                structured_memory=memory,
+                numeric_state=current_thread.numeric_state,
+                story_outline=current_thread.story_outline,
+            )
+        )
+        return
+
+    next_messages = [
+        *request.history,
+        ChatMessage(role="user", content=request.prompt),
+        ChatMessage(role="assistant", content=request.final_response or ""),
+    ]
+    store.save(
+        ThreadState(
+            thread_id=request.thread_id,
+            messages=next_messages,
+            memory_schema=request.memory_schema,
+            structured_memory=memory,
+            numeric_state=state.get("numeric_state") or {},
+            story_outline=state.get("story_outline") or "",
+        )
+    )
+
+
 @app.get("/health")
 async def health():
     return JSONResponse({"ok": True})
@@ -107,7 +147,6 @@ async def run_stream(request: RunRequest):
         try:
             yield sse({"type": "run_started", "threadId": request.thread_id})
             final_response = ""
-            final_memory = structured_memory
             usage = {"prompt_tokens": 0, "completion_tokens": 0}
             try:
                 numeric_payload = await numeric_agent_node(state)
@@ -117,7 +156,6 @@ async def run_stream(request: RunRequest):
             usage = numeric_payload.get("usage") or usage
             yield sse({"type": "numeric_state_updated", "state": state.get("numeric_state") or {}})
 
-            has_world_graph = bool(str((state.get("world_graph_payload") or {}).get("meta", {}).get("robotId") or "").strip())
             try:
                 yield sse({"type": "story_outline_started"})
                 outline_payload = await story_outline_node(state)
@@ -160,41 +198,6 @@ async def run_stream(request: RunRequest):
                 "numeric_state": state.get("numeric_state") or {},
             })
 
-            if should_refresh_structured_memory(
-                history,
-                state["structured_memory"],
-                state["structured_memory_interval"],
-            ):
-                yield sse({"type": "memory_started"})
-                try:
-                    memory_payload = await memory_node(state)
-                except Exception as error:
-                    raise RuntimeError(format_stage_error(request, "结构化记忆阶段", error)) from error
-                state.update(memory_payload)
-                final_memory = memory_payload.get("structured_memory") or final_memory
-                refresh_state_memory_context(state, final_memory)
-                usage = memory_payload.get("usage") or usage
-                yield sse({"type": "memory_updated", "memory": final_memory.model_dump()})
-
-            try:
-                if has_world_graph:
-                    yield sse({"type": "world_graph_writeback_started"})
-                world_graph_writeback_payload = await world_graph_writeback_node(state)
-                state.update(world_graph_writeback_payload)
-                usage = world_graph_writeback_payload.get("usage") or usage
-                yield sse({"type": "world_graph_writeback_ready"})
-            except Exception as error:
-                logger.exception(
-                    "world graph writeback failed for thread=%s session=%s",
-                    request.thread_id,
-                    request.session_id,
-                )
-                debug_log("[world-graph-writeback:error]", {
-                    "thread_id": request.thread_id,
-                    "session_id": request.session_id,
-                    "message": str(error),
-                })
-
             next_messages = [*history, ChatMessage(role="user", content=request.prompt), ChatMessage(role="assistant", content=final_response)]
             try:
                 store.save(
@@ -202,7 +205,7 @@ async def run_stream(request: RunRequest):
                         thread_id=request.thread_id,
                         messages=next_messages,
                         memory_schema=memory_schema,
-                        structured_memory=final_memory,
+                        structured_memory=state["structured_memory"],
                         numeric_state=state.get("numeric_state") or {},
                         story_outline=state.get("story_outline") or "",
                     )
@@ -214,10 +217,9 @@ async def run_stream(request: RunRequest):
                 "type": "run_completed",
                 "threadId": request.thread_id,
                 "message": final_response,
-                "memory": final_memory.model_dump(),
+                "memory": state["structured_memory"].model_dump(),
                 "numeric_state": state.get("numeric_state") or {},
                 "story_outline": state.get("story_outline") or "",
-                "world_graph_writeback_ops": state.get("world_graph_writeback_ops") or {},
                 "usage": usage,
             })
         except Exception as error:
@@ -227,3 +229,39 @@ async def run_stream(request: RunRequest):
             })
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/runs/memory")
+async def run_memory(request: RunRequest):
+    if not request.model_settings.model:
+        raise HTTPException(status_code=400, detail="model 不能为空")
+    if not request.prompt.strip():
+        raise HTTPException(status_code=400, detail="prompt 不能为空")
+
+    state, _structured_memory = build_request_state(request)
+    payload = await memory_node(state)
+    memory = payload.get("structured_memory")
+    if not isinstance(memory, StructuredMemory):
+        raise HTTPException(status_code=500, detail="结构化记忆结果无效")
+    save_memory_to_thread(request, memory, state)
+    return JSONResponse({
+        "threadId": request.thread_id,
+        "memory": memory.model_dump(),
+        "usage": payload.get("usage") or {"prompt_tokens": 0, "completion_tokens": 0},
+    })
+
+
+@app.post("/runs/world-graph-writeback")
+async def run_world_graph_writeback(request: RunRequest):
+    if not request.model_settings.model:
+        raise HTTPException(status_code=400, detail="model 不能为空")
+    if not request.prompt.strip():
+        raise HTTPException(status_code=400, detail="prompt 不能为空")
+
+    state, _structured_memory = build_request_state(request)
+    payload = await world_graph_writeback_node(state)
+    return JSONResponse({
+        "threadId": request.thread_id,
+        "world_graph_writeback_ops": payload.get("world_graph_writeback_ops") or {},
+        "usage": payload.get("usage") or {"prompt_tokens": 0, "completion_tokens": 0},
+    })

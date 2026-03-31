@@ -838,6 +838,80 @@ export async function updateWorldGraphLayout(user, robotId, layout) {
   return updateWorldGraphMeta(user, robotId, { layout })
 }
 
+export async function replaceWorldGraph(user, robotId, input) {
+  const { ownership, row } = await ensureGraphMeta(user, robotId)
+  const snapshot = normalizeWorldGraphSnapshot(
+    {
+      ...(input && typeof input === 'object' ? input : {}),
+      meta: {
+        ...(input?.meta && typeof input.meta === 'object' ? input.meta : {}),
+        robotId,
+      },
+    },
+    {
+      robotId,
+      robotName: ownership.robot.name,
+    },
+  )
+  const customRelationTypes = snapshot.relationTypes.filter((item) => item.code && !item.isBuiltin)
+  const { sequelize, RobotWorldRelationType } = getModels()
+
+  await sequelize.transaction(async (transaction) => {
+    await row.update({
+      title: snapshot.meta.title || `${ownership.robot.name} 世界设定`,
+      summary: snapshot.meta.summary,
+      calendarJson: JSON.stringify(snapshot.meta.calendar),
+      lastLayoutJson: JSON.stringify(snapshot.meta.layout),
+    }, { transaction })
+
+    await RobotWorldRelationType.destroy({
+      where: {
+        userId: ownership.userId,
+        robotId: ownership.scopedRobotId,
+      },
+      transaction,
+    })
+
+    for (const relationType of customRelationTypes) {
+      await RobotWorldRelationType.create({
+        id: scopeId(user, `world-relation-type:${randomUUID()}`),
+        userId: ownership.userId,
+        robotId: ownership.scopedRobotId,
+        code: relationType.code,
+        label: relationType.label,
+        description: relationType.description,
+        directionality: relationType.directionality,
+        sourceObjectTypesJson: JSON.stringify(relationType.sourceObjectTypes),
+        targetObjectTypesJson: JSON.stringify(relationType.targetObjectTypes),
+        isBuiltin: false,
+      }, { transaction })
+    }
+  })
+
+  await runNeo4jQuery(
+    `
+      MATCH (n:WorldNode {robot_id: $robotId})
+      DETACH DELETE n
+    `,
+    { robotId },
+  )
+
+  for (const node of snapshot.nodes) {
+    await saveWorldNode(user, robotId, node)
+  }
+
+  for (const edge of snapshot.edges) {
+    await saveWorldEdge(user, robotId, edge)
+  }
+
+  await row.reload()
+  await row.update({
+    graphVersion: Math.max(snapshot.meta.graphVersion, 1),
+  })
+
+  return getWorldGraph(user, robotId)
+}
+
 export async function saveWorldNode(user, robotId, input) {
   await ensureGraphMeta(user, robotId)
   const previous = input?.id ? await getWorldNodeById(robotId, String(input.id)) : null

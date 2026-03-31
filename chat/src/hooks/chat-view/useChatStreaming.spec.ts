@@ -71,7 +71,7 @@ function createStreamingTestContext() {
       summary: '',
       updatedAt: '',
       sourceMessageCount: 0,
-      persistToServer: false,
+      persistToServer: true,
       threshold: 20,
       recentMessageLimit: 10,
       structuredMemoryInterval: 3,
@@ -241,7 +241,7 @@ describe('useChatStreaming', () => {
 
     await Promise.resolve()
 
-    expect(syncChatResponse).toHaveBeenCalledWith({ refreshSession: false })
+    expect(syncChatResponse).toHaveBeenCalledWith({ refreshSession: true })
   })
 
   it('stores internal story outline updates without rendering them as chat content', async () => {
@@ -271,7 +271,7 @@ describe('useChatStreaming', () => {
 
     await Promise.resolve()
 
-    expect(syncChatResponse).toHaveBeenCalledWith({ refreshSession: false })
+    expect(syncChatResponse).toHaveBeenCalledWith({ refreshSession: true })
     expect(completeChatResponse).not.toHaveBeenCalled()
 
     chatServiceConfig.value.onMessage?.({

@@ -16,10 +16,12 @@ templates:
     numeric_guardrail: |
       数值信息说明：每个数值项中的 description 字段表示这个值的名字或含义。你只能读取、引用这里提供的 currentValue，不能以任何形式自行计算、修改、推断、纠正、补全或重写这些数值；如果正文需要提到数值，必须严格以这里给出的 currentValue 为准。
     structured_output_instruction: |
-      默认情况下，你应先完成正文回复；只有在确实需要用户从几个明确分支中选择下一步时，才在正文末尾追加 suggestions 结构块。
-      当正文中出现“请选择”“你想要哪一个”“你希望我继续哪一步”这类明确分支问题时，不能只写正文，必须同时返回 suggestions。suggestions 格式：<suggestions>[{"t":"按钮文字","p":"点击后发送的文本"}]</suggestions>。若发送文本与按钮文字相同，可省略 p。suggestions 应覆盖用户下一步最合理的 2 到 5 个选项，按钮文字要简短、直接、可执行。
-      仅当必须收集结构化填写信息、且该需求不适合用 suggestions 表达时，才允许返回 form 结构块。form 格式：<form>{"ti":"标题","de":"说明","st":"提交","fs":[{"n":"gender","l":"性别","t":"radio","r":true,"o":[{"l":"男","v":"male"},{"l":"女","v":"female"}]},{"n":"age","l":"年龄","t":"input","it":"number","r":true}]}</form>。表单短 key：ti=title，de=description，st=submitText，fs=fields。字段短 key：n=name，l=label，t=type，p=placeholder，r=required，it=inputType，m=multiple，o=options，d=defaultValue。选项短 key：l=label，v=value。fields.type 只允许 input、radio、checkbox、select。
-      suggestions 或 form 必须紧跟在正文末尾输出，不能放进 Markdown 代码块；每次回复最多只能返回一种结构块。不需要结构块时，不要输出任何额外包装、标签或解释。
+      默认情况下，你应先完成正文回复；只有在当前这轮回复里确实需要用户进行后续交互时，才在正文末尾追加结构块。
+      当当前正文是在让用户从几个明确分支中二选一、多选一、或决定下一步方向时，必须返回 suggestions，不能只写正文。典型触发词包括“请选择”“选一个”“你想要哪一个”“你希望我继续哪一步”“下面几个方向你选哪个”。suggestions 格式：<suggestions>[{"t":"按钮文字","p":"点击后发送的文本"}]</suggestions>。若发送文本与按钮文字相同，可省略 p。suggestions 应覆盖用户下一步最合理的 2 到 5 个选项，按钮文字要简短、直接、可执行。
+      当当前正文是在要求用户填写、补充、输入、提供、描述、说明、回复某段内容或某些资料时，必须返回 form，而不是 suggestions。即使用户上一轮已经主动输入过自由文本，只要你这轮正文仍然在向用户索取信息、让用户继续补充资料、或要求用户提交字段内容，也仍然必须返回 form，不能因为用户之前主动输入过就省略结构块。
+      form 适用于收集姓名、年龄、背景、设定、要求、补充说明、偏好、资料等填写型信息；suggestions 只适用于明确离散选项，不能拿 suggestions 代替“请你输入内容”。如果正文里明确要求用户自己输入内容、补充资料、填写字段、描述想法、说明需求，就优先使用 form。
+      form 格式：<form>{"ti":"标题","de":"说明","st":"提交","fs":[{"n":"gender","l":"性别","t":"radio","r":true,"o":[{"l":"男","v":"male"},{"l":"女","v":"female"}]},{"n":"age","l":"年龄","t":"input","it":"number","r":true}]}</form>。表单短 key：ti=title，de=description，st=submitText，fs=fields。字段短 key：n=name，l=label，t=type，p=placeholder，r=required，it=inputType，m=multiple，o=options，d=defaultValue。选项短 key：l=label，v=value。fields.type 只允许 input、radio、checkbox、select。
+      suggestions 或 form 必须紧跟在正文末尾输出，不能放进 Markdown 代码块；每次回复最多只能返回一种结构块。不需要结构块时，不要输出任何额外包装、标签或解释。结构块是否需要出现，只取决于你当前这轮正文是否在要求用户选择或填写，不取决于用户之前是否已经主动说过什么。
   memory_patch:
     system_instruction: |
       你负责把当前对话整理成结构化长期记忆的增量 patch。你必须严格遵循给定 schema，只输出 JSON。你输出的是所有分类的增量 patch，不是完整结果。顶层结构固定为：{"updated_at":"ISO时间","categories":[{"category_id":"分类ID","updated_at":"ISO时间","upserts":[{"id":"记录ID","summary":"一句话总结","source_turn_id":"来源轮次ID","updated_at":"ISO时间","values":{"字段名":"字段值"}}],"deletes":["要删除的记录ID"]}]}。upserts 表示新增或覆盖同 id 的记录；deletes 表示删除指定 id 的记录。如果某条旧记录没有变化，不要放进 upserts，也不要放进 deletes。对于你在输入中没有看到的旧记录，默认视为保留，绝对不要因为没看到就删除。categories 里只能使用 schema 中声明的 category_id。values 里只能写对应分类 schema 声明过的字段。除了 updated_at、categories、category_id、upserts、deletes 之外，不要输出任何额外字段。不要输出没有任何有效字段值的 item。只有当当前对话明确表明某条记忆失效、被更正、或应被移除时，才把它的 id 放入 deletes。
@@ -34,3 +36,16 @@ templates:
   world_graph_writeback:
     system_instruction: |
       你是正文生成后的世界图谱写回节点。你会收到完整世界图谱 JSON、用户输入和最终正文。你必须只输出 JSON，不要输出解释。输出格式固定为 {"upsert_nodes":[],"upsert_edges":[],"upsert_events":[],"append_node_snapshots":[],"append_edge_snapshots":[],"append_event_effects":[]}。只能写入正文里真正发生、被确认、被推进的变化，不能把仅仅计划中的内容写回。新增节点或事件时必须带 id；如果是新建节点且正文没有现成 id，可自己生成稳定临时 id。关系必须尽量使用图谱里已有 relation_type_code。不要输出 deletes，不要整图重写。
+
+      关于事件时间点与 sequenceIndex，必须严格遵守以下规则：
+      1. sequenceIndex 表示时间顺序，数字越小越早；0 是最早的时间点，通常对应开场、初始状态、故事刚开始时已成立的事件。
+      2. 同一个 sequenceIndex 允许存在多个事件。sequenceIndex 不是唯一键，不要因为同一时间点已经有事件，就强行把另一个同时发生/同阶段发生的事件改到别的时间点。
+      3. 如果正文描述的是“当前剧情继续推进后的新事件”，它的 sequenceIndex 不能早于已经发生的前序事件；不要把已经进入剧情后的事件回写到 0，除非正文明确在补写开场前史、初始设定或最早时间点的已知事实。
+      4. 如果正文描述的是与当前时间点并行、同步、同一阶段发生的多个事件，可以把它们写到同一个 sequenceIndex。
+      5. 如果正文描述的是明显晚于当前阶段的新推进、新转折、新后果，才把事件写到更大的 sequenceIndex；不要无根据地跳号，也不要随意重排已有事件。
+      6. 如果图谱里已经有事件 id 或明显可复用的既有事件，请优先 upsert 该事件并保持原有时间顺序一致，不要为了改文案把它挪到更早或更晚的时间点。
+
+      简单判断原则：
+      - “初始化 / 开场 / 故事开始前已成立” -> 倾向最早时间点，可为 0。
+      - “当前场景里同时发生的几件事” -> 可以共享同一个 sequenceIndex。
+      - “剧情已经推进后才发生的新事件” -> sequenceIndex 应不小于当前已发生阶段，通常保持不变或递增，不能倒退。

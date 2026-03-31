@@ -164,6 +164,10 @@ class RunRequest(CompatibleModel):
     thread_id: str
     session_id: str
     prompt: str
+    final_response: str = Field(
+        default="",
+        validation_alias=AliasChoices("final_response", "finalResponse"),
+    )
     user: RunUser
     model_settings: ModelConfig = Field(alias="model_config")
     robot: RobotProfile = Field(default_factory=RobotProfile)

@@ -211,6 +211,16 @@ export function getRobotWorldGraph(robotId: string) {
   return requestJson<RobotWorldGraph>(`/api/robots/${encodeURIComponent(robotId)}/world-graph`)
 }
 
+export function replaceRobotWorldGraph(robotId: string, graph: RobotWorldGraph) {
+  return requestJson<RobotWorldGraph>(`/api/robots/${encodeURIComponent(robotId)}/world-graph`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(graph),
+  })
+}
+
 export function updateRobotWorldGraphMeta(robotId: string, meta: Partial<RobotWorldGraphMeta>) {
   return requestJson<{ meta: RobotWorldGraphMeta }>(`/api/robots/${encodeURIComponent(robotId)}/world-graph/meta`, {
     method: 'PUT',

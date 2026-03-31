@@ -347,6 +347,18 @@ def normalize_world_graph_writeback_ops(value) -> dict:
     }
 
 
+def summarize_world_graph_writeback_ops(value: dict | None) -> dict:
+    payload = value if isinstance(value, dict) else {}
+    return {
+        "upsert_node_count": len(payload.get("upsert_nodes") or []),
+        "upsert_edge_count": len(payload.get("upsert_edges") or []),
+        "upsert_event_count": len(payload.get("upsert_events") or []),
+        "append_node_snapshot_count": len(payload.get("append_node_snapshots") or []),
+        "append_edge_snapshot_count": len(payload.get("append_edge_snapshots") or []),
+        "append_event_effect_count": len(payload.get("append_event_effects") or []),
+    }
+
+
 def history_text(history: list[dict], limit: int = DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT) -> str:
     if not history:
         return "暂无历史消息。"
@@ -622,6 +634,17 @@ async def update_memory_patch(
         "categories": [],
     })
     patch = normalize_memory_patch(schema, parsed)
+    debug_log("[memory-patch]", {
+        "thread_id": state.get("thread_id") or "",
+        "prompt": state.get("prompt") or "",
+        "history_limit": state.get("structured_memory_history_limit") or DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
+        "schema_category_count": len(schema.categories),
+        "current_memory_category_count": len(current_memory.categories),
+        "raw_output": raw,
+        "patch_category_count": len(patch.get("categories") or []),
+        "patch_upsert_count": sum(len(item.get("upserts") or []) for item in patch.get("categories") or []),
+        "patch_delete_count": sum(len(item.get("deletes") or []) for item in patch.get("categories") or []),
+    })
     return patch, usage
 
 
@@ -788,6 +811,14 @@ async def world_graph_writeback_node(state: AgentState) -> dict:
     usage = extract_usage(response)
     raw = response.content if isinstance(response.content, str) else str(response.content)
     parsed = normalize_world_graph_writeback_ops(parse_json_object(raw, {}))
+    debug_log("[world-graph-writeback]", {
+        "thread_id": state.get("thread_id") or "",
+        "prompt": state.get("prompt") or "",
+        "graph_robot_id": str(world_graph_payload.get("meta", {}).get("robotId") or ""),
+        "graph_version": world_graph_payload.get("meta", {}).get("graphVersion") or 0,
+        "raw_output": raw,
+        "summary": summarize_world_graph_writeback_ops(parsed),
+    })
     return {
         "world_graph_writeback_ops": parsed,
         "usage": usage,
