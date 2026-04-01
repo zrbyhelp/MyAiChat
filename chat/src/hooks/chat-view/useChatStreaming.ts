@@ -71,6 +71,7 @@ function createThinkingChunk(text: string, done = false): AIMessageContent {
 
 export function useChatStreaming(options: UseChatStreamingOptions) {
   let loadingRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  let finalSessionSynced = false
 
   function scheduleLoadingRefreshCleanup() {
     if (loadingRefreshTimer) {
@@ -132,6 +133,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
     endpoint: '/api/chat/stream',
     stream: true,
     onRequest: async (params) => {
+      finalSessionSynced = false
       options.beginInteractionLock()
       return {
         method: 'POST',
@@ -291,14 +293,23 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
       if (payload.type === 'done') {
         nextTick(() => {
           options.completeChatResponse()
+          if (!finalSessionSynced) {
+            finalSessionSynced = true
+            options.syncChatResponse({
+              refreshSession: options.currentSessionMemory.persistToServer,
+            })
+          }
         })
       }
       if (payload.type === 'background_done') {
-        nextTick(() => {
-          options.syncChatResponse({
-            refreshSession: options.currentSessionMemory.persistToServer,
+        if (!finalSessionSynced) {
+          nextTick(() => {
+            finalSessionSynced = true
+            options.syncChatResponse({
+              refreshSession: options.currentSessionMemory.persistToServer,
+            })
           })
-        })
+        }
       }
       return null
     },

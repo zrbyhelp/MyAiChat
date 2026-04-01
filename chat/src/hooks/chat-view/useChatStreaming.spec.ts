@@ -219,7 +219,7 @@ describe('useChatStreaming', () => {
     vi.useRealTimers()
   })
 
-  it('completes the visible response on done without triggering session sync directly', async () => {
+  it('completes the visible response and syncs session state on done', async () => {
     const { chatServiceConfig, completeChatResponse, syncChatResponse } = createStreamingTestContext()
 
     chatServiceConfig.value.onMessage?.({
@@ -231,10 +231,10 @@ describe('useChatStreaming', () => {
     await Promise.resolve()
 
     expect(completeChatResponse).toHaveBeenCalledTimes(1)
-    expect(syncChatResponse).not.toHaveBeenCalled()
+    expect(syncChatResponse).toHaveBeenCalledWith({ refreshSession: true })
   })
 
-  it('syncs the final session state when background work finishes', async () => {
+  it('keeps background_done as a compatibility fallback for legacy servers', async () => {
     const { chatServiceConfig, syncChatResponse } = createStreamingTestContext()
 
     chatServiceConfig.value.onMessage?.({
@@ -264,7 +264,7 @@ describe('useChatStreaming', () => {
     expect(applyStoryOutline).toHaveBeenCalledWith('本轮先推进角色冲突，再落到对话回应。')
   })
 
-  it('can process background_done before done when final completion is delayed until server writeback ends', async () => {
+  it('does not sync the final session twice when background_done arrives before done', async () => {
     const { chatServiceConfig, completeChatResponse, syncChatResponse } = createStreamingTestContext()
 
     chatServiceConfig.value.onMessage?.({
@@ -287,5 +287,6 @@ describe('useChatStreaming', () => {
     await Promise.resolve()
 
     expect(completeChatResponse).toHaveBeenCalledTimes(1)
+    expect(syncChatResponse).toHaveBeenCalledTimes(1)
   })
 })

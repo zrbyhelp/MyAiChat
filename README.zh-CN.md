@@ -96,7 +96,7 @@ flowchart LR
 .
 ├─ chat/                  # Vue 3 + Vite + TS 聊天前端
 ├─ main/                  # Node.js + Express 网关 / API / 后台接口
-├─ agent/                 # Python FastAPI + LangGraph 智能体服务
+├─ agent/                 # Node.js + Express + LangGraph 智能体服务
 ├─ upload/                # Node.js 上传服务（MinIO）
 ├─ admin/                 # Vue 3 管理后台前端
 ├─ docs/                  # 补充设计与说明文档
@@ -161,8 +161,7 @@ cd main && npm install && npm run dev
 cd chat && pnpm install && pnpm dev
 cd upload && npm install && npm run dev
 cd admin && pnpm install && pnpm dev
-cd agent && python -m pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+cd agent && npm install && npm run dev
 ```
 
 若启用 MySQL 存储，先执行：
@@ -225,8 +224,8 @@ npm run spell:check
 
 ```bash
 cd agent
-python -m pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+npm install
+npm run dev
 ```
 
 ### upload
@@ -285,7 +284,8 @@ npm run console:init-config
 
 - `AGENT_STORAGE_DRIVER`：`file` / `mysql`
 - `DB_*`：启用 MySQL 时的连接参数
-- `AGENT_RELOAD=true`：容器内启用自动重载
+- `AGENT_FILE_STORE_DIR`：文件存储模式下的线程状态目录
+- `AGENT_DEBUG_LOGS`：是否输出 agent 调试日志
 
 ### `upload/.env`
 
@@ -309,6 +309,7 @@ npm run console:init-config
 
 - 健康检查：`GET /health`
 - 流式运行：`POST /runs/stream`
+- 结构化记忆：`POST /runs/memory`
 - 世界图谱回写：`POST /runs/world-graph-writeback`
 - 文档总结 / 生成辅助：`POST /runs/document-summary`
 

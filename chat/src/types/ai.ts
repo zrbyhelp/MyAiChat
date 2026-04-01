@@ -270,6 +270,28 @@ export interface DeleteSessionResponse {
   deletedSessionId: string
 }
 
+export type SessionBackgroundTaskKind = 'memory' | 'graph_writeback' | ''
+export type SessionBackgroundStatusValue =
+  | 'idle'
+  | 'queued'
+  | 'memory_processing'
+  | 'graph_writeback_processing'
+  | 'completed'
+  | 'failed'
+
+export interface SessionBackgroundStatus {
+  sessionId: string
+  status: SessionBackgroundStatusValue
+  pendingTaskCount: number
+  currentTask: SessionBackgroundTaskKind
+  lastError: string
+  updatedAt: string
+}
+
+export interface SessionBackgroundStatusResponse {
+  status: SessionBackgroundStatus
+}
+
 export type WorldObjectType = 'character' | 'organization' | 'location' | 'event' | 'item'
 export type WorldRelationDirectionality = 'directed' | 'undirected'
 export type WorldTimelineEffectTargetKind = 'node' | 'relation'

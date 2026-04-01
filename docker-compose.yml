@@ -101,18 +101,18 @@ services:
 
   agent:
     build:
-      context: ./agent
+      context: .
+      dockerfile: agent/Dockerfile
     restart: unless-stopped
     environment:
-      AGENT_RELOAD: ${AGENT_RELOAD:-false}
+      PORT: 8000
       AGENT_STORAGE_DRIVER: mysql
       DB_HOST: mysql
       DB_PORT: 3306
       DB_NAME: ${DB_NAME:-myaichat}
       DB_USER: ${DB_USER:-myaichat}
       DB_PASSWORD: ${DB_PASSWORD:-myaichat}
-    volumes:
-      - ./agent/app:/app/app
+      AGENT_DEBUG_LOGS: ${AGENT_DEBUG_LOGS:-false}
     depends_on:
       mysql:
         condition: service_healthy

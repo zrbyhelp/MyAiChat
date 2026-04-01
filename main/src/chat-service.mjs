@@ -22,18 +22,143 @@ import {
   normalizeSuggestionItems,
   reconcileAssistantStructuredOutput,
 } from './structured.mjs'
-import { enqueueBackgroundJob } from './background-job-queue.mjs'
 import { retrieveRobotKnowledgeBySummary } from './robot-generation-service.mjs'
 import {
-  applyWorldGraphWritebackOps,
   applyWorldGraphWritebackToSnapshot,
   cloneWorldGraphSnapshot,
   createEmptyWorldGraphSnapshot,
   getWorldGraph,
   normalizeWorldGraphSnapshot,
 } from './world-graph-service.mjs'
+import { enqueueBackgroundJob } from './background-job-queue.mjs'
 
 const DEFAULT_AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8000'
+const SESSION_BACKGROUND_STATUS_TTL_MS = 5000
+const SESSION_BACKGROUND_TASK_KIND_MEMORY = 'memory'
+const SESSION_BACKGROUND_TASK_KIND_WORLD_GRAPH = 'graph_writeback'
+const sessionBackgroundStateMap = new Map()
+
+function createSessionBackgroundState(sessionId = '') {
+  return {
+    sessionId: String(sessionId || '').trim(),
+    status: 'idle',
+    pendingTaskCount: 0,
+    currentTask: '',
+    lastError: '',
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+function cloneSessionBackgroundState(state) {
+  const source = state && typeof state === 'object' ? state : createSessionBackgroundState()
+  return {
+    sessionId: String(source.sessionId || '').trim(),
+    status: ['queued', 'memory_processing', 'graph_writeback_processing', 'completed', 'failed', 'idle']
+      .includes(String(source.status || ''))
+      ? String(source.status)
+      : 'idle',
+    pendingTaskCount: Number.isFinite(Number(source.pendingTaskCount))
+      ? Math.max(0, Math.round(Number(source.pendingTaskCount)))
+      : 0,
+    currentTask: [SESSION_BACKGROUND_TASK_KIND_MEMORY, SESSION_BACKGROUND_TASK_KIND_WORLD_GRAPH].includes(String(source.currentTask || ''))
+      ? String(source.currentTask)
+      : '',
+    lastError: String(source.lastError || ''),
+    updatedAt: String(source.updatedAt || new Date().toISOString()),
+  }
+}
+
+function updateSessionBackgroundState(sessionId, updater) {
+  const key = String(sessionId || '').trim()
+  if (!key) {
+    return createSessionBackgroundState()
+  }
+
+  const current = cloneSessionBackgroundState(sessionBackgroundStateMap.get(key) || createSessionBackgroundState(key))
+  const nextValue = typeof updater === 'function' ? updater(current) : updater
+  const next = cloneSessionBackgroundState({ ...current, ...(nextValue || {}), sessionId: key, updatedAt: new Date().toISOString() })
+  sessionBackgroundStateMap.set(key, next)
+  return next
+}
+
+function incrementSessionBackgroundPendingTasks(sessionId, count) {
+  return updateSessionBackgroundState(sessionId, (current) => {
+    const nextPendingTaskCount = current.pendingTaskCount + Math.max(0, Math.round(Number(count) || 0))
+    if (!nextPendingTaskCount) {
+      return current
+    }
+    return {
+      pendingTaskCount: nextPendingTaskCount,
+      status: current.currentTask ? current.status : 'queued',
+      lastError: '',
+    }
+  })
+}
+
+function markSessionBackgroundTaskStarted(sessionId, taskKind) {
+  const nextStatus = taskKind === SESSION_BACKGROUND_TASK_KIND_MEMORY
+    ? 'memory_processing'
+    : 'graph_writeback_processing'
+  return updateSessionBackgroundState(sessionId, {
+    status: nextStatus,
+    currentTask: taskKind,
+    lastError: '',
+  })
+}
+
+function completeSessionBackgroundTask(sessionId) {
+  return updateSessionBackgroundState(sessionId, (current) => {
+    const nextPendingTaskCount = Math.max(0, current.pendingTaskCount - 1)
+    return {
+      pendingTaskCount: nextPendingTaskCount,
+      currentTask: '',
+      status: nextPendingTaskCount > 0 ? 'queued' : 'completed',
+    }
+  })
+}
+
+function failSessionBackgroundPipeline(sessionId, error, taskCountToDrop) {
+  const normalizedTaskCount = Math.max(1, Math.round(Number(taskCountToDrop) || 1))
+  return updateSessionBackgroundState(sessionId, (current) => ({
+    pendingTaskCount: Math.max(0, current.pendingTaskCount - normalizedTaskCount),
+    status: 'failed',
+    currentTask: '',
+    lastError: error instanceof Error ? error.message : String(error || '会话异步处理失败'),
+  }))
+}
+
+function shouldExpireCompletedBackgroundStatus(state) {
+  if (state.status !== 'completed' || state.pendingTaskCount > 0) {
+    return false
+  }
+
+  const updatedAtMs = Date.parse(String(state.updatedAt || ''))
+  if (!Number.isFinite(updatedAtMs)) {
+    return true
+  }
+
+  return Date.now() - updatedAtMs >= SESSION_BACKGROUND_STATUS_TTL_MS
+}
+
+export function getSessionBackgroundStatus(sessionId) {
+  const key = String(sessionId || '').trim()
+  if (!key) {
+    return createSessionBackgroundState()
+  }
+
+  const current = cloneSessionBackgroundState(sessionBackgroundStateMap.get(key) || createSessionBackgroundState(key))
+  if (shouldExpireCompletedBackgroundStatus(current)) {
+    const idleState = updateSessionBackgroundState(key, {
+      status: 'idle',
+      pendingTaskCount: 0,
+      currentTask: '',
+      lastError: '',
+    })
+    return cloneSessionBackgroundState(idleState)
+  }
+
+  return current
+}
 
 export function sanitizeBaseUrl(baseUrl) {
   return String(baseUrl || '').replace(/\/+$/, '')
@@ -136,6 +261,16 @@ function describeFetchError(error, endpoint, actionLabel) {
   return `${actionLabel}失败：${error.message}`
 }
 
+export function extractAgentServiceErrorMessage(rawText) {
+  try {
+    const parsed = JSON.parse(String(rawText || ''))
+    const message = String(parsed?.detail || parsed?.message || '').trim()
+    return message || ''
+  } catch {
+    return ''
+  }
+}
+
 export function detectReasoningSupport(provider, model) {
   if (String(provider || 'openai') === 'ollama') {
     return false
@@ -164,6 +299,26 @@ function addUsageTotals(left, right) {
     promptTokens: normalizedLeft.promptTokens + normalizedRight.promptTokens,
     completionTokens: normalizedLeft.completionTokens + normalizedRight.completionTokens,
   }
+}
+
+function hasSchemaCategories(schema) {
+  return Array.isArray(schema?.categories) && schema.categories.length > 0
+}
+
+export function resolveEffectiveMemorySchema(existingSchema, requestedSchema) {
+  const normalizedExisting = hasSchemaCategories(existingSchema) ? normalizeMemorySchema(existingSchema) : null
+  const normalizedRequested = hasSchemaCategories(requestedSchema) ? normalizeMemorySchema(requestedSchema) : null
+
+  if (!normalizedExisting) {
+    return normalizedRequested || normalizeMemorySchema(existingSchema || requestedSchema)
+  }
+  if (!normalizedRequested) {
+    return normalizedExisting
+  }
+  if (JSON.stringify(normalizedExisting) !== JSON.stringify(normalizedRequested)) {
+    return normalizedRequested
+  }
+  return normalizedExisting
 }
 
 function hasWorldGraphWritebackOps(value) {
@@ -330,6 +485,31 @@ function buildWorldGraphTriggerMeta(agentRequest) {
   }
 }
 
+export function shouldRunWorldGraphBackgroundJob(agentRequest) {
+  const meta = buildWorldGraphTriggerMeta(agentRequest)
+  return Boolean(
+    meta.robotId
+    || meta.nodeCount
+    || meta.edgeCount
+    || meta.relationTypeCount
+    || meta.eventTimeline.length,
+  )
+}
+
+export function applyWorldGraphWritebackToSessionGraph(sessionGraph, fallbackGraph, writebackOps) {
+  const latestGraph = sessionGraph || fallbackGraph || null
+  const writebackResult = applyWorldGraphWritebackToSnapshot(latestGraph, writebackOps)
+  return {
+    graph: writebackResult.graph,
+    warnings: Array.isArray(writebackResult.warnings) ? writebackResult.warnings : [],
+    persistenceMode: 'session-snapshot',
+    appliedNodeCount: Number(writebackResult.appliedNodeCount || 0),
+    appliedEdgeCount: Number(writebackResult.appliedEdgeCount || 0),
+    appliedEffectCount: Number(writebackResult.appliedEffectCount || 0),
+    appliedSnapshotCount: Number(writebackResult.appliedSnapshotCount || 0),
+  }
+}
+
 function resolveSessionRobotId(payload, session) {
   const candidates = [
     session?.robot?.id,
@@ -367,6 +547,7 @@ async function loadWorldGraphPayload(user, payload, session) {
 async function buildAgentRequest(payload, user, session) {
   const memory = session?.memory || DEFAULT_SESSION_MEMORY
   const robot = session?.robot || payload.robot || DEFAULT_SESSION_ROBOT
+  const memorySchema = resolveEffectiveMemorySchema(session?.memorySchema, payload?.robot?.memorySchema)
   const knowledgeContextText = await maybeResolveKnowledgeContext(user, payload, session, {
     ...robot,
     description: payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || '',
@@ -447,7 +628,7 @@ async function buildAgentRequest(payload, user, session) {
       role: item.role,
       content: item.content,
     })),
-    memory_schema: normalizeMemorySchema(session?.memorySchema || payload.robot?.memorySchema),
+    memory_schema: memorySchema,
     structured_memory: normalizeStructuredMemory(session?.structuredMemory),
     numeric_state:
       typeof session?.numericState === 'object' && session?.numericState !== null
@@ -544,7 +725,8 @@ async function requestAgentRun(payload, user) {
     })
 
     if (!response.ok) {
-      throw new Error((await response.text()) || 'Agent 请求失败')
+      const rawText = await response.text()
+      throw new Error(extractAgentServiceErrorMessage(rawText) || rawText || 'Agent 请求失败')
     }
 
     return { response, session, agentRequest }
@@ -566,7 +748,8 @@ async function requestAgentJson(endpointPath, requestBody, payload, session, act
     })
 
     if (!response.ok) {
-      throw new Error((await response.text()) || `${actionLabel}失败`)
+      const rawText = await response.text()
+      throw new Error(extractAgentServiceErrorMessage(rawText) || rawText || `${actionLabel}失败`)
     }
 
     return await response.json()
@@ -587,6 +770,34 @@ function buildBackgroundAgentRequest(agentRequest, result) {
         : agentRequest.numeric_state || agentRequest.numericState || {},
     story_outline: String(result.storyOutline || agentRequest.story_outline || agentRequest.storyOutline || ''),
   }
+}
+
+export function hydrateBackgroundAgentRequest(agentRequest, session) {
+  const latestSession = session && typeof session === 'object' ? session : null
+  return {
+    ...agentRequest,
+    memory_schema: resolveEffectiveMemorySchema(
+      agentRequest?.memory_schema || agentRequest?.memorySchema,
+      latestSession?.memorySchema,
+    ),
+    structured_memory: normalizeStructuredMemory(
+      latestSession?.structuredMemory || agentRequest?.structured_memory || agentRequest?.structuredMemory,
+    ),
+    numeric_state: agentRequest?.numeric_state || agentRequest?.numericState || {},
+    story_outline: String(agentRequest?.story_outline || agentRequest?.storyOutline || ''),
+    world_graph:
+      latestSession?.worldGraph
+        ? normalizeWorldGraphSnapshot(latestSession.worldGraph)
+        : agentRequest?.world_graph || agentRequest?.worldGraph || null,
+  }
+}
+
+export function buildWorldGraphBackgroundAgentRequest(agentRequest, session) {
+  const hydrated = hydrateBackgroundAgentRequest(agentRequest, session)
+  const nextRequest = { ...hydrated }
+  delete nextRequest.memory_schema
+  delete nextRequest.memorySchema
+  return nextRequest
 }
 
 async function patchSessionStructuredMemory(user, sessionId, memory, usage) {
@@ -621,6 +832,7 @@ async function commitSession(payload, user, result, existingSession) {
   const now = new Date().toISOString()
   const existing = existingSession || await getSessionRecord(user, payload.sessionId)
   const nextMessages = [...(existing?.messages || [])]
+  const memorySchema = resolveEffectiveMemorySchema(existing?.memorySchema, payload?.robot?.memorySchema)
 
   nextMessages.push({
     id: `user-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -656,7 +868,7 @@ async function commitSession(payload, user, result, existingSession) {
     storyOutline: String(result.storyOutline || existing?.storyOutline || ''),
     messages: nextMessages,
     memory: existing?.memory,
-    memorySchema: normalizeMemorySchema(existing?.memorySchema || payload.robot?.memorySchema),
+    memorySchema,
     structuredMemory: normalizeStructuredMemory(result.memory || existing?.structuredMemory),
     numericState:
       typeof result.numericState === 'object' && result.numericState !== null
@@ -915,7 +1127,9 @@ async function runAgentAndCollect(payload, user, onEvent) {
 }
 
 async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
-  const response = await requestAgentJson('/runs/memory', agentRequest, payload, null, '结构化记忆后台任务')
+  const latestSession = await getSessionRecord(user, payload.sessionId)
+  const requestBody = hydrateBackgroundAgentRequest(agentRequest, latestSession)
+  const response = await requestAgentJson('/runs/memory', requestBody, payload, null, '结构化记忆后台任务')
   const normalizedMemory = normalizeStructuredMemory(response?.memory)
   const updatedSession = await patchSessionStructuredMemory(user, payload.sessionId, normalizedMemory, response?.usage)
 
@@ -927,9 +1141,11 @@ async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
 }
 
 async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
+  const latestSession = await getSessionRecord(user, payload.sessionId)
+  const requestBody = buildWorldGraphBackgroundAgentRequest(agentRequest, latestSession)
   const response = await requestAgentJson(
     '/runs/world-graph-writeback',
-    agentRequest,
+    requestBody,
     payload,
     null,
     '世界图谱后台任务',
@@ -937,8 +1153,7 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
   const writebackOps = response?.world_graph_writeback_ops || response?.worldGraphWritebackOps || {}
   const writebackSummary = summarizeWorldGraphWritebackOps(writebackOps)
   const writebackEvents = summarizeWorldGraphEventTimeline(writebackOps.upsert_events || writebackOps.upsertEvents)
-  const robotId = getBackgroundWorldGraphRobotId(agentRequest)
-  let nextGraph = normalizeWorldGraphSnapshot(agentRequest.world_graph || agentRequest.worldGraph || null)
+  let nextGraph = normalizeWorldGraphSnapshot(requestBody.world_graph || requestBody.worldGraph || null)
   let warnings = []
   let persistenceMode = 'session-snapshot'
   let applySummary = {
@@ -949,56 +1164,20 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
   }
 
   if (hasWorldGraphWritebackOps(writebackOps)) {
-    if (robotId) {
-      try {
-        const persistedResult = await applyWorldGraphWritebackOps(user, robotId, writebackOps)
-        nextGraph = cloneWorldGraphSnapshot(await getWorldGraph(user, robotId))
-        warnings = Array.isArray(persistedResult?.warnings) ? persistedResult.warnings : []
-        applySummary = {
-          appliedNodeCount: Number(persistedResult?.appliedNodeCount || 0),
-          appliedEdgeCount: Number(persistedResult?.appliedEdgeCount || 0),
-          appliedEffectCount: Number(persistedResult?.appliedEffectCount || 0),
-          appliedSnapshotCount: Number(persistedResult?.appliedSnapshotCount || 0),
-        }
-        persistenceMode = 'robot-graph'
-      } catch (error) {
-        backgroundLog('[background-world-graph:persist-failed]', {
-          sessionId: payload.sessionId,
-          threadId: agentRequest.thread_id || agentRequest.threadId,
-          robotId,
-          writebackSummary,
-          writebackEvents,
-          message: error instanceof Error ? error.message : '世界图谱持久化失败',
-        }, 'error')
-        const persistedSession = await getSessionRecord(user, payload.sessionId)
-        const latestGraph = persistedSession?.worldGraph || nextGraph
-        const writebackResult = applyWorldGraphWritebackToSnapshot(latestGraph, writebackOps)
-        nextGraph = writebackResult.graph
-        warnings = [
-          ...(Array.isArray(writebackResult.warnings) ? writebackResult.warnings : []),
-          '真实世界图谱持久化失败，已回退为仅更新当前会话快照',
-        ]
-        applySummary = {
-          appliedNodeCount: Number(writebackResult.appliedNodeCount || 0),
-          appliedEdgeCount: Number(writebackResult.appliedEdgeCount || 0),
-          appliedEffectCount: Number(writebackResult.appliedEffectCount || 0),
-          appliedSnapshotCount: Number(writebackResult.appliedSnapshotCount || 0),
-        }
-        persistenceMode = 'session-snapshot-fallback'
-      }
-    } else {
-      const persistedSession = await getSessionRecord(user, payload.sessionId)
-      const latestGraph = persistedSession?.worldGraph || nextGraph
-      const writebackResult = applyWorldGraphWritebackToSnapshot(latestGraph, writebackOps)
-      nextGraph = writebackResult.graph
-      warnings = Array.isArray(writebackResult.warnings) ? writebackResult.warnings : []
-      applySummary = {
-        appliedNodeCount: Number(writebackResult.appliedNodeCount || 0),
-        appliedEdgeCount: Number(writebackResult.appliedEdgeCount || 0),
-        appliedEffectCount: Number(writebackResult.appliedEffectCount || 0),
-        appliedSnapshotCount: Number(writebackResult.appliedSnapshotCount || 0),
-      }
+    const writebackResult = applyWorldGraphWritebackToSessionGraph(
+      latestSession?.worldGraph || null,
+      nextGraph,
+      writebackOps,
+    )
+    nextGraph = writebackResult.graph
+    warnings = writebackResult.warnings
+    applySummary = {
+      appliedNodeCount: writebackResult.appliedNodeCount,
+      appliedEdgeCount: writebackResult.appliedEdgeCount,
+      appliedEffectCount: writebackResult.appliedEffectCount,
+      appliedSnapshotCount: writebackResult.appliedSnapshotCount,
     }
+    persistenceMode = writebackResult.persistenceMode
   }
 
   const updatedSession = await patchSessionWorldGraph(user, payload.sessionId, nextGraph, response?.usage)
@@ -1016,56 +1195,10 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
   }
 }
 
-function createBackgroundJobs(result, payload, user, onEvent) {
-  const jobs = []
-  const agentRequest = result.agentRequest
+function buildSessionBackgroundTaskPlan(agentRequest, payload) {
+  const tasks = []
   const structuredMemoryTriggerMeta = buildStructuredMemoryTriggerMeta(agentRequest)
-
-  if (structuredMemoryTriggerMeta.triggered) {
-    jobs.push(
-      enqueueBackgroundJob({
-        sessionKey: payload.sessionId,
-        run: async () => {
-          try {
-            backgroundLog('[background-memory:started]', {
-              sessionId: payload.sessionId,
-              threadId: agentRequest.thread_id || agentRequest.threadId,
-              persistToServer: true,
-              ...structuredMemoryTriggerMeta,
-            })
-            const memoryResult = await runStructuredMemoryBackgroundJob(agentRequest, payload, user)
-            backgroundLog('[background-memory:succeeded]', {
-              sessionId: payload.sessionId,
-              threadId: agentRequest.thread_id || agentRequest.threadId,
-              persistToServer: true,
-              categoryCount: Array.isArray(memoryResult.memory?.categories) ? memoryResult.memory.categories.length : 0,
-              recordCount: countStructuredMemoryItems(memoryResult.memory),
-              usage: memoryResult.usage,
-            })
-            await onEvent?.({
-              type: 'structured_memory',
-              memory: memoryResult.memory,
-            })
-            if (memoryResult.session) {
-              await onEvent?.({
-                type: 'usage',
-                promptTokens: memoryResult.session.usage?.promptTokens || 0,
-                completionTokens: memoryResult.session.usage?.completionTokens || 0,
-              })
-            }
-            return memoryResult
-          } catch (error) {
-            console.error('[background-memory:failed]', {
-              sessionId: payload.sessionId,
-              threadId: agentRequest.thread_id || agentRequest.threadId,
-              message: error instanceof Error ? error.message : '结构化记忆后台任务失败',
-            })
-            return null
-          }
-        },
-      }),
-    )
-  } else {
+  if (!structuredMemoryTriggerMeta.triggered) {
     backgroundLog('[background-memory:skipped]', {
       sessionId: payload.sessionId,
       threadId: agentRequest.thread_id || agentRequest.threadId,
@@ -1073,79 +1206,126 @@ function createBackgroundJobs(result, payload, user, onEvent) {
       reason: 'interval_not_reached',
       ...structuredMemoryTriggerMeta,
     })
+  } else {
+    tasks.push({
+      kind: SESSION_BACKGROUND_TASK_KIND_MEMORY,
+      meta: structuredMemoryTriggerMeta,
+    })
   }
 
   const worldGraphTriggerMeta = buildWorldGraphTriggerMeta(agentRequest)
-
-  if (worldGraphTriggerMeta.robotId) {
-    jobs.push(
-      enqueueBackgroundJob({
-        sessionKey: payload.sessionId,
-        run: async () => {
-          try {
-            backgroundLog('[background-world-graph:started]', {
-              sessionId: payload.sessionId,
-              threadId: agentRequest.thread_id || agentRequest.threadId,
-              persistToServer: true,
-              ...worldGraphTriggerMeta,
-            })
-            const worldGraphResult = await runWorldGraphBackgroundJob(agentRequest, payload, user)
-            backgroundLog('[background-world-graph:succeeded]', {
-              sessionId: payload.sessionId,
-              threadId: agentRequest.thread_id || agentRequest.threadId,
-              persistToServer: true,
-              robotId: worldGraphTriggerMeta.robotId,
-              persistenceMode: worldGraphResult.persistenceMode,
-              writebackSummary: worldGraphResult.writebackSummary,
-              writebackEvents: worldGraphResult.writebackEvents,
-              resultTimeline: worldGraphResult.resultTimeline,
-              appliedNodeCount: worldGraphResult.appliedNodeCount,
-              appliedEdgeCount: worldGraphResult.appliedEdgeCount,
-              appliedEffectCount: worldGraphResult.appliedEffectCount,
-              appliedSnapshotCount: worldGraphResult.appliedSnapshotCount,
-              warningCount: Array.isArray(worldGraphResult.warnings) ? worldGraphResult.warnings.length : 0,
-              usage: worldGraphResult.usage,
-            })
-            await onEvent?.({
-              type: 'session_world_graph',
-              graph: worldGraphResult.graph,
-              warnings: worldGraphResult.warnings,
-            })
-            if (worldGraphResult.session) {
-              await onEvent?.({
-                type: 'usage',
-                promptTokens: worldGraphResult.session.usage?.promptTokens || 0,
-                completionTokens: worldGraphResult.session.usage?.completionTokens || 0,
-              })
-            }
-            return worldGraphResult
-          } catch (error) {
-            console.error('[background-world-graph:failed]', {
-              sessionId: payload.sessionId,
-              threadId: agentRequest.thread_id || agentRequest.threadId,
-              message: error instanceof Error ? error.message : '世界图谱后台任务失败',
-            })
-            return null
-          }
-        },
-      }),
-    )
-  } else {
+  if (!shouldRunWorldGraphBackgroundJob(agentRequest)) {
     backgroundLog('[background-world-graph:skipped]', {
       sessionId: payload.sessionId,
       threadId: agentRequest.thread_id || agentRequest.threadId,
       persistToServer: true,
-      reason: 'missing_robot_id',
+      reason: 'missing_world_graph_context',
       ...worldGraphTriggerMeta,
+    })
+  } else {
+    tasks.push({
+      kind: SESSION_BACKGROUND_TASK_KIND_WORLD_GRAPH,
+      meta: worldGraphTriggerMeta,
     })
   }
 
-  return jobs
+  return tasks
+}
+
+async function runSessionBackgroundTask(task, agentRequest, payload, user) {
+  if (task.kind === SESSION_BACKGROUND_TASK_KIND_MEMORY) {
+    backgroundLog('[background-memory:started]', {
+      sessionId: payload.sessionId,
+      threadId: agentRequest.thread_id || agentRequest.threadId,
+      persistToServer: true,
+      ...task.meta,
+    })
+    const memoryResult = await runStructuredMemoryBackgroundJob(agentRequest, payload, user)
+    backgroundLog('[background-memory:succeeded]', {
+      sessionId: payload.sessionId,
+      threadId: agentRequest.thread_id || agentRequest.threadId,
+      persistToServer: true,
+      categoryCount: Array.isArray(memoryResult.memory?.categories) ? memoryResult.memory.categories.length : 0,
+      recordCount: countStructuredMemoryItems(memoryResult.memory),
+      usage: memoryResult.usage,
+    })
+    return memoryResult
+  }
+
+  backgroundLog('[background-world-graph:started]', {
+    sessionId: payload.sessionId,
+    threadId: agentRequest.thread_id || agentRequest.threadId,
+    persistToServer: true,
+    ...task.meta,
+  })
+  const worldGraphResult = await runWorldGraphBackgroundJob(agentRequest, payload, user)
+  backgroundLog('[background-world-graph:succeeded]', {
+    sessionId: payload.sessionId,
+    threadId: agentRequest.thread_id || agentRequest.threadId,
+    persistToServer: true,
+    robotId: task.meta.robotId || null,
+    persistenceMode: worldGraphResult.persistenceMode,
+    writebackSummary: worldGraphResult.writebackSummary,
+    writebackEvents: worldGraphResult.writebackEvents,
+    resultTimeline: worldGraphResult.resultTimeline,
+    appliedNodeCount: worldGraphResult.appliedNodeCount,
+    appliedEdgeCount: worldGraphResult.appliedEdgeCount,
+    appliedEffectCount: worldGraphResult.appliedEffectCount,
+    appliedSnapshotCount: worldGraphResult.appliedSnapshotCount,
+    warningCount: Array.isArray(worldGraphResult.warnings) ? worldGraphResult.warnings.length : 0,
+    usage: worldGraphResult.usage,
+  })
+  return worldGraphResult
+}
+
+function enqueueSessionBackgroundJobs(result, payload, user) {
+  const sessionKey = String(payload.sessionId || '').trim()
+  const agentRequest = result.agentRequest
+  const tasks = buildSessionBackgroundTaskPlan(agentRequest, payload)
+
+  if (!sessionKey || !tasks.length) {
+    return getSessionBackgroundStatus(sessionKey)
+  }
+
+  incrementSessionBackgroundPendingTasks(sessionKey, tasks.length)
+  backgroundLog('[background-session-queue:enqueued]', {
+    sessionId: sessionKey,
+    threadId: agentRequest.thread_id || agentRequest.threadId,
+    taskKinds: tasks.map((task) => task.kind),
+    pendingTaskCount: getSessionBackgroundStatus(sessionKey).pendingTaskCount,
+  })
+
+  void enqueueBackgroundJob({
+    sessionKey,
+    run: async () => {
+      for (let index = 0; index < tasks.length; index += 1) {
+        const task = tasks[index]
+        markSessionBackgroundTaskStarted(sessionKey, task.kind)
+        try {
+          await runSessionBackgroundTask(task, agentRequest, payload, user)
+          completeSessionBackgroundTask(sessionKey)
+        } catch (error) {
+          const remainingTaskCount = tasks.length - index
+          failSessionBackgroundPipeline(sessionKey, error, remainingTaskCount)
+          backgroundLog('[background-session-queue:failed]', {
+            sessionId: sessionKey,
+            threadId: agentRequest.thread_id || agentRequest.threadId,
+            taskKind: task.kind,
+            remainingTaskCount,
+            message: error instanceof Error ? error.message : '会话异步处理失败',
+          }, 'error')
+          throw error
+        }
+      }
+    },
+  }).catch(() => {})
+
+  return getSessionBackgroundStatus(sessionKey)
 }
 
 export async function requestNonStreamChat(payload, user) {
   const result = await runAgentAndCollect(payload, user)
-  void Promise.allSettled(createBackgroundJobs(result, payload, user))
+  enqueueSessionBackgroundJobs(result, payload, user)
   return {
     message: result.message,
     reasoning: '',
@@ -1180,10 +1360,6 @@ export function mapAgentEventToChatEvents(payload) {
 
   if (payload.type === 'response_completed') {
     return []
-  }
-
-  if (payload.type === 'story_outline_started') {
-    return [{ type: 'ui_loading', message: '正在生成故事梗概' }]
   }
 
   if (payload.type === 'story_outline_completed') {
@@ -1279,11 +1455,8 @@ export async function handleChatStream(payload, res, user) {
     })
 
     sendUsageSSE(res, result.session)
+    enqueueSessionBackgroundJobs(result, payload, user)
     sendSSE(res, { type: 'done' })
-    await Promise.allSettled(createBackgroundJobs(result, payload, user, async (event) => {
-      sendSSE(res, event)
-    }))
-    sendSSE(res, { type: 'background_done' })
   } catch (error) {
     sendSSE(res, {
       type: 'error',

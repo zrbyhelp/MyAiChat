@@ -4,6 +4,7 @@ import type {
   CapabilitiesResponse,
   DeleteSessionResponse,
   SessionResponse,
+  SessionBackgroundStatusResponse,
   SessionsResponse,
   MemorySchemaState,
   SessionMemoryState,
@@ -203,6 +204,10 @@ export function getSessions() {
 
 export function getSession(sessionId: string) {
   return requestJson<SessionResponse>(`/api/sessions/${encodeURIComponent(sessionId)}`)
+}
+
+export function getSessionBackgroundStatus(sessionId: string) {
+  return requestJson<SessionBackgroundStatusResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/background-status`)
 }
 
 export function deleteSession(sessionId: string) {

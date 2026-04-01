@@ -78,28 +78,10 @@ function stepDefinitions() {
     },
     {
       id: 'agent-install',
-      label: '安装 agent Python 依赖',
-      run: async () => {
-        let lastError = null
-        for (const spec of detectPythonSpec()) {
-          const result = await runCommandStep({
-            id: 'agent-install',
-            label: '安装 agent Python 依赖',
-            command: spec.command,
-            args: spec.args,
-            cwd: join(repoRoot, 'agent'),
-          })
-          if (result.ok) {
-            return result
-          }
-          lastError = result
-        }
-        return lastError || {
-          ok: false,
-          summary: '未找到可用的 Python / pip',
-          logFile: '',
-        }
-      },
+      label: '安装 agent 依赖',
+      command: npmCommand,
+      args: ['install'],
+      cwd: join(repoRoot, 'agent'),
     },
   ]
 }

@@ -357,14 +357,9 @@ async function requestAgentJson(path, body, actionLabel) {
 
   if (!response.ok) {
     const rawText = await response.text()
-    try {
-      const parsed = JSON.parse(rawText)
-      const message = String(parsed?.detail || parsed?.message || '').trim()
-      if (message) {
-        throw new Error(message)
-      }
-    } catch {
-      // ignore JSON parse failures and fall back to raw body below
+    const message = extractAgentErrorMessage(rawText)
+    if (message) {
+      throw new Error(message)
     }
     if (rawText) {
       throw new Error(rawText || `${actionLabel}失败`)
@@ -373,6 +368,16 @@ async function requestAgentJson(path, body, actionLabel) {
   }
 
   return response.json()
+}
+
+export function extractAgentErrorMessage(rawText) {
+  try {
+    const parsed = JSON.parse(String(rawText || ''))
+    const message = String(parsed?.detail || parsed?.message || '').trim()
+    return message || ''
+  } catch {
+    return ''
+  }
 }
 
 async function resolveTaskModelConfig(user, modelConfigId = '') {

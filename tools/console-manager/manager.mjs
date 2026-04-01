@@ -89,7 +89,7 @@ function buildAccessAddresses(ids) {
   let agentServiceUrl = String(config.AGENT_SERVICE_URL || 'http://127.0.0.1:8000').trim() || 'http://127.0.0.1:8000'
   try {
     const parsed = new URL(agentServiceUrl)
-    if (parsed.hostname === 'agent') {
+    if (parsed.hostname === 'agent' || parsed.hostname === 'agent-node') {
       parsed.hostname = '127.0.0.1'
       agentServiceUrl = parsed.toString().replace(/\/$/, '')
     }

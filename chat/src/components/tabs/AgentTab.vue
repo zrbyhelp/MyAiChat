@@ -27,7 +27,7 @@
     }"
   >
     <div class="chatbot-header">
-      <TSpace align="center" size="small">
+      <TSpace align="center" size="small" class="chatbot-header-tools">
         <TButton
           class="mobile-sidebar-trigger"
           shape="circle"
@@ -63,6 +63,20 @@
             </svg>
           </template>
         </TButton>
+        <div
+          v-if="showSessionBackgroundStatus"
+          class="session-background-status-pill"
+          :class="sessionBackgroundStatusClass"
+        >
+          <span class="session-background-status-dot"></span>
+          <span class="session-background-status-text">{{ sessionBackgroundStatusLabel }}</span>
+          <span
+            v-if="sessionBackgroundStatus.pendingTaskCount > 0"
+            class="session-background-status-count"
+          >
+            剩余 {{ sessionBackgroundStatus.pendingTaskCount }} 项
+          </span>
+        </div>
       </TSpace>
     </div>
     <div class="chatbot">
@@ -414,6 +428,7 @@ import {
 } from '@/hooks/chat-view/useChatViewModelUtils'
 import { useChatViewPresentation } from '@/hooks/chat-view/useChatViewPresentation'
 import { useChatRobotManager } from '@/hooks/chat-view/useChatRobotManager'
+import { useChatSessionBackgroundStatus } from '@/hooks/chat-view/useChatSessionBackgroundStatus'
 import { useChatSessionLifecycle } from '@/hooks/chat-view/useChatSessionLifecycle'
 import { useChatSessionLifecycleDelegate } from '@/hooks/chat-view/useChatSessionLifecycleDelegate'
 import { useChatStreaming } from '@/hooks/chat-view/useChatStreaming'
@@ -430,7 +445,7 @@ import {
   useChatSessionStateManager,
 } from '@/hooks/chat-view/useChatSessionStateManager'
 import type { ChatbotInstance } from '@/hooks/chat-view/useChatView.types'
-import type { ChatSessionDetail } from '@/types/ai'
+import type { ChatSessionDetail, SessionBackgroundStatusValue } from '@/types/ai'
 import { useChatSession } from '@/hooks/useChatSession'
 import { useTokenStatisticAnimation } from '@/hooks/useTokenStatisticAnimation'
 
@@ -781,6 +796,37 @@ const {
   onBatchDeleteSessions: handleBatchDeleteSessionsRecord,
 })
 const { isLoaded: isAuthLoaded, isSignedIn } = useAuth()
+const sessionBackgroundStatusEnabled = computed(
+  () => Boolean(isAuthLoaded.value && isSignedIn.value && currentSessionMemory.persistToServer),
+)
+const {
+  sessionBackgroundStatus,
+  refreshSessionBackgroundStatus,
+} = useChatSessionBackgroundStatus({
+  sessionId,
+  enabled: sessionBackgroundStatusEnabled,
+  onCompleted: async () => {
+    await refreshCurrentSessionState()
+    await refreshSessionHistory()
+  },
+})
+
+const SESSION_BACKGROUND_STATUS_LABELS: Record<SessionBackgroundStatusValue, string> = {
+  idle: '',
+  queued: '异步处理中排队中',
+  memory_processing: '正在整理结构化记忆',
+  graph_writeback_processing: '正在回写世界图谱',
+  completed: '异步处理完成',
+  failed: '异步处理失败',
+}
+
+const showSessionBackgroundStatus = computed(
+  () => sessionBackgroundStatus.value.status !== 'idle',
+)
+const sessionBackgroundStatusLabel = computed(() =>
+  SESSION_BACKGROUND_STATUS_LABELS[sessionBackgroundStatus.value.status] || '异步处理中',
+)
+const sessionBackgroundStatusClass = computed(() => `is-${sessionBackgroundStatus.value.status}`)
 
 function initDebug(message: string, extra?: Record<string, unknown>) {
   console.debug('[chat-init]', message, extra || {})
@@ -909,6 +955,7 @@ function syncChatResponse(options?: { refreshSession?: boolean }) {
     refreshCurrentSessionState().catch(() => {})
     refreshSessionHistory().catch(() => {})
   }
+  refreshSessionBackgroundStatus().catch(() => {})
 }
 const { chatServiceConfig } = useChatStreaming({
   beginInteractionLock,

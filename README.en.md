@@ -96,7 +96,7 @@ flowchart LR
 .
 ├─ chat/                  # Vue 3 + Vite + TS chat frontend
 ├─ main/                  # Node.js + Express gateway / API / admin endpoints
-├─ agent/                 # Python FastAPI + LangGraph agent service
+├─ agent/                 # Node.js + Express + LangGraph agent service
 ├─ upload/                # Node.js upload service (MinIO)
 ├─ admin/                 # Vue 3 admin frontend
 ├─ docs/                  # supplementary docs
@@ -161,8 +161,7 @@ cd main && npm install && npm run dev
 cd chat && pnpm install && pnpm dev
 cd upload && npm install && npm run dev
 cd admin && pnpm install && pnpm dev
-cd agent && python -m pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+cd agent && npm install && npm run dev
 ```
 
 If you use MySQL storage, run migrations first:
@@ -225,8 +224,8 @@ npm run spell:check
 
 ```bash
 cd agent
-python -m pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+npm install
+npm run dev
 ```
 
 ### upload
@@ -285,7 +284,8 @@ npm run console:init-config
 
 - `AGENT_STORAGE_DRIVER`: `file` / `mysql`
 - `DB_*`: database connection when MySQL mode is enabled
-- `AGENT_RELOAD=true`: container-side auto reload
+- `AGENT_FILE_STORE_DIR`: thread-state directory when file mode is enabled
+- `AGENT_DEBUG_LOGS`: enable verbose agent debug logs
 
 ### `upload/.env`
 
@@ -309,6 +309,7 @@ npm run console:init-config
 
 - Health: `GET /health`
 - Streaming run: `POST /runs/stream`
+- Structured memory: `POST /runs/memory`
 - World-graph writeback: `POST /runs/world-graph-writeback`
 - Document summary / generation helpers: `POST /runs/document-summary`
 

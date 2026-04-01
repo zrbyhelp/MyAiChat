@@ -69,8 +69,8 @@ const serviceDefinitions = {
     id: 'agent',
     label: '智能体',
     cwd: join(repoRoot, 'agent'),
-    command: pythonCommand.command,
-    args: [...pythonCommand.args, '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000', '--reload'],
+    command: npmCommand,
+    args: ['run', 'dev'],
     env: {
       AGENT_STORAGE_DRIVER: 'file',
       AGENT_FILE_STORE_DIR: join(repoRoot, 'agent', '.state'),

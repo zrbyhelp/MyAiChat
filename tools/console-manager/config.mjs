@@ -99,20 +99,20 @@ export const configGroups = [
   {
     id: 'gateway',
     label: '网关配置',
-    description: '主服务端口与 Agent 接入',
+    description: '主服务端口与 agent 接入',
     fields: [
       { key: 'PORT', label: '网关端口' },
-      { key: 'AGENT_SERVICE_URL', label: 'Agent 服务地址' },
+      { key: 'AGENT_SERVICE_URL', label: 'agent 服务地址' },
       { key: 'STORAGE_DRIVER', label: '网关存储驱动' },
     ],
   },
   {
     id: 'agent',
     label: '智能体配置',
-    description: '智能体本地存储相关参数',
+    description: 'agent 本地存储相关参数',
     fields: [
-      { key: 'AGENT_STORAGE_DRIVER', label: 'Agent 存储驱动' },
-      { key: 'AGENT_FILE_STORE_DIR', label: 'Agent 文件存储目录' },
+      { key: 'AGENT_STORAGE_DRIVER', label: 'agent 存储驱动' },
+      { key: 'AGENT_FILE_STORE_DIR', label: 'agent 文件存储目录' },
     ],
   },
   {

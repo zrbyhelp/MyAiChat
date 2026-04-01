@@ -9,6 +9,7 @@ import {
   detectReasoningSupport,
   fetchModels,
   getActiveLegacyConfig,
+  getSessionBackgroundStatus,
   handleChatStream,
   requestNonStreamChat,
   testConnectionModels,
@@ -249,6 +250,21 @@ export function createApp() {
           numericState: session.numericState,
           worldGraph: session.worldGraph,
         },
+      })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.get('/api/sessions/:id/background-status', async (req, res, next) => {
+    try {
+      const session = await getSessionRecord(req.authUser, req.params.id)
+      if (!session) {
+        res.status(404).json({ message: '会话不存在' })
+        return
+      }
+      res.json({
+        status: getSessionBackgroundStatus(req.params.id),
       })
     } catch (error) {
       next(error)

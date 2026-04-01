@@ -50,6 +50,10 @@ interface UseChatSessionLifecycleOptions {
 }
 
 export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions) {
+  function cloneWorldGraph(graph?: import('@/types/ai').RobotWorldGraph | null) {
+    return graph ? JSON.parse(JSON.stringify(graph)) as import('@/types/ai').RobotWorldGraph : null
+  }
+
   async function refreshCurrentSessionState() {
     if (!options.sessionId.value) {
       return
@@ -158,7 +162,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
   }
 
   async function createNewChat(robot?: AIRobotCard | null) {
-    let nextWorldGraph = robot?.worldGraph || null
+    let nextWorldGraph = cloneWorldGraph(robot?.worldGraph || null)
 
     if (robot) {
       options.sessionRobot.id = robot.id
@@ -183,9 +187,9 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.applyMemorySchema(robot.memorySchema)
       if (robot.persistToServer && robot.id) {
         try {
-          nextWorldGraph = await getRobotWorldGraph(robot.id)
+          nextWorldGraph = cloneWorldGraph(await getRobotWorldGraph(robot.id))
         } catch {
-          nextWorldGraph = robot.worldGraph || null
+          nextWorldGraph = cloneWorldGraph(robot.worldGraph || null)
         }
       }
     } else {
@@ -219,7 +223,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applySessionUsage(options.defaultSessionUsage)
     options.applyNumericState({})
     options.applyStoryOutline('')
-    options.applySessionWorldGraph(nextWorldGraph)
+    options.applySessionWorldGraph(cloneWorldGraph(nextWorldGraph))
 
     options.sessionId.value = options.createSessionId()
     options.storeActiveSessionId(options.sessionId.value)

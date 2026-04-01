@@ -415,7 +415,7 @@
   padding: 10px 0px;
   display: flex;
   align-items: center;
-  justify-content: start;
+  justify-content: flex-start;
   gap: 8px;
   box-sizing: border-box;
 }
@@ -425,6 +425,65 @@
   align-items: center;
   gap: 14px;
   min-width: 0;
+}
+
+.chatbot-header-tools {
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: 100%;
+}
+
+.session-background-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.92);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.session-background-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.session-background-status-text,
+.session-background-status-count {
+  white-space: nowrap;
+}
+
+.session-background-status-pill.is-queued {
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.85);
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
+.session-background-status-pill.is-memory_processing,
+.session-background-status-pill.is-graph_writeback_processing {
+  color: #0f766e;
+  background: rgba(204, 251, 241, 0.82);
+  border-color: rgba(20, 184, 166, 0.22);
+}
+
+.session-background-status-pill.is-completed {
+  color: #166534;
+  background: rgba(220, 252, 231, 0.82);
+  border-color: rgba(34, 197, 94, 0.22);
+}
+
+.session-background-status-pill.is-failed {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.88);
+  border-color: rgba(239, 68, 68, 0.24);
 }
 
 .token-stats {
@@ -636,9 +695,37 @@
 }
 
 .config-card .t-card__header,
+.config-card .t-card__header-wrapper,
+.config-card .t-card__title,
+.config-card .t-card__subtitle,
 .config-card .t-card__body,
 .config-card .t-card__actions {
   min-width: 0;
+}
+
+.config-card .t-card__header {
+  gap: 8px;
+}
+
+.config-card .t-card__header-wrapper {
+  flex: 1 1 auto;
+  width: 100%;
+  overflow: hidden;
+}
+
+.config-card .t-card__header-wrapper > div:not(.t-card__avatar) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.config-card .t-card__title,
+.config-card .t-card__subtitle {
+  overflow: hidden;
+}
+
+.config-card .t-card__actions {
+  flex: 0 0 auto;
 }
 
 .config-card.active {
@@ -654,15 +741,19 @@
 }
 
 .config-card-name {
+  display: block;
   font-weight: 600;
   min-width: 0;
+  max-width: 100%;
 }
 
 .config-card-meta {
+  display: block;
   font-size: 12px;
   color: #888;
   margin-top: 6px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .config-card-meta-secondary {

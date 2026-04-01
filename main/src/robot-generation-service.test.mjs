@@ -4,7 +4,20 @@ import test from 'node:test'
 import {
   applyRobotGenerationWorldGraphPatch,
   evolveWorldGraphFromSummaries,
+  extractAgentErrorMessage,
 } from './robot-generation-service.mjs'
+
+test('extracts structured upstream error details without falling back to raw body', () => {
+  assert.equal(
+    extractAgentErrorMessage('{"detail":"世界图谱 patch 非法：edge edge-1 引用了不存在的节点"}'),
+    '世界图谱 patch 非法：edge edge-1 引用了不存在的节点',
+  )
+  assert.equal(
+    extractAgentErrorMessage('{"message":"文档摘要失败"}'),
+    '文档摘要失败',
+  )
+  assert.equal(extractAgentErrorMessage('not-json'), '')
+})
 
 test('applies delete-capable world graph patches over the current full graph', () => {
   const nextGraph = applyRobotGenerationWorldGraphPatch({
