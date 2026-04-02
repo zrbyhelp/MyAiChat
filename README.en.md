@@ -23,6 +23,7 @@ I am currently maintaining this project alone and the workload is getting hard t
 [Email: q19946502@gmail.com](mailto:q19946502@gmail.com)  
 [WeChat: zr19946502](https://weixin.qq.com/u/zr19946502)  
 If you have ideas or find bugs, please open an issue and I will reply as soon as I can.
+I also want to explicitly recognize and thank the LINUX DO community for helping foster an open culture of technical exchange and sharing.
 Thank you for the support.
 
 ## Overview

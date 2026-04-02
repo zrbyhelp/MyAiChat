@@ -21,6 +21,8 @@
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue">
 </p>
 
+> 认可并感谢 LINUX DO 社区对开源交流与分享氛围的推动。
+
 ## 项目概览
 
 MyAiChat 不是单体聊天页，而是一套围绕 AI 聊天产品搭建的完整工作台：
