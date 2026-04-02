@@ -7,11 +7,7 @@
   <img src="./image/myaichatlogo.png" alt="myaichat" width="420" />
 </p>
 
-<h1 align="center">MyAiChat</h1>
-
-<p align="center">
-  A multi-service AI chat system for production chat scenarios (Chat + Gateway + Agent + Upload + Admin)
-</p>
+<h1 align="center">MyAiChat Realistic World Interaction</h1>
 
 <p align="center">
   <img alt="Node" src="https://img.shields.io/badge/Node-20.19%2B-3c873a">
@@ -21,11 +17,29 @@
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue">
 </p>
 
+## Important Note
+
+I am currently maintaining this project alone and the workload is getting hard to keep up with. If you would like to join or contribute, feel free to contact me:
+[Email: q19946502@gmail.com](mailto:q19946502@gmail.com)  
+[WeChat: zr19946502](https://weixin.qq.com/u/zr19946502)  
+If you have ideas or find bugs, please open an issue and I will reply as soon as I can.
+Thank you for the support.
+
 ## Overview
 
-MyAiChat is not just a single chat page. It is a full workspace for building AI chat products:
+MyAiChat is built toward a more realistic world-interaction API platform and a more immersive conversation experience. The project is continuing to evolve in three directions:
 
-- `chat` provides the end-user Vue 3 chat UI
+- Use different agents to make story and world generation more controllable
+- Turn character nodes that appear in a scene into independent agents for autonomous interaction and world evolution
+- Support multi-user, multi-agent group experiences such as tabletop sessions, cooperative missions, and role-based interaction where an agent can act as a DM or as a user role
+
+This aims to create a new way of reading and participating. Instead of cold, passive, single-user reading, users can enter the story directly and every character can keep its own narrative line. The long-term direction is to move from a traditional linear flow toward tree-structured interactive reading.
+
+## Project Description
+
+MyAiChat is not a single chat page. It is a full workspace built around realistic interactive dialogue:
+
+- `chat` can be used to configure agents, models, and related settings, then connect through APIs to personal or company software, or be used directly for online conversation
 - `main` handles model configs, sessions, streaming orchestration, admin APIs, and persistence
 - `agent` handles multi-agent reasoning, structured memory, story outlines, and world-graph writeback
 - `upload` handles image uploads backed by MinIO
@@ -55,6 +69,15 @@ These capabilities are reflected in the recent commit history and current main c
 - Dual storage drivers: `file` / `mysql`
 - Dedicated upload service with MinIO
 - Admin back office and console management tooling
+
+## Recent Main Work
+
+- Improve the performance of different agents and increase dialogue efficiency
+- Optimize token usage and reduce cost
+- Add generation by story line support; the current mode focuses on continuation along a story line
+- Improve the overall UI, world-graph presentation, and mobile adaptation
+- Improve token statistics
+- Add and remove agent modules to make the agent pipeline more configurable
 
 ## Architecture
 
@@ -346,14 +369,3 @@ npm run console:init-config
 - For world-graph issues, inspect `Neo4j` and `main` logs first
 - For knowledge retrieval issues, inspect `Qdrant`, `KNOWLEDGE_EMBEDDING_*`, and model availability
 - If admin login fails, confirm `main` finished admin seed initialization
-
-## Related Documents
-
-- [README.md](./README.md)
-- [README.zh-CN.md](./README.zh-CN.md)
-- [chat/README.md](./chat/README.md)
-- [admin/README.md](./admin/README.md)
-- [DATABASE_DOCKER_SETUP.zh-CN.md](./DATABASE_DOCKER_SETUP.zh-CN.md)
-- [TASK_CHECKLIST.md](./TASK_CHECKLIST.md)
-- [TASK_CHECKLIST.en.md](./TASK_CHECKLIST.en.md)
-- [TASK_CHECKLIST.zh-CN.md](./TASK_CHECKLIST.zh-CN.md)
