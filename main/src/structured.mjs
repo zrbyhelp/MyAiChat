@@ -102,21 +102,6 @@ export function parseFormJson(raw) {
   return normalizeFormSchema(parsed)
 }
 
-const ASSISTANT_INPUT_REQUEST_PATTERNS = [
-  /请(?:先)?(?:继续)?(?:填写|补充|输入|提供|描述|说明|写下|回复|提交)/u,
-  /需要你(?:先)?(?:填写|补充|输入|提供|描述|说明|回复|提交)/u,
-  /麻烦你(?:先)?(?:填写|补充|输入|提供|描述|说明|回复|提交)/u,
-  /请把.+?(?:告诉我|写下来|填一下|发给我|回复我)/u,
-  /把.+?(?:告诉我|写下来|填一下|发给我|回复我)/u,
-  /告诉我.+?(?:内容|信息|资料|设定|想法|需求|原因|经历|背景|细节)/u,
-  /补充一下/u,
-  /填写一下/u,
-  /输入一下/u,
-  /提供一下/u,
-  /描述一下/u,
-  /说明一下/u,
-]
-
 const ASSISTANT_CHOICE_PROMPT_PATTERNS = [
   /请选择/u,
   /选一个/u,
@@ -132,14 +117,6 @@ function normalizeAssistantTextForIntent(text) {
   return String(text || '').replace(/\s+/gu, ' ').trim()
 }
 
-export function shouldPreferAssistantForm(text) {
-  const normalizedText = normalizeAssistantTextForIntent(text)
-  if (!normalizedText) {
-    return false
-  }
-  return ASSISTANT_INPUT_REQUEST_PATTERNS.some((pattern) => pattern.test(normalizedText))
-}
-
 export function shouldPreferAssistantSuggestions(text) {
   const normalizedText = normalizeAssistantTextForIntent(text)
   if (!normalizedText) {
@@ -148,42 +125,11 @@ export function shouldPreferAssistantSuggestions(text) {
   return ASSISTANT_CHOICE_PROMPT_PATTERNS.some((pattern) => pattern.test(normalizedText))
 }
 
-function createGenericAssistantForm(text) {
-  const normalizedText = String(text || '').trim()
-  return {
-    title: '请补充信息',
-    description: normalizedText,
-    submitText: '提交',
-    fields: [
-      {
-        name: 'content',
-        label: '补充内容',
-        type: 'input',
-        placeholder: '请按上文要求填写',
-        required: true,
-        inputType: 'text',
-        multiple: false,
-        options: [],
-        defaultValue: '',
-      },
-    ],
-  }
-}
-
 export function reconcileAssistantStructuredOutput(text, suggestions, form) {
   const normalizedText = String(text || '').trim()
   const normalizedSuggestions = normalizeSuggestionItems(suggestions)
   const normalizedForm = normalizeFormSchema(form)
-  const prefersForm = shouldPreferAssistantForm(normalizedText)
   const prefersSuggestions = shouldPreferAssistantSuggestions(normalizedText)
-
-  if (prefersForm) {
-    return {
-      text: normalizedText,
-      suggestions: [],
-      form: normalizedForm?.fields?.length ? normalizedForm : createGenericAssistantForm(normalizedText),
-    }
-  }
 
   if (normalizedForm?.fields?.length) {
     return {
