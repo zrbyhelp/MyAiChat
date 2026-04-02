@@ -17,6 +17,7 @@
   <img alt="Node" src="https://img.shields.io/badge/Node-20.19%2B-3c873a">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3.5-42b883">
   <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-0.2-1f6feb">
+  <img alt="GraphRAG" src="https://img.shields.io/badge/GraphRAG-Enabled-0ea5e9">
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue">
 </p>
 
@@ -46,11 +47,11 @@ These capabilities are reflected in the recent commit history and current main c
 - Externalized prompt configuration for the agent service
 - Dynamic structured memory with configurable schema
 - Session-level `story outline` generation and persistence
-- Robot world-graph editor with timeline, relation types, node/edge editing, and auto layout
+- Agent world-graph editor with timeline, relation types, node/edge editing, and auto layout
 - Session mirror world-graph viewer during chat
 - Agent template import and export
 - Unified server-side chat persistence, outline handling, and world-graph writeback
-- Document import, robot generation tasks, vector knowledge retrieval (`Qdrant`), and graph storage (`Neo4j`)
+- Document import, agent generation tasks, vector knowledge retrieval (`Qdrant`), and graph storage (`Neo4j`)
 - Dual storage drivers: `file` / `mysql`
 - Dedicated upload service with MinIO
 - Admin back office and console management tooling
@@ -298,7 +299,7 @@ npm run console:init-config
 - `QDRANT_*`: knowledge vector store
 - `KNOWLEDGE_EMBEDDING_*`: embedding model settings
 - `ROBOT_IMPORT_MAX_FILE_SIZE_MB`: document import limit
-- `ROBOT_GENERATION_CONCURRENCY`: robot generation concurrency
+- `ROBOT_GENERATION_CONCURRENCY`: agent generation concurrency
 
 ### `agent/.env`
 
@@ -319,8 +320,8 @@ npm run console:init-config
 - Model configs: `/api/model-configs`, `/api/model-config`
 - Capability discovery: `/api/models`, `/api/capabilities`
 - Sessions: `/api/sessions`
-- Robots: `/api/robots`
-- Robot generation tasks: `/api/robots/generation-tasks`
+- Agents: `/api/robots`
+- Agent generation tasks: `/api/robots/generation-tasks`
 - World graph: `/api/robots/:id/world-graph/*`
 - Streaming chat: `POST /api/chat/stream`
 - Admin endpoints: `/admin-api/*`
