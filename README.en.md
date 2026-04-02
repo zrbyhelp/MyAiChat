@@ -16,7 +16,7 @@
 <p align="center">
   <img alt="Node" src="https://img.shields.io/badge/Node-20.19%2B-3c873a">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3.5-42b883">
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB">
+  <img alt="LangGraph" src="https://img.shields.io/badge/LangGraph-0.2-1f6feb">
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue">
 </p>
 
@@ -30,6 +30,10 @@ MyAiChat is not just a single chat page. It is a full workspace for building AI 
 - `upload` handles image uploads backed by MinIO
 - `admin` provides the back-office frontend on top of `main`'s `/admin-api`
 - `tools/console-manager` provides a Chinese-friendly local control console
+
+<div align="center">
+  <img src="./image/listGIf/listGIf.gif" alt="MyAiChat UI preview" width="96%" />
+</div>
 
 ## Recent Core Capabilities
 
@@ -55,40 +59,55 @@ These capabilities are reflected in the recent commit history and current main c
 
 ```mermaid
 flowchart LR
-  A[chat frontend] -->|POST /api/chat/stream| B[main gateway]
-  H[admin frontend] -->|/admin-api| B
-  B -->|sync POST /runs/stream| C[agent service]
-  subgraph AG[agent internal chain]
-    C1[numeric_agent]
-    C2[story_outline]
-    C3[answerer]
-    C4[memory]
-    C5[world_graph_writeback]
-    C1 --> C2 --> C3
-  end
-  C --> C1
-  C3 -->|message_delta / run_completed| B
-  B -->|SSE| A
-  B -. background POST /runs/memory .-> C4
-  C4 -->|structured_memory| B
-  B -. background POST /runs/world-graph-writeback .-> C5
-  C5 -->|writeback ops| B
+  A[chat frontend] --> B[main gateway]
+  H[admin frontend] --> B
+  B --> C[agent service]
   B <--> D[(MySQL / File)]
   B <--> E[(Neo4j world graph)]
   B <--> F[(Qdrant knowledge vectors)]
   G[upload service] --> I[(MinIO)]
 ```
 
-### Agent chain
+- `chat` renders the conversation UI and streaming messages.
+- `main` owns the unified API layer, session persistence, SSE forwarding, and background task scheduling.
+- `agent` generates replies, structured memory, story outlines, and graph writeback operations.
+- `upload` handles file uploads backed by `MinIO`.
+
+### Session Agent Architecture
+
+```mermaid
+flowchart LR
+  A[chat frontend] -->|send message| B[main:/api/chat/stream]
+  B -->|invoke| C[agent:/runs/stream]
+
+  subgraph S[session agent foreground path]
+    C --> D[numeric_agent]
+    D --> E[story_outline]
+    E --> F[answerer]
+  end
+
+  subgraph T[session thread state]
+    T1[messages]
+    T2[structured_memory]
+    T3[numeric_state]
+    T4[story_outline]
+  end
+
+  C <--> T
+  F -->|message_delta / run_completed| B
+  B -->|SSE| A
+  B -. after reply .-> G[agent:/runs/memory]
+  G -->|update structured_memory| T
+  B -. after reply .-> H[agent:/runs/world-graph-writeback]
+  H -->|writeback ops| I[(Neo4j / session graph snapshot)]
+```
 
 - Foreground path: `chat -> main:/api/chat/stream -> agent:/runs/stream -> numeric_agent -> story_outline -> answerer -> main -> chat`
-- The `agent service` remains a distinct entry layer: `/runs/stream` enters the foreground chain, while `/runs/memory` and `/runs/world-graph-writeback` enter the background paths.
-- `numeric_agent` updates `numeric_state` from the robot's configured numeric fields before downstream generation starts.
-- `story_outline` builds an internal outline from history, structured memory, numeric state, and the world graph. It is not shown directly to the user, but it is fed into the answer context and persisted in thread state.
-- `answerer` streams the final visible reply. `main` forwards SSE chunks to the frontend and persists messages, usage, `numeric_state`, and `story_outline` after `run_completed`.
-- Background memory path: after the main reply finishes, `main` triggers `agent:/runs/memory` on an interval and writes the returned structured-memory patch back to the session.
-- Background world-graph path: after the main reply finishes, `main` calls `agent:/runs/world-graph-writeback`, then applies the returned writeback ops to `Neo4j` or falls back to the session graph snapshot.
-- The local `agent` thread store keeps `messages / memory_schema / structured_memory / numeric_state / story_outline` so the next turn can resume from the latest runtime context.
+- `numeric_agent` updates the session numeric state for downstream nodes.
+- `story_outline` generates the internal outline for the current turn and feeds it into answer generation.
+- `answerer` streams the final user-visible response, and `main` forwards it as SSE.
+- After the main reply completes, `main` asynchronously triggers `memory` and `world_graph_writeback`.
+- The session thread state keeps `messages / structured_memory / numeric_state / story_outline` for the next turn.
 
 ## Project Structure
 
@@ -108,9 +127,8 @@ flowchart LR
 ## Requirements
 
 - Node.js: `^20.19.0` or `>=22.12.0`
-- `pnpm` for `chat` and `admin`
-- `npm` for `main` and `upload`
-- Python `3.12+`
+- pnpm: `>=9` for `chat` and `admin`
+- `npm` for `main`, `agent`, and `upload`
 - Docker / Docker Compose for integrated local runs
 - A valid Clerk application
 - `Qdrant` and `Neo4j` if you enable knowledge retrieval and world graph features
@@ -125,6 +143,7 @@ flowchart LR
 cp .env.example .env
 cp main/.env.example main/.env
 cp chat/.env.example chat/.env
+cp agent/.env.example agent/.env
 cp upload/.env.example upload/.env
 cp admin/.env.example admin/.env
 ```
@@ -134,9 +153,9 @@ cp admin/.env.example admin/.env
 ```bash
 cd main && npm install
 cd ../chat && pnpm install
+cd ../agent && npm install
 cd ../upload && npm install
 cd ../admin && pnpm install
-cd ../agent && python -m pip install -r requirements.txt
 ```
 
 3. Initialize config files and launch the console
@@ -170,7 +189,7 @@ If you use MySQL storage, run migrations first:
 cd main && npm run migrate
 ```
 
-## URLs
+## Local Development URLs
 
 - chat: `http://localhost:5173`
 - main: `http://127.0.0.1:3000`
@@ -191,6 +210,7 @@ Default exposed services:
 - `main`: `3000`
 - `admin`: `8081`
 - `upload`: `3001`
+- `agent`: internal container service on `8000`, not exposed directly to the host
 - `mysql`: `3306`
 - `minio`: `9000/9001`
 - `neo4j`: `7474/7687`
