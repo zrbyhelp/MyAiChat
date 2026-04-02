@@ -22,7 +22,14 @@ import {
   normalizeSuggestionItems,
   reconcileAssistantStructuredOutput,
 } from './structured.mjs'
-import { retrieveRobotKnowledgeBySummary } from './robot-generation-service.mjs'
+import {
+  buildGraphRagArtifactId,
+  mapGraphRagWritebackToWorldGraphUpdate,
+  mergeGraphRagRelationTypesIntoWorldGraph,
+  retrieveRobotKnowledgeByGraphRag,
+  retrieveRobotKnowledgeBySummary,
+} from './robot-generation-service.mjs'
+import { createGraphRagArtifact } from './robot-generation-store.mjs'
 import {
   applyWorldGraphWritebackToSnapshot,
   cloneWorldGraphSnapshot,
@@ -417,10 +424,97 @@ function buildKnowledgeContextText(result) {
   ].join('\n\n')
 }
 
+function buildGraphRagKnowledgeContextText(result) {
+  const summary = String(result?.summary || '').trim()
+  const communities = Array.isArray(result?.communities) ? result.communities : []
+  const entities = Array.isArray(result?.entities) ? result.entities : []
+  const events = Array.isArray(result?.events) ? result.events : []
+  const chunks = Array.isArray(result?.chunks) ? result.chunks : []
+  if (!summary && !communities.length && !entities.length && !events.length && !chunks.length) {
+    return ''
+  }
+
+  return [
+    '以下是基于 GraphRAG 从当前智能体知识图中召回的内部参考信息，仅在与当前问题相关时使用，不要机械照抄：',
+    summary ? `知识焦点：${summary}` : '',
+    communities.length
+      ? [
+        '相关社区：',
+        ...communities.slice(0, 4).map((item, index) =>
+          `${index + 1}. ${String(item?.name || item?.id || '未命名社区').trim()}（相关度：${Number(item?.score || 0).toFixed(3)}）\n${String(item?.summary || '').trim() || '无'}`),
+      ].join('\n')
+      : '',
+    entities.length
+      ? [
+        '相关实体：',
+        ...entities.slice(0, 8).map((item, index) =>
+          `${index + 1}. ${String(item?.name || item?.id || '未命名实体').trim()} [${String(item?.type || '').trim() || 'unknown'}]${String(item?.summary || '').trim() ? `：${String(item.summary).trim()}` : ''}`),
+      ].join('\n')
+      : '',
+    events.length
+      ? [
+        '相关事件：',
+        ...events.slice(0, 6).map((item, index) => {
+          const sequenceIndex = Number(item?.timeline?.sequenceIndex ?? item?.timeline?.sequence_index ?? 0) || 0
+          return `${index + 1}. [${sequenceIndex}] ${String(item?.name || item?.id || '未命名事件').trim()}${String(item?.summary || '').trim() ? `：${String(item.summary).trim()}` : ''}`
+        }),
+      ].join('\n')
+      : '',
+    chunks.length
+      ? chunks.slice(0, 6).map((item, index) => [
+        `知识片段 ${index + 1}（来源：${String(item?.source_name || item?.sourceName || '未命名文档').trim() || '未命名文档'}#${Number(item?.segment_index ?? item?.segmentIndex ?? 0) || 0}，相关度：${Number(item?.score || 0).toFixed(3)}）`,
+        `摘要：${String(item?.summary || '').trim() || '无'}`,
+        `摘录：${String(item?.excerpt || '').trim() || '无'}`,
+      ].join('\n')).join('\n\n')
+      : '',
+  ].filter(Boolean).join('\n\n')
+}
+
+async function persistGraphRagArtifact(user, input) {
+  try {
+    return await createGraphRagArtifact(user, input)
+  } catch (error) {
+    backgroundLog('[graphrag:artifact:failed]', {
+      kind: input?.kind || '',
+      robotId: input?.robotId || '',
+      sessionId: input?.sessionId || '',
+      message: error instanceof Error ? error.message : 'GraphRAG artifact 保存失败',
+    }, 'warn')
+    return null
+  }
+}
+
 async function maybeResolveKnowledgeContext(user, payload, session, robot) {
   const robotId = String(robot?.id || '').trim()
   if (!robotId) {
     return ''
+  }
+
+  try {
+    const graphRagRetrieval = await retrieveRobotKnowledgeByGraphRag(user, {
+      sessionId: payload.sessionId,
+      robotId,
+      modelConfigId: payload.modelConfigId,
+      knowledgeRetrievalModelConfigId: robot?.knowledgeRetrievalModelConfigId || '',
+      robotName: robot?.name,
+      robotDescription: robot?.description || '',
+      storyOutline: session?.storyOutline || payload.sessionSnapshot?.storyOutline || '',
+      prompt: String(payload.prompt || ''),
+      history: (session?.messages || []).map((item) => ({
+        role: item.role,
+        content: item.content,
+      })),
+    })
+    const graphRagContextText = buildGraphRagKnowledgeContextText(graphRagRetrieval)
+    if (graphRagContextText) {
+      return graphRagContextText
+    }
+  } catch (error) {
+    backgroundLog('[knowledge-retrieval:graphrag-failed]', {
+      sessionId: payload.sessionId,
+      robotId,
+      message: error instanceof Error ? error.message : 'GraphRAG 知识检索失败',
+    }, 'warn')
   }
 
   try {
@@ -1142,49 +1236,102 @@ async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
 
 async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
   const latestSession = await getSessionRecord(user, payload.sessionId)
-  const requestBody = buildWorldGraphBackgroundAgentRequest(agentRequest, latestSession)
-  const response = await requestAgentJson(
-    '/runs/world-graph-writeback',
-    requestBody,
-    payload,
-    null,
-    '世界图谱后台任务',
-  )
-  const writebackOps = response?.world_graph_writeback_ops || response?.worldGraphWritebackOps || {}
-  const writebackSummary = summarizeWorldGraphWritebackOps(writebackOps)
-  const writebackEvents = summarizeWorldGraphEventTimeline(writebackOps.upsert_events || writebackOps.upsertEvents)
+  const requestBody = {
+    ...buildWorldGraphBackgroundAgentRequest(agentRequest, latestSession),
+    robot_name: String(agentRequest?.robot?.name || payload?.robot?.name || payload?.sessionSnapshot?.robot?.name || ''),
+    robot_description: String(payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || ''),
+  }
   let nextGraph = normalizeWorldGraphSnapshot(requestBody.world_graph || requestBody.worldGraph || null)
   let warnings = []
   let persistenceMode = 'session-snapshot'
   let applySummary = {
+    appliedRelationTypeCount: 0,
     appliedNodeCount: 0,
     appliedEdgeCount: 0,
     appliedEffectCount: 0,
     appliedSnapshotCount: 0,
   }
+  let writebackSummary = summarizeWorldGraphWritebackOps({})
+  let writebackEvents = []
+  let responseUsage = null
 
-  if (hasWorldGraphWritebackOps(writebackOps)) {
-    const writebackResult = applyWorldGraphWritebackToSessionGraph(
-      latestSession?.worldGraph || null,
-      nextGraph,
-      writebackOps,
-    )
-    nextGraph = writebackResult.graph
-    warnings = writebackResult.warnings
-    applySummary = {
-      appliedNodeCount: writebackResult.appliedNodeCount,
-      appliedEdgeCount: writebackResult.appliedEdgeCount,
-      appliedEffectCount: writebackResult.appliedEffectCount,
-      appliedSnapshotCount: writebackResult.appliedSnapshotCount,
+  const applyWriteback = (writebackOps, relationTypes = []) => {
+    const relationTypeResult = mergeGraphRagRelationTypesIntoWorldGraph(nextGraph, relationTypes)
+    nextGraph = relationTypeResult.graph
+    applySummary.appliedRelationTypeCount += Number(relationTypeResult.appliedRelationTypeCount || 0)
+    if (hasWorldGraphWritebackOps(writebackOps)) {
+      const writebackResult = applyWorldGraphWritebackToSessionGraph(
+        nextGraph,
+        nextGraph,
+        writebackOps,
+      )
+      nextGraph = writebackResult.graph
+      warnings = writebackResult.warnings
+      applySummary.appliedNodeCount += writebackResult.appliedNodeCount
+      applySummary.appliedEdgeCount += writebackResult.appliedEdgeCount
+      applySummary.appliedEffectCount += writebackResult.appliedEffectCount
+      applySummary.appliedSnapshotCount += writebackResult.appliedSnapshotCount
+      persistenceMode = writebackResult.persistenceMode
     }
-    persistenceMode = writebackResult.persistenceMode
   }
 
-  const updatedSession = await patchSessionWorldGraph(user, payload.sessionId, nextGraph, response?.usage)
+  try {
+    const response = await requestAgentJson(
+      '/runs/graphrag-writeback',
+      requestBody,
+      payload,
+      null,
+      'GraphRAG 世界图谱后台任务',
+    )
+    const writebackPayload = response?.graphrag_writeback || response?.graphRagWriteback || {}
+    const mapped = mapGraphRagWritebackToWorldGraphUpdate(writebackPayload, { currentGraph: nextGraph })
+    writebackSummary = summarizeWorldGraphWritebackOps(mapped.writebackOps)
+    writebackEvents = summarizeWorldGraphEventTimeline(mapped.writebackOps.upsert_events || mapped.writebackOps.upsertEvents)
+    responseUsage = response?.usage || null
+
+    await persistGraphRagArtifact(user, {
+      id: buildGraphRagArtifactId('writeback'),
+      robotId: String(agentRequest?.world_graph?.meta?.robotId || agentRequest?.worldGraph?.meta?.robotId || ''),
+      sessionId: String(payload.sessionId || ''),
+      kind: 'writeback',
+      summary: mapped.summary,
+      payload: {
+        ...writebackPayload,
+        mapped_writeback_ops: mapped.writebackOps,
+      },
+      meta: {
+        threadId: agentRequest.thread_id || agentRequest.threadId || '',
+        promptLength: String(payload?.prompt || '').trim().length,
+        finalResponseLength: String(requestBody.final_response || '').trim().length,
+      },
+    })
+
+    applyWriteback(mapped.writebackOps, mapped.relationTypes)
+  } catch (error) {
+    backgroundLog('[background-world-graph:graphrag-fallback]', {
+      sessionId: payload.sessionId,
+      threadId: agentRequest.thread_id || agentRequest.threadId,
+      message: error instanceof Error ? error.message : 'GraphRAG 写回失败，回退到旧写回链路',
+    }, 'warn')
+    const response = await requestAgentJson(
+      '/runs/world-graph-writeback',
+      requestBody,
+      payload,
+      null,
+      '世界图谱后台任务',
+    )
+    const writebackOps = response?.world_graph_writeback_ops || response?.worldGraphWritebackOps || {}
+    writebackSummary = summarizeWorldGraphWritebackOps(writebackOps)
+    writebackEvents = summarizeWorldGraphEventTimeline(writebackOps.upsert_events || writebackOps.upsertEvents)
+    responseUsage = response?.usage || null
+    applyWriteback(writebackOps, [])
+  }
+
+  const updatedSession = await patchSessionWorldGraph(user, payload.sessionId, nextGraph, responseUsage)
 
   return {
     graph: nextGraph,
-    usage: normalizeUsage(response?.usage),
+    usage: normalizeUsage(responseUsage),
     session: updatedSession,
     warnings,
     persistenceMode,

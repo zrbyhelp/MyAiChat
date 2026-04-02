@@ -3,15 +3,22 @@ import { Annotation, END, START, StateGraph } from '@langchain/langgraph'
 import {
   addUsage,
   answerNode,
+  buildGraphRagExtractPrompt,
+  buildGraphRagRetrievePrompt,
+  buildGraphRagWritebackPrompt,
   buildMemorySchemaPrompt,
   buildRobotGenerationContext,
   buildWorldGraphEvolutionPrompt,
   ensureGeneratedRobotPayload,
   formatStageError,
   numericAgentNode,
+  parseJsonObject,
   storyOutlineNode,
 } from './runtime.mjs'
 import {
+  normalizeGraphRagGraphPayload,
+  normalizeGraphRagRetrievePayload,
+  normalizeGraphRagWritebackPayload,
   normalizeGeneratedMemorySchemaPayload,
   normalizeGeneratedWorldGraphPatchPayload,
   normalizeRobotGenerationCorePayload,
@@ -158,8 +165,82 @@ export async function runWorldGraphEvolution({ modelClient, modelSettings, reque
     'world_graph_patch',
     '世界图谱演化 patch',
   )
+  const normalizedPatch = normalizeGeneratedWorldGraphPatchPayload(response.data)
+  const patchSummary = {
+    title: String(normalizedPatch?.meta?.title || ''),
+    upsertRelationTypeCount: Array.isArray(normalizedPatch.upsert_relation_types) ? normalizedPatch.upsert_relation_types.length : 0,
+    deleteRelationTypeCount: Array.isArray(normalizedPatch.delete_relation_type_codes) ? normalizedPatch.delete_relation_type_codes.length : 0,
+    upsertNodeCount: Array.isArray(normalizedPatch.upsert_nodes) ? normalizedPatch.upsert_nodes.length : 0,
+    deleteNodeCount: Array.isArray(normalizedPatch.delete_node_ids) ? normalizedPatch.delete_node_ids.length : 0,
+    upsertEdgeCount: Array.isArray(normalizedPatch.upsert_edges) ? normalizedPatch.upsert_edges.length : 0,
+    deleteEdgeCount: Array.isArray(normalizedPatch.delete_edge_ids) ? normalizedPatch.delete_edge_ids.length : 0,
+    upsertEventCount: Array.isArray(normalizedPatch.upsert_events) ? normalizedPatch.upsert_events.length : 0,
+    appendEventEffectCount: Array.isArray(normalizedPatch.append_event_effects) ? normalizedPatch.append_event_effects.length : 0,
+  }
+  const isEmptyPatch = patchSummary.upsertRelationTypeCount === 0
+    && patchSummary.deleteRelationTypeCount === 0
+    && patchSummary.upsertNodeCount === 0
+    && patchSummary.deleteNodeCount === 0
+    && patchSummary.upsertEdgeCount === 0
+    && patchSummary.deleteEdgeCount === 0
+    && patchSummary.upsertEventCount === 0
+    && patchSummary.appendEventEffectCount === 0
+  if (isEmptyPatch) {
+    console.warn('[agent:world-graph-patch:empty:request-context]', {
+      sourceName: String(request?.source_name || ''),
+      guidanceLength: String(request?.guidance || '').trim().length,
+      segmentIndex: Number(request?.segment_index || 0) + 1,
+      segmentTotal: Math.max(Number(request?.segment_total || 1), 1),
+      segmentSummaryLength: String(request?.segment_summary || '').trim().length,
+      currentGraphNodeCount: Array.isArray(request?.current_world_graph?.nodes) ? request.current_world_graph.nodes.length : 0,
+      currentGraphEdgeCount: Array.isArray(request?.current_world_graph?.edges) ? request.current_world_graph.edges.length : 0,
+      currentGraphRelationTypeCount: Array.isArray(request?.current_world_graph?.relationTypes) ? request.current_world_graph.relationTypes.length : 0,
+      usage: response.usage,
+      patchSummary,
+      debug: response.debug || null,
+    })
+  }
   return {
-    world_graph_patch: normalizeGeneratedWorldGraphPatchPayload(response.data),
+    world_graph_patch: normalizedPatch,
+    usage: response.usage,
+  }
+}
+
+export async function runGraphRagExtract({ modelClient, modelSettings, request }) {
+  const prompts = getPromptConfig()
+  const response = await modelClient.invokeText(
+    modelSettings,
+    prompts.templates.graphrag.extract_system_instruction,
+    buildGraphRagExtractPrompt(request),
+  )
+  return {
+    graphrag_graph: normalizeGraphRagGraphPayload(parseJsonObject(response.text, {})),
+    usage: response.usage,
+  }
+}
+
+export async function runGraphRagRetrieve({ modelClient, modelSettings, request }) {
+  const prompts = getPromptConfig()
+  const response = await modelClient.invokeText(
+    modelSettings,
+    prompts.templates.graphrag.retrieve_system_instruction,
+    buildGraphRagRetrievePrompt(request),
+  )
+  return {
+    graphrag_retrieval: normalizeGraphRagRetrievePayload(parseJsonObject(response.text, {})),
+    usage: response.usage,
+  }
+}
+
+export async function runGraphRagWriteback({ modelClient, modelSettings, request }) {
+  const prompts = getPromptConfig()
+  const response = await modelClient.invokeText(
+    modelSettings,
+    prompts.templates.graphrag.writeback_system_instruction,
+    buildGraphRagWritebackPrompt(request),
+  )
+  return {
+    graphrag_writeback: normalizeGraphRagWritebackPayload(parseJsonObject(response.text, {})),
     usage: response.usage,
   }
 }

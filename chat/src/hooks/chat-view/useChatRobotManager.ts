@@ -2,21 +2,19 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, reactive, ref } from 'vue'
 
 import {
-  createRobotGenerationTask,
-  getRobotGenerationTask,
   getRobotWorldGraph,
   getRobots,
   replaceRobotWorldGraph,
   saveRobots,
 } from '@/lib/api'
 import { UnauthorizedError } from '@/lib/auth'
+import { useDocumentGenerationManager } from '@/hooks/chat-view/useDocumentGenerationManager'
 import { deleteLocalRobot, listLocalRobots, putLocalRobot } from '@/lib/local-db'
 import type {
   AgentTemplateFileV1,
   AIRobotCard,
   MemorySchemaState,
   NumericComputationItem,
-  RobotGenerationTask,
   RobotWorldGraph,
 } from '@/types/ai'
 
@@ -39,14 +37,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
   const agentManageVisible = ref(false)
   const mobileAgentEditorVisible = ref(false)
   const savingMobileAgent = ref(false)
-  const documentGenerationVisible = ref(false)
-  const documentGenerationSubmitting = ref(false)
   const robotTemplates = ref<AIRobotCard[]>([])
-  const documentGenerationTask = ref<RobotGenerationTask | null>(null)
-  const documentGenerationGuidance = ref('')
-  const documentGenerationFile = ref<File | null>(null)
-  const documentGenerationModelConfigId = ref('')
-  const documentGenerationEmbeddingModelConfigId = ref('')
   const selectedNewChatRobotId = ref('')
   const editingAgentId = ref('')
   const mobileAgentEditorMode = ref<'create' | 'edit'>('create')
@@ -58,12 +49,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     () => robotTemplates.value.find((item) => item.id === selectedNewChatRobotId.value) ?? null,
   )
   const isEditingAgentDraft = computed(() => mobileAgentEditorMode.value === 'edit')
-  const documentGenerationRunning = computed(() =>
-    documentGenerationTask.value
-      ? ['pending', 'processing'].includes(documentGenerationTask.value.status)
-      : false,
-  )
-  let generationTaskPollTimer: number | null = null
 
   function createRobotId() {
     return `robot-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -107,6 +92,42 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       description: String(item?.description || ''),
     }))
   }
+
+  const {
+    documentGenerationVisible,
+    documentGenerationSubmitting,
+    documentGenerationTask,
+    documentGenerationGuidance,
+    documentGenerationFile,
+    documentGenerationModelConfigId,
+    documentGenerationEmbeddingModelConfigId,
+    documentGenerationTargetSegmentChars,
+    documentGenerationMaxEntitiesPerSegment,
+    documentGenerationMaxRelationsPerSegment,
+    documentGenerationMaxEventsPerSegment,
+    documentGenerationEntityImportanceThreshold,
+    documentGenerationRelationImportanceThreshold,
+    documentGenerationEventImportanceThreshold,
+    documentGenerationRunning,
+    documentGenerationCancelable,
+    openDocumentGenerationDialog,
+    closeDocumentGenerationDialog,
+    setDocumentGenerationFile,
+    submitDocumentGeneration,
+    cancelCurrentDocumentGeneration,
+  } = useDocumentGenerationManager({
+    onCompleted: async (task) => {
+      await reloadRobotTemplates()
+      const robotId = String(task.result?.robotId || '').trim()
+      closeDocumentGenerationDialog()
+      if (!robotId) {
+        return
+      }
+      editingAgentId.value = robotId
+      selectedNewChatRobotId.value = robotId
+      openMobileAgentEditDialog(robotId)
+    },
+  })
 
   function addNumericComputationItem(target: { numericComputationItems: NumericComputationItem[] }) {
     target.numericComputationItems.push(options.createNumericComputationItem(target.numericComputationItems.length + 1))
@@ -227,106 +248,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
   function openAgentManageDialog() {
     editingAgentId.value = editingAgentId.value || robotTemplates.value[0]?.id || ''
     agentManageVisible.value = true
-  }
-
-  function resetDocumentGenerationState(options: { keepTask?: boolean } = {}) {
-    documentGenerationGuidance.value = ''
-    documentGenerationFile.value = null
-    documentGenerationModelConfigId.value = ''
-    documentGenerationEmbeddingModelConfigId.value = ''
-    documentGenerationSubmitting.value = false
-    if (!options.keepTask) {
-      documentGenerationTask.value = null
-    }
-    if (generationTaskPollTimer !== null) {
-      window.clearTimeout(generationTaskPollTimer)
-      generationTaskPollTimer = null
-    }
-  }
-
-  function openDocumentGenerationDialog() {
-    resetDocumentGenerationState()
-    documentGenerationVisible.value = true
-  }
-
-  function closeDocumentGenerationDialog() {
-    documentGenerationVisible.value = false
-    if (!documentGenerationRunning.value) {
-      resetDocumentGenerationState()
-    }
-  }
-
-  function setDocumentGenerationFile(file: File | null) {
-    documentGenerationFile.value = file
-  }
-
-  async function pollDocumentGenerationTask(taskId: string) {
-    try {
-      const response = await getRobotGenerationTask(taskId)
-      documentGenerationTask.value = response.task
-
-      if (response.task.status === 'completed') {
-        await reloadRobotTemplates()
-        if (response.task.result?.robotId && typeof response.task.result.robotId === 'string') {
-          editingAgentId.value = response.task.result.robotId
-          selectedNewChatRobotId.value = response.task.result.robotId
-          openMobileAgentEditDialog(response.task.result.robotId)
-        }
-        MessagePlugin.success(response.task.message || '智能体生成完成')
-        documentGenerationVisible.value = false
-        resetDocumentGenerationState()
-        return
-      }
-
-      if (response.task.status === 'failed') {
-        MessagePlugin.error(response.task.error || response.task.message || '智能体生成失败')
-        documentGenerationSubmitting.value = false
-        return
-      }
-
-      generationTaskPollTimer = window.setTimeout(() => {
-        void pollDocumentGenerationTask(taskId)
-      }, 1500)
-    } catch (error) {
-      documentGenerationSubmitting.value = false
-      MessagePlugin.error(error instanceof Error ? error.message : '查询生成任务失败')
-    }
-  }
-
-  async function submitDocumentGeneration() {
-    if (!(documentGenerationFile.value instanceof File)) {
-      MessagePlugin.error('请选择要导入的文档')
-      return
-    }
-    if (!documentGenerationModelConfigId.value.trim()) {
-      MessagePlugin.error('请选择文档生成模型')
-      return
-    }
-    if (!documentGenerationEmbeddingModelConfigId.value.trim()) {
-      MessagePlugin.error('请选择向量 Embedding 模型')
-      return
-    }
-
-    documentGenerationSubmitting.value = true
-    try {
-      const response = await createRobotGenerationTask(
-        documentGenerationFile.value,
-        documentGenerationGuidance.value,
-        documentGenerationModelConfigId.value,
-        documentGenerationEmbeddingModelConfigId.value,
-      )
-      documentGenerationTask.value = response.task
-      documentGenerationSubmitting.value = false
-      MessagePlugin.success('文档已进入生成队列')
-      await pollDocumentGenerationTask(response.task.id)
-    } catch (error) {
-      if (error instanceof UnauthorizedError) {
-        documentGenerationSubmitting.value = false
-        return
-      }
-      documentGenerationSubmitting.value = false
-      MessagePlugin.error(error instanceof Error ? error.message : '提交文档生成任务失败')
-    }
   }
 
   function addAgentTemplate() {
@@ -723,7 +644,15 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     documentGenerationFile,
     documentGenerationModelConfigId,
     documentGenerationEmbeddingModelConfigId,
+    documentGenerationTargetSegmentChars,
+    documentGenerationMaxEntitiesPerSegment,
+    documentGenerationMaxRelationsPerSegment,
+    documentGenerationMaxEventsPerSegment,
+    documentGenerationEntityImportanceThreshold,
+    documentGenerationRelationImportanceThreshold,
+    documentGenerationEventImportanceThreshold,
     documentGenerationRunning,
+    documentGenerationCancelable,
     selectedNewChatRobotId,
     editingAgentId,
     mobileAgentEditorMode,
@@ -745,6 +674,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     closeDocumentGenerationDialog,
     setDocumentGenerationFile,
     submitDocumentGeneration,
+    cancelCurrentDocumentGeneration,
     addAgentTemplate,
     openMobileAgentCreateDialog,
     openMobileAgentEditDialog,

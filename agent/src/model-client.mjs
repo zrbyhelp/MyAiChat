@@ -109,6 +109,83 @@ function collectStructuredCandidates(raw) {
   return candidates
 }
 
+function truncateForLog(value, limit = 800) {
+  const text = String(value ?? '')
+  if (text.length <= limit) {
+    return text
+  }
+  return `${text.slice(0, Math.max(0, limit - 3))}...`
+}
+
+function safeJsonForLog(value, limit = 800) {
+  try {
+    return truncateForLog(JSON.stringify(value), limit)
+  } catch {
+    return truncateForLog(String(value ?? ''), limit)
+  }
+}
+
+function summarizeStructuredCandidate(candidate) {
+  if (typeof candidate === 'string') {
+    return {
+      type: 'string',
+      preview: truncateForLog(candidate, 400),
+    }
+  }
+  if (candidate && typeof candidate === 'object') {
+    return {
+      type: 'object',
+      keys: Object.keys(candidate).slice(0, 20),
+      preview: safeJsonForLog(candidate, 400),
+    }
+  }
+  return {
+    type: typeof candidate,
+    preview: truncateForLog(String(candidate ?? ''), 200),
+  }
+}
+
+function summarizeWorldGraphPatchPayload(payload) {
+  const normalized = normalizeGeneratedWorldGraphPatchPayload(payload)
+  return {
+    title: String(normalized?.meta?.title || ''),
+    upsertRelationTypeCount: Array.isArray(normalized.upsert_relation_types) ? normalized.upsert_relation_types.length : 0,
+    deleteRelationTypeCount: Array.isArray(normalized.delete_relation_type_codes) ? normalized.delete_relation_type_codes.length : 0,
+    upsertNodeCount: Array.isArray(normalized.upsert_nodes) ? normalized.upsert_nodes.length : 0,
+    deleteNodeCount: Array.isArray(normalized.delete_node_ids) ? normalized.delete_node_ids.length : 0,
+    upsertEdgeCount: Array.isArray(normalized.upsert_edges) ? normalized.upsert_edges.length : 0,
+    deleteEdgeCount: Array.isArray(normalized.delete_edge_ids) ? normalized.delete_edge_ids.length : 0,
+    upsertEventCount: Array.isArray(normalized.upsert_events) ? normalized.upsert_events.length : 0,
+    appendEventEffectCount: Array.isArray(normalized.append_event_effects) ? normalized.append_event_effects.length : 0,
+  }
+}
+
+function isEmptyWorldGraphPatchSummary(summary) {
+  return summary.upsertRelationTypeCount === 0
+    && summary.deleteRelationTypeCount === 0
+    && summary.upsertNodeCount === 0
+    && summary.deleteNodeCount === 0
+    && summary.upsertEdgeCount === 0
+    && summary.deleteEdgeCount === 0
+    && summary.upsertEventCount === 0
+    && summary.appendEventEffectCount === 0
+}
+
+function buildStructuredDebugPayload({ method, schemaKind, raw, parsed, parsingError = null, recovered = false }) {
+  const candidates = collectStructuredCandidates(raw)
+  return {
+    method,
+    schemaKind,
+    recovered,
+    parsingError: parsingError ? String(parsingError.message || parsingError) : '',
+    rawKeys: raw && typeof raw === 'object' ? Object.keys(raw).slice(0, 20) : [],
+    rawTextPreview: truncateForLog(chunkText(raw), 1200),
+    parsedPreview: safeJsonForLog(parsed, 800),
+    candidateCount: candidates.length,
+    candidatePreview: candidates.slice(0, 2).map(summarizeStructuredCandidate),
+  }
+}
+
 function getStructuredNormalizer(schemaKind) {
   if (schemaKind === 'robot_generation_core') {
     return {
@@ -246,13 +323,13 @@ function coerceWorldGraphPatchStructuredValue(input) {
       id: normalizeString(readValue(item, ['id'])),
       name: normalizeString(readValue(item, ['name', 'label'])),
       description: normalizeString(readValue(item, ['description'])),
-      directionality: normalizeString(readValue(item, ['directionality']), 'directed') === 'undirected' ? 'undirected' : 'directed',
+      directionality: normalizeString(readValue(item, ['directionality'])),
     })),
     deleteRelationTypeCodes: (Array.isArray(readValue(source, ['deleteRelationTypeCodes', 'delete_relation_type_codes'])) ? readValue(source, ['deleteRelationTypeCodes', 'delete_relation_type_codes']) : []).map((item) => normalizeString(item)).filter(Boolean),
     upsertNodes: (Array.isArray(readValue(source, ['upsertNodes', 'upsert_nodes'])) ? readValue(source, ['upsertNodes', 'upsert_nodes']) : []).map((item) => ({
       id: normalizeString(readValue(item, ['id'])),
       name: normalizeString(readValue(item, ['name'])),
-      type: normalizeString(readValue(item, ['type', 'objectType', 'object_type']), 'character'),
+      type: normalizeString(readValue(item, ['type', 'objectType', 'object_type'])),
       description: normalizeString(readValue(item, ['description', 'summary'])),
     })),
     deleteNodeIds: (Array.isArray(readValue(source, ['deleteNodeIds', 'delete_node_ids'])) ? readValue(source, ['deleteNodeIds', 'delete_node_ids']) : []).map((item) => normalizeString(item)).filter(Boolean),
@@ -263,21 +340,137 @@ function coerceWorldGraphPatchStructuredValue(input) {
       relationType: normalizeString(readValue(item, ['relationType', 'relation_type', 'relationTypeCode', 'relation_type_code'])),
       description: normalizeString(readValue(item, ['description', 'summary'])),
     })),
+    upsertEvents: (Array.isArray(readValue(source, ['upsertEvents', 'upsert_events'])) ? readValue(source, ['upsertEvents', 'upsert_events']) : []).map((item) => ({
+      id: normalizeString(readValue(item, ['id'])),
+      name: normalizeString(readValue(item, ['name'])),
+      description: normalizeString(readValue(item, ['description', 'summary'])),
+      timeline: {
+        sequenceIndex: normalizeInteger(readValue(readValue(item, ['timeline']), ['sequenceIndex', 'sequence_index']), 0),
+        calendarId: normalizeString(readValue(readValue(item, ['timeline']), ['calendarId', 'calendar_id'])),
+        yearLabel: normalizeString(readValue(readValue(item, ['timeline']), ['yearLabel', 'year_label'])),
+        monthLabel: normalizeString(readValue(readValue(item, ['timeline']), ['monthLabel', 'month_label'])),
+        dayLabel: normalizeString(readValue(readValue(item, ['timeline']), ['dayLabel', 'day_label'])),
+        timeOfDayLabel: normalizeString(readValue(readValue(item, ['timeline']), ['timeOfDayLabel', 'time_of_day_label'])),
+        phase: normalizeString(readValue(readValue(item, ['timeline']), ['phase'])),
+        impactLevel: normalizeInteger(readValue(readValue(item, ['timeline']), ['impactLevel', 'impact_level']), 0),
+        eventType: normalizeString(readValue(readValue(item, ['timeline']), ['eventType', 'event_type'])),
+      },
+    })),
+    appendEventEffects: (Array.isArray(readValue(source, ['appendEventEffects', 'append_event_effects'])) ? readValue(source, ['appendEventEffects', 'append_event_effects']) : []).map((item) => ({
+      ref: {
+        nodeId: normalizeString(readValue(readValue(item, ['ref', 'eventRef', 'event_ref']), ['nodeId', 'node_id', 'id'])),
+        name: normalizeString(readValue(readValue(item, ['ref', 'eventRef', 'event_ref']), ['name'])),
+        objectType: 'event',
+      },
+      effects: (Array.isArray(readValue(item, ['effects'])) ? readValue(item, ['effects']) : [readValue(item, ['effect'])])
+        .filter(Boolean)
+        .map((effect) => ({
+          id: normalizeString(readValue(effect, ['id'])),
+          summary: normalizeString(readValue(effect, ['summary'])),
+          targetNodeId: normalizeString(readValue(effect, ['targetNodeId', 'target_node_id'])),
+          changeTargetType: normalizeString(readValue(effect, ['changeTargetType', 'change_target_type']), 'node-content') === 'relation' ? 'relation' : 'node-content',
+          nodeAttributeChanges: (Array.isArray(readValue(effect, ['nodeAttributeChanges', 'node_attribute_changes'])) ? readValue(effect, ['nodeAttributeChanges', 'node_attribute_changes']) : []).map((change) => ({
+            fieldKey: normalizeString(readValue(change, ['fieldKey', 'field_key'])),
+            beforeValue: normalizeString(readValue(change, ['beforeValue', 'before_value'])),
+            afterValue: normalizeString(readValue(change, ['afterValue', 'after_value'])),
+          })),
+          relationMode: normalizeString(readValue(effect, ['relationMode', 'relation_mode']), 'existing') === 'create' ? 'create' : 'existing',
+          relationId: normalizeString(readValue(effect, ['relationId', 'relation_id'])),
+          relationChanges: (Array.isArray(readValue(effect, ['relationChanges', 'relation_changes'])) ? readValue(effect, ['relationChanges', 'relation_changes']) : []).map((change) => ({
+            fieldKey: normalizeString(readValue(change, ['fieldKey', 'field_key'])),
+            beforeValue: normalizeString(readValue(change, ['beforeValue', 'before_value'])),
+            afterValue: normalizeString(readValue(change, ['afterValue', 'after_value'])),
+          })),
+          relationDraft: {
+            targetNodeId: normalizeString(readValue(readValue(effect, ['relationDraft', 'relation_draft']), ['targetNodeId', 'target_node_id'])),
+            relationTypeCode: normalizeString(readValue(readValue(effect, ['relationDraft', 'relation_draft']), ['relationTypeCode', 'relation_type_code'])),
+            relationLabel: normalizeString(readValue(readValue(effect, ['relationDraft', 'relation_draft']), ['relationLabel', 'relation_label'])),
+            summary: normalizeString(readValue(readValue(effect, ['relationDraft', 'relation_draft']), ['summary'])),
+            status: normalizeString(readValue(readValue(effect, ['relationDraft', 'relation_draft']), ['status'])),
+            intensity: (() => {
+              const intensity = readValue(readValue(effect, ['relationDraft', 'relation_draft']), ['intensity'])
+              return intensity === null || intensity === undefined ? null : normalizeInteger(intensity, 0)
+            })(),
+          },
+        })),
+    })),
     deleteEdgeIds: (Array.isArray(readValue(source, ['deleteEdgeIds', 'delete_edge_ids'])) ? readValue(source, ['deleteEdgeIds', 'delete_edge_ids']) : []).map((item) => normalizeString(item)).filter(Boolean),
   }
 }
 
+function ensureWorldGraphPatchField(path, value) {
+  if (!String(value || '').trim()) {
+    throw new Error(`世界图谱 patch 非法：${path} 不能为空`)
+  }
+}
+
+function ensureWorldGraphPatchPayload(payload) {
+  for (const [index, item] of (Array.isArray(payload?.upsertRelationTypes) ? payload.upsertRelationTypes : []).entries()) {
+    ensureWorldGraphPatchField(`upsertRelationTypes[${index}].id`, item?.id)
+    ensureWorldGraphPatchField(`upsertRelationTypes[${index}].name`, item?.name)
+    ensureWorldGraphPatchField(`upsertRelationTypes[${index}].description`, item?.description)
+  }
+  for (const [index, item] of (Array.isArray(payload?.upsertNodes) ? payload.upsertNodes : []).entries()) {
+    ensureWorldGraphPatchField(`upsertNodes[${index}].id`, item?.id)
+    ensureWorldGraphPatchField(`upsertNodes[${index}].name`, item?.name)
+    ensureWorldGraphPatchField(`upsertNodes[${index}].type`, item?.type)
+    ensureWorldGraphPatchField(`upsertNodes[${index}].description`, item?.description)
+  }
+  for (const [index, item] of (Array.isArray(payload?.upsertEdges) ? payload.upsertEdges : []).entries()) {
+    ensureWorldGraphPatchField(`upsertEdges[${index}].id`, item?.id)
+    ensureWorldGraphPatchField(`upsertEdges[${index}].source`, item?.source)
+    ensureWorldGraphPatchField(`upsertEdges[${index}].target`, item?.target)
+    ensureWorldGraphPatchField(`upsertEdges[${index}].relationType`, item?.relationType)
+    ensureWorldGraphPatchField(`upsertEdges[${index}].description`, item?.description)
+  }
+  for (const [index, item] of (Array.isArray(payload?.upsertEvents) ? payload.upsertEvents : []).entries()) {
+    ensureWorldGraphPatchField(`upsertEvents[${index}].id`, item?.id)
+    ensureWorldGraphPatchField(`upsertEvents[${index}].name`, item?.name)
+    ensureWorldGraphPatchField(`upsertEvents[${index}].description`, item?.description)
+  }
+  for (const [index, item] of (Array.isArray(payload?.appendEventEffects) ? payload.appendEventEffects : []).entries()) {
+    const ref = item?.ref || {}
+    if (!String(ref.nodeId || '').trim() && !String(ref.name || '').trim()) {
+      throw new Error(`世界图谱 patch 非法：appendEventEffects[${index}].ref.nodeId 或 ref.name 至少要提供一个`)
+    }
+    const effects = Array.isArray(item?.effects) ? item.effects : []
+    if (!effects.length) {
+      throw new Error(`世界图谱 patch 非法：appendEventEffects[${index}].effects 至少要有一项`)
+    }
+    for (const [effectIndex, effect] of effects.entries()) {
+      ensureWorldGraphPatchField(`appendEventEffects[${index}].effects[${effectIndex}].id`, effect?.id)
+      ensureWorldGraphPatchField(`appendEventEffects[${index}].effects[${effectIndex}].summary`, effect?.summary)
+    }
+  }
+}
+
+function finalizeStructuredPayload(schemaKind, schema, value) {
+  const validated = validateStructuredSchema(schema, value)
+  if (schemaKind === 'world_graph_patch') {
+    ensureWorldGraphPatchPayload(validated)
+  }
+  return validated
+}
+
 function recoverStructuredPayload(schemaKind, raw) {
   const { schema, coerceStructuredValue } = getStructuredNormalizer(schemaKind)
+  let lastError = null
   for (const candidate of collectStructuredCandidates(raw)) {
     try {
       const value = typeof candidate === 'string' ? parseJsonObject(candidate, {}) : candidate
-      return validateStructuredSchema(schema, coerceStructuredValue(value))
-    } catch {
+      return {
+        data: finalizeStructuredPayload(schemaKind, schema, coerceStructuredValue(value)),
+        error: null,
+      }
+    } catch (error) {
+      lastError = error
       // keep trying
     }
   }
-  return null
+  return {
+    data: null,
+    error: lastError,
+  }
 }
 
 export function createDefaultLangChainModel(config) {
@@ -387,23 +580,117 @@ export function createModelClient(options = {}) {
           const parsingError = result?.parsingError ?? null
           if (parsingError) {
             const recovered = recoverStructuredPayload(schemaKind, raw)
-            if (recovered) {
-              return { data: recovered, usage: extractUsage(raw) }
+            if (recovered.data) {
+              return {
+                data: recovered.data,
+                usage: extractUsage(raw),
+                debug: buildStructuredDebugPayload({
+                  method,
+                  schemaKind,
+                  raw,
+                  parsed: recovered.data,
+                  parsingError,
+                  recovered: true,
+                }),
+              }
             }
-            throw parsingError
+            throw recovered.error || parsingError
           }
 
           if (!parsed) {
             const recovered = recoverStructuredPayload(schemaKind, raw)
-            if (recovered) {
-              return { data: recovered, usage: extractUsage(raw) }
+            if (recovered.data) {
+              return {
+                data: recovered.data,
+                usage: extractUsage(raw),
+                debug: buildStructuredDebugPayload({
+                  method,
+                  schemaKind,
+                  raw,
+                  parsed: recovered.data,
+                  recovered: true,
+                }),
+              }
             }
-            throw new Error('模型没有返回结构化结果')
+            throw recovered.error || new Error('模型没有返回结构化结果')
           }
 
+          let validated = null
+          try {
+            validated = finalizeStructuredPayload(schemaKind, schema, parsed)
+          } catch (validationError) {
+            const recovered = recoverStructuredPayload(schemaKind, raw)
+            if (recovered.data) {
+              return {
+                data: recovered.data,
+                usage: extractUsage(raw),
+                debug: buildStructuredDebugPayload({
+                  method,
+                  schemaKind,
+                  raw,
+                  parsed: recovered.data,
+                  recovered: true,
+                }),
+              }
+            }
+            throw recovered.error || validationError
+          }
+          if (schemaKind === 'world_graph_patch') {
+            const patchSummary = summarizeWorldGraphPatchPayload(validated)
+            if (isEmptyWorldGraphPatchSummary(patchSummary)) {
+              const recovered = recoverStructuredPayload(schemaKind, raw)
+              const recoveredSummary = recovered.data ? summarizeWorldGraphPatchPayload(recovered.data) : null
+              if (recovered.data && recoveredSummary && !isEmptyWorldGraphPatchSummary(recoveredSummary)) {
+                const debug = buildStructuredDebugPayload({
+                  method,
+                  schemaKind,
+                  raw,
+                  parsed: recovered.data,
+                  recovered: true,
+                })
+                console.warn('[agent:structured:world-graph-patch:fallback-to-raw]', {
+                  parsedSummary: patchSummary,
+                  recoveredSummary,
+                  debug,
+                })
+                return {
+                  data: recovered.data,
+                  usage: extractUsage(raw),
+                  debug,
+                }
+              }
+              if (collectStructuredCandidates(raw).length && recovered.error) {
+                throw recovered.error
+              }
+              const debug = buildStructuredDebugPayload({
+                method,
+                schemaKind,
+                raw,
+                parsed: validated,
+              })
+              console.warn('[agent:structured:world-graph-patch:empty]', {
+                ...patchSummary,
+                debug,
+              })
+              return {
+                data: validated,
+                usage: extractUsage(raw),
+                debug,
+              }
+            }
+          }
+
+          const debug = buildStructuredDebugPayload({
+            method,
+            schemaKind,
+            raw,
+            parsed: validated,
+          })
+
           return {
-            data: validateStructuredSchema(schema, parsed),
+            data: validated,
             usage: extractUsage(raw),
+            debug,
           }
         } catch (error) {
           lastError = error

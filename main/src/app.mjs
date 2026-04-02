@@ -29,6 +29,7 @@ import {
   writeRobots,
 } from './storage.mjs'
 import {
+  cancelRobotGenerationImportTask,
   createRobotGenerationImportTask,
   getRobotImportTempDir,
   readRobotGenerationTask,
@@ -97,6 +98,14 @@ function logRequestError(error, req) {
     bodyKeys: pickObjectKeys(req.body),
     error: serializeError(error),
   })
+}
+
+function parseOptionalNumberField(value) {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return undefined
+  }
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : undefined
 }
 
 export function createApp() {
@@ -347,6 +356,15 @@ export function createApp() {
         guidance: String(req.body?.guidance || ''),
         modelConfigId,
         embeddingModelConfigId,
+        extractionDetail: {
+          targetSegmentChars: parseOptionalNumberField(req.body?.targetSegmentChars),
+          maxEntitiesPerSegment: parseOptionalNumberField(req.body?.maxEntitiesPerSegment),
+          maxRelationsPerSegment: parseOptionalNumberField(req.body?.maxRelationsPerSegment),
+          maxEventsPerSegment: parseOptionalNumberField(req.body?.maxEventsPerSegment),
+          entityImportanceThreshold: parseOptionalNumberField(req.body?.entityImportanceThreshold),
+          relationImportanceThreshold: parseOptionalNumberField(req.body?.relationImportanceThreshold),
+          eventImportanceThreshold: parseOptionalNumberField(req.body?.eventImportanceThreshold),
+        },
       })
 
       res.status(202).json({ task })
@@ -358,6 +376,19 @@ export function createApp() {
   app.get('/api/robots/generation-tasks/:taskId', async (req, res, next) => {
     try {
       const task = await readRobotGenerationTask(req.authUser, req.params.taskId)
+      if (!task) {
+        res.status(404).json({ message: '任务不存在' })
+        return
+      }
+      res.json({ task })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.delete('/api/robots/generation-tasks/:taskId', async (req, res, next) => {
+    try {
+      const task = await cancelRobotGenerationImportTask(req.authUser, req.params.taskId)
       if (!task) {
         res.status(404).json({ message: '任务不存在' })
         return

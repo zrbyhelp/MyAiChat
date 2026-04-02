@@ -257,6 +257,13 @@
     :document-generation-file-name="documentGenerationFile?.name || ''"
     :document-generation-model-config-id="documentGenerationModelConfigId"
     :document-generation-embedding-model-config-id="documentGenerationEmbeddingModelConfigId"
+    :document-generation-target-segment-chars="documentGenerationTargetSegmentChars"
+    :document-generation-max-entities-per-segment="documentGenerationMaxEntitiesPerSegment"
+    :document-generation-max-relations-per-segment="documentGenerationMaxRelationsPerSegment"
+    :document-generation-max-events-per-segment="documentGenerationMaxEventsPerSegment"
+    :document-generation-entity-importance-threshold="documentGenerationEntityImportanceThreshold"
+    :document-generation-relation-importance-threshold="documentGenerationRelationImportanceThreshold"
+    :document-generation-event-importance-threshold="documentGenerationEventImportanceThreshold"
     :aux-model-options="auxModelOptions"
     :agent-card-action-options="agentCardActionOptions"
     @confirm-start-new-chat="confirmStartNewChat"
@@ -264,6 +271,13 @@
     @update:document-generation-guidance="handleDocumentGenerationGuidanceChange"
     @update:document-generation-model-config-id="handleDocumentGenerationModelConfigChange"
     @update:document-generation-embedding-model-config-id="handleDocumentGenerationEmbeddingModelConfigChange"
+    @update:document-generation-target-segment-chars="(value) => (documentGenerationTargetSegmentChars = value)"
+    @update:document-generation-max-entities-per-segment="(value) => (documentGenerationMaxEntitiesPerSegment = value)"
+    @update:document-generation-max-relations-per-segment="(value) => (documentGenerationMaxRelationsPerSegment = value)"
+    @update:document-generation-max-events-per-segment="(value) => (documentGenerationMaxEventsPerSegment = value)"
+    @update:document-generation-entity-importance-threshold="(value) => (documentGenerationEntityImportanceThreshold = value)"
+    @update:document-generation-relation-importance-threshold="(value) => (documentGenerationRelationImportanceThreshold = value)"
+    @update:document-generation-event-importance-threshold="(value) => (documentGenerationEventImportanceThreshold = value)"
     @open-mobile-agent-edit-dialog="openMobileAgentEditDialog"
     @handle-agent-card-action="handleRobotCardAction"
     @open-mobile-agent-create-dialog="openMobileAgentCreateDialog"
@@ -272,6 +286,7 @@
     @import-agent-template="importRobotTemplate"
     @set-document-generation-file="setDocumentGenerationFile"
     @submit-document-generation="submitDocumentGeneration"
+    @cancel-document-generation="cancelCurrentDocumentGeneration"
     @next-agent-editor-step="nextAgentEditorStep"
     @previous-agent-editor-step="previousAgentEditorStep"
     @skip-agent-structure-setup="skipAgentStructureSetup"
@@ -564,6 +579,13 @@ const {
   documentGenerationFile,
   documentGenerationModelConfigId,
   documentGenerationEmbeddingModelConfigId,
+  documentGenerationTargetSegmentChars,
+  documentGenerationMaxEntitiesPerSegment,
+  documentGenerationMaxRelationsPerSegment,
+  documentGenerationMaxEventsPerSegment,
+  documentGenerationEntityImportanceThreshold,
+  documentGenerationRelationImportanceThreshold,
+  documentGenerationEventImportanceThreshold,
   documentGenerationRunning,
   selectedNewChatRobotId,
   agentEditorStep,
@@ -581,6 +603,7 @@ const {
   closeDocumentGenerationDialog,
   setDocumentGenerationFile,
   submitDocumentGeneration,
+  cancelCurrentDocumentGeneration,
   addAgentTemplate,
   openMobileAgentCreateDialog,
   openMobileAgentEditDialog,

@@ -144,6 +144,92 @@
             />
           </TFormItem>
         </div>
+        <div class="document-generation-slider-grid">
+          <TFormItem class="document-generation-slider-span-2" label="目标单片字数">
+            <div class="document-generation-slider-control">
+              <TSlider
+                :model-value="documentGenerationTargetSegmentChars"
+                :min="10000"
+                :max="300000"
+                :step="5000"
+                @update:model-value="emit('update:documentGenerationTargetSegmentChars', Number($event || 10000))"
+              />
+              <span class="document-generation-slider-value">{{ documentGenerationTargetSegmentChars.toLocaleString() }}</span>
+            </div>
+          </TFormItem>
+          <TFormItem label="每片实体上限">
+            <div class="document-generation-slider-control">
+              <TSlider
+              :model-value="documentGenerationMaxEntitiesPerSegment"
+              :min="1"
+              :max="50"
+              :step="1"
+              @update:model-value="emit('update:documentGenerationMaxEntitiesPerSegment', Number($event || 1))"
+              />
+              <span class="document-generation-slider-value">{{ documentGenerationMaxEntitiesPerSegment }}</span>
+            </div>
+          </TFormItem>
+          <TFormItem label="每片关系上限">
+            <div class="document-generation-slider-control">
+              <TSlider
+              :model-value="documentGenerationMaxRelationsPerSegment"
+              :min="1"
+              :max="80"
+              :step="1"
+              @update:model-value="emit('update:documentGenerationMaxRelationsPerSegment', Number($event || 1))"
+              />
+              <span class="document-generation-slider-value">{{ documentGenerationMaxRelationsPerSegment }}</span>
+            </div>
+          </TFormItem>
+          <TFormItem label="每片事件上限">
+            <div class="document-generation-slider-control">
+              <TSlider
+              :model-value="documentGenerationMaxEventsPerSegment"
+              :min="1"
+              :max="30"
+              :step="1"
+              @update:model-value="emit('update:documentGenerationMaxEventsPerSegment', Number($event || 1))"
+              />
+              <span class="document-generation-slider-value">{{ documentGenerationMaxEventsPerSegment }}</span>
+            </div>
+          </TFormItem>
+          <TFormItem label="实体重要性阈值">
+            <div class="document-generation-slider-control">
+              <TSlider
+              :model-value="documentGenerationEntityImportanceThreshold"
+              :min="0"
+              :max="1"
+              :step="0.05"
+              @update:model-value="emit('update:documentGenerationEntityImportanceThreshold', Number($event || 0))"
+              />
+              <span class="document-generation-slider-value">{{ documentGenerationEntityImportanceThreshold.toFixed(2) }}</span>
+            </div>
+          </TFormItem>
+          <TFormItem label="关系重要性阈值">
+            <div class="document-generation-slider-control">
+              <TSlider
+              :model-value="documentGenerationRelationImportanceThreshold"
+              :min="0"
+              :max="1"
+              :step="0.05"
+              @update:model-value="emit('update:documentGenerationRelationImportanceThreshold', Number($event || 0))"
+              />
+              <span class="document-generation-slider-value">{{ documentGenerationRelationImportanceThreshold.toFixed(2) }}</span>
+            </div>
+          </TFormItem>
+          <TFormItem label="事件重要性阈值">
+            <div class="document-generation-slider-control">
+              <TSlider
+              :model-value="documentGenerationEventImportanceThreshold"
+              :min="0"
+              :max="1"
+              :step="0.05"
+              @update:model-value="emit('update:documentGenerationEventImportanceThreshold', Number($event || 0))"
+              />
+              <span class="document-generation-slider-value">{{ documentGenerationEventImportanceThreshold.toFixed(2) }}</span>
+            </div>
+          </TFormItem>
+        </div>
         <TFormItem label="生成引导语">
           <TTextarea
             :model-value="documentGenerationGuidance"
@@ -166,15 +252,29 @@
       </div>
 
       <div class="document-generation-footer">
-        <TButton variant="outline" @click="handleDocumentGenerationVisibleChange(false)">关闭</TButton>
-        <TButton
-          theme="primary"
-          :loading="documentGenerationSubmitting || documentGenerationRunning"
-          :disabled="!documentGenerationReady || documentGenerationRunning"
-          @click="emit('submit-document-generation')"
-        >
-          {{ documentGenerationRunning ? '生成中' : '开始生成' }}
-        </TButton>
+        <div class="document-generation-footer-actions">
+          <TButton
+            v-if="documentGenerationCancelable || documentGenerationCanceling"
+            theme="danger"
+            variant="outline"
+            :loading="documentGenerationCanceling"
+            :disabled="documentGenerationCanceling"
+            @click="emit('cancel-document-generation')"
+          >
+            {{ documentGenerationCanceling ? '取消中' : '取消生成' }}
+          </TButton>
+        </div>
+        <div class="document-generation-footer-actions">
+          <TButton variant="outline" @click="handleDocumentGenerationVisibleChange(false)">关闭</TButton>
+          <TButton
+            theme="primary"
+            :loading="documentGenerationSubmitting || documentGenerationRunning"
+            :disabled="!documentGenerationReady || documentGenerationRunning"
+            @click="emit('submit-document-generation')"
+          >
+            {{ documentGenerationRunning ? '生成中' : '开始生成' }}
+          </TButton>
+        </div>
       </div>
     </div>
   </TDialog>
@@ -832,6 +932,7 @@ import {
   Popup as TPopup,
   Progress as TProgress,
   Select as TSelect,
+  Slider as TSlider,
   StepItem as TStepItem,
   Steps as TSteps,
   Switch as TSwitch,
@@ -925,6 +1026,34 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  documentGenerationTargetSegmentChars: {
+    type: Number,
+    required: true,
+  },
+  documentGenerationMaxEntitiesPerSegment: {
+    type: Number,
+    required: true,
+  },
+  documentGenerationMaxRelationsPerSegment: {
+    type: Number,
+    required: true,
+  },
+  documentGenerationMaxEventsPerSegment: {
+    type: Number,
+    required: true,
+  },
+  documentGenerationEntityImportanceThreshold: {
+    type: Number,
+    required: true,
+  },
+  documentGenerationRelationImportanceThreshold: {
+    type: Number,
+    required: true,
+  },
+  documentGenerationEventImportanceThreshold: {
+    type: Number,
+    required: true,
+  },
   auxModelOptions: {
     type: Array as PropType<Array<{ label: string; value: string }>>,
     required: true,
@@ -954,6 +1083,13 @@ const {
   documentGenerationFileName,
   documentGenerationModelConfigId,
   documentGenerationEmbeddingModelConfigId,
+  documentGenerationTargetSegmentChars,
+  documentGenerationMaxEntitiesPerSegment,
+  documentGenerationMaxRelationsPerSegment,
+  documentGenerationMaxEventsPerSegment,
+  documentGenerationEntityImportanceThreshold,
+  documentGenerationRelationImportanceThreshold,
+  documentGenerationEventImportanceThreshold,
   auxModelOptions,
   agentCardActionOptions,
 } = toRefs(props)
@@ -1000,6 +1136,12 @@ const documentGenerationReady = computed(() =>
       && documentGenerationModelConfigId.value.trim()
       && documentGenerationEmbeddingModelConfigId.value.trim(),
   ),
+)
+const documentGenerationCancelable = computed(() =>
+  ['pending', 'processing'].includes(String(documentGenerationTask.value?.status || '')),
+)
+const documentGenerationCanceling = computed(() =>
+  String(documentGenerationTask.value?.status || '') === 'canceling',
 )
 const savedServerRobotForDraft = computed(() => {
   const agentId = String(mobileAgentDraft.value.id || '').trim()
@@ -1251,6 +1393,13 @@ const emit = defineEmits<{
   (e: 'update:documentGenerationGuidance', value: string): void
   (e: 'update:documentGenerationModelConfigId', value: string): void
   (e: 'update:documentGenerationEmbeddingModelConfigId', value: string): void
+  (e: 'update:documentGenerationTargetSegmentChars', value: number): void
+  (e: 'update:documentGenerationMaxEntitiesPerSegment', value: number): void
+  (e: 'update:documentGenerationMaxRelationsPerSegment', value: number): void
+  (e: 'update:documentGenerationMaxEventsPerSegment', value: number): void
+  (e: 'update:documentGenerationEntityImportanceThreshold', value: number): void
+  (e: 'update:documentGenerationRelationImportanceThreshold', value: number): void
+  (e: 'update:documentGenerationEventImportanceThreshold', value: number): void
   (e: 'update:selectedNewChatRobotId', value: string): void
   (e: 'confirm-start-new-chat'): void
   (e: 'open-mobile-agent-edit-dialog', agentId: string): void
@@ -1265,6 +1414,7 @@ const emit = defineEmits<{
   (e: 'import-agent-template', file: File): void
   (e: 'set-document-generation-file', file: File | null): void
   (e: 'submit-document-generation'): void
+  (e: 'cancel-document-generation'): void
   (e: 'next-agent-editor-step'): void
   (e: 'previous-agent-editor-step'): void
   (e: 'skip-agent-structure-setup'): void
@@ -1304,6 +1454,33 @@ const emit = defineEmits<{
   color: #4b5563;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.document-generation-slider-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.document-generation-slider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.document-generation-slider-span-2 {
+  grid-column: 1 / -1;
+}
+
+.document-generation-slider-control :deep(.t-slider) {
+  width: 100%;
+}
+
+.document-generation-slider-value {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .document-generation-actions {
@@ -1346,6 +1523,13 @@ const emit = defineEmits<{
 }
 
 .document-generation-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.document-generation-footer-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;

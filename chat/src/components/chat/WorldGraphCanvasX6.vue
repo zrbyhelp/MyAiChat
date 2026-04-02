@@ -22,7 +22,7 @@
             :stroke-width="edge.strokeWidth"
             stroke-linecap="round"
             stroke-linejoin="round"
-            opacity="0.92"
+            :opacity="edge.opacity"
           />
           <circle
             v-for="node in miniMapScene.nodes"
@@ -132,6 +132,27 @@ function visibleEdges() {
   return props.edges.filter((edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId))
 }
 
+function getActiveFocusNodeId() {
+  return props.selectedNodeId || props.linkingSourceNodeId || ''
+}
+
+function isEdgeFocused(edge: WorldEdge) {
+  if (props.selectedEdgeId) {
+    return edge.id === props.selectedEdgeId
+  }
+
+  const focusNodeId = getActiveFocusNodeId()
+  if (focusNodeId) {
+    return edge.sourceNodeId === focusNodeId || edge.targetNodeId === focusNodeId
+  }
+
+  return false
+}
+
+function resolveEdgeOpacity(edge: WorldEdge) {
+  return isEdgeFocused(edge) ? 1 : 0
+}
+
 function getNodeCenter(node: WorldNode) {
   return {
     x: node.position.x + NODE_SIZE / 2,
@@ -193,6 +214,7 @@ function createNodeCell(node: WorldNode) {
 function createEdgeCell(edge: WorldEdge) {
   const sourceNode = visibleNodes().find((item) => item.id === edge.sourceNodeId)
   const targetNode = visibleNodes().find((item) => item.id === edge.targetNodeId)
+  const isSelectedEdge = props.selectedEdgeId === edge.id
 
   return new Shape.Edge({
     id: edge.id,
@@ -202,8 +224,9 @@ function createEdgeCell(edge: WorldEdge) {
     connector: { name: 'smooth' },
     attrs: {
       line: {
-        stroke: props.selectedEdgeId === edge.id ? '#2563eb' : '#1f2937',
-        strokeWidth: props.selectedEdgeId === edge.id ? 2.5 : 1.8,
+        stroke: isSelectedEdge ? '#2563eb' : '#1f2937',
+        strokeWidth: isSelectedEdge ? 2.5 : 1.8,
+        strokeOpacity: resolveEdgeOpacity(edge),
         targetMarker: null,
       },
     },
@@ -222,6 +245,7 @@ function createEdgeCell(edge: WorldEdge) {
             fill: '#3f4349',
             fontSize: 13,
             fontWeight: 500,
+            opacity: resolveEdgeOpacity(edge),
             textAnchor: 'middle',
             textVerticalAnchor: 'middle',
             pointerEvents: 'none',
@@ -238,7 +262,7 @@ const miniMapScene = computed(() => {
   if (!nodes.length && !viewportArea) {
     return {
       nodes: [] as Array<{ id: string; x: number; y: number; radius: number; fill: string; stroke: string; strokeWidth: number }>,
-      edges: [] as Array<{ id: string; path: string; stroke: string; strokeWidth: number }>,
+      edges: [] as Array<{ id: string; path: string; stroke: string; strokeWidth: number; opacity: number }>,
       viewport: null as null | { x: number; y: number; width: number; height: number },
     }
   }
@@ -290,8 +314,9 @@ const miniMapScene = computed(() => {
       path,
       stroke: props.selectedEdgeId === edge.id ? '#2563eb' : '#4b5563',
       strokeWidth: props.selectedEdgeId === edge.id ? 2 : 1.4,
+      opacity: resolveEdgeOpacity(edge),
     }
-  }).filter((edge): edge is { id: string; path: string; stroke: string; strokeWidth: number } => Boolean(edge))
+  }).filter((edge): edge is { id: string; path: string; stroke: string; strokeWidth: number; opacity: number } => Boolean(edge))
 
   const nodeRadius = Number(Math.min(9, Math.max(4.5, (NODE_SIZE / 2) * scale)).toFixed(2))
   const nodeItems = nodes.map((node) => {
@@ -639,7 +664,7 @@ watch(
 watch(
   () => [props.selectedNodeId, props.selectedEdgeId, props.linkingSourceNodeId],
   () => {
-    syncSelection()
+    renderGraph()
   },
 )
 

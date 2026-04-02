@@ -18,6 +18,102 @@ class CapturingModelClient {
 
   async invokeText(config, systemInstruction, userContent) {
     this.calls.push({ kind: 'text', config, systemInstruction, userContent })
+    if (systemInstruction.includes('GraphRAG 原始图谱')) {
+      return {
+        text: JSON.stringify({
+          meta: { title: '百年孤独图谱', summary: '布恩迪亚家族与马孔多的长期演化。' },
+          relationTypes: [
+            { id: 'kinship', name: '亲族', description: '血缘与家族关系', directionality: 'undirected' },
+          ],
+          entities: [
+            { id: 'buendia-family', name: '布恩迪亚家族', type: 'organization', summary: '家族共同体' },
+          ],
+          relations: [],
+          events: [
+            {
+              id: 'found-macondo',
+              name: '建立马孔多',
+              summary: '布恩迪亚家族建立马孔多。',
+              timeline: { phase: '开端', impactLevel: 80, eventType: 'founding' },
+              participantEntityIds: ['buendia-family'],
+            },
+          ],
+          appendEventEffects: [
+            {
+              ref: { nodeId: 'found-macondo', objectType: 'event' },
+              effects: [
+                { id: 'found-macondo-effect-1', summary: '布恩迪亚家族由迁徙转入定居。', targetNodeId: 'buendia-family', changeTargetType: 'node-content' },
+              ],
+            },
+          ],
+          communities: [
+            { id: 'community-1', name: '家族宿命', summary: '围绕布恩迪亚家族命运的核心板块。', entityIds: ['buendia-family'], eventIds: ['found-macondo'], keywords: ['家族', '宿命'] },
+          ],
+          chunks: [
+            { documentId: 'doc-1', sourceName: '百年孤独.epub', segmentIndex: 0, summary: '家族建立马孔多。', excerpt: '乌尔苏拉与何塞建立家园。', entityIds: ['buendia-family'], relationIds: [], eventIds: ['found-macondo'], communityIds: ['community-1'] },
+          ],
+        }),
+        usage: { prompt_tokens: 15, completion_tokens: 10 },
+      }
+    }
+    if (systemInstruction.includes('选出最相关的子图')) {
+      return {
+        text: JSON.stringify({
+          summary: '当前问题与布恩迪亚家族命运和马孔多起源相关。',
+          communities: [
+            { id: 'community-1', name: '家族宿命', summary: '布恩迪亚家族的长期命运。', score: 0.92 },
+          ],
+          entities: [
+            { id: 'buendia-family', name: '布恩迪亚家族', type: 'organization', summary: '家族共同体' },
+          ],
+          events: [
+            {
+              id: 'found-macondo',
+              name: '建立马孔多',
+              summary: '布恩迪亚家族建立马孔多。',
+              timeline: { sequenceIndex: 0, phase: '开端', impactLevel: 80, eventType: 'founding' },
+            },
+          ],
+          chunks: [
+            { documentId: 'doc-1', sourceName: '百年孤独.epub', segmentIndex: 0, summary: '家族建立马孔多。', excerpt: '乌尔苏拉与何塞建立家园。', score: 0.88, entityIds: ['buendia-family'], communityIds: ['community-1'], eventIds: ['found-macondo'] },
+          ],
+        }),
+        usage: { prompt_tokens: 12, completion_tokens: 7 },
+      }
+    }
+    if (systemInstruction.includes('事实抽取辅助')) {
+      return {
+        text: JSON.stringify({
+          summary: '本轮确认吴邪与张起灵关系进一步稳固。',
+          relationTypes: [
+            { id: 'companion', name: '同伴', description: '稳定合作关系', directionality: 'undirected' },
+          ],
+          entities: [
+            { id: 'wu-xie', name: '吴邪', type: 'character', summary: '主角' },
+          ],
+          relations: [
+            { id: 'edge-1', sourceId: 'wu-xie', targetId: 'zhang-qi-ling', relationTypeId: 'companion', summary: '关系进一步稳固' },
+          ],
+          events: [
+            {
+              id: 'trust-deepen',
+              name: '信任加深',
+              summary: '吴邪与张起灵在墓道中的信任进一步加深。',
+              timeline: { sequenceIndex: 1, phase: '推进', impactLevel: 65, eventType: 'relationship' },
+            },
+          ],
+          appendEventEffects: [
+            {
+              ref: { nodeId: 'trust-deepen', objectType: 'event' },
+              effects: [
+                { id: 'trust-deepen-effect-1', summary: '吴邪对张起灵的信任增强。', targetNodeId: 'wu-xie', changeTargetType: 'node-content' },
+              ],
+            },
+          ],
+        }),
+        usage: { prompt_tokens: 11, completion_tokens: 6 },
+      }
+    }
     if (config.model === 'numeric-model') {
       return { text: '{"hp":10}', usage: { prompt_tokens: 11, completion_tokens: 7 } }
     }
@@ -53,7 +149,7 @@ class CapturingModelClient {
   }
 
   async invokeStructured(config, _systemInstruction, _userContent, schemaKind) {
-    this.calls.push({ kind: 'structured', config, schemaKind })
+    this.calls.push({ kind: 'structured', config, systemInstruction: _systemInstruction, userContent: _userContent, schemaKind })
     if (schemaKind === 'robot_generation_core') {
       return {
         data: {
@@ -113,6 +209,30 @@ class CapturingModelClient {
           deleteNodeIds: ['old-node'],
           upsertEdges: [
             { id: 'edge-1', source: 'wu-xie', target: 'zhang-qi-ling', relationType: 'companion', description: '共同探墓' },
+          ],
+          upsertEvents: [
+            {
+              id: 'arrive-ruwanggong',
+              name: '抵达鲁王宫',
+              description: '吴邪一行正式进入鲁王宫地宫区域。',
+              timeline: { sequenceIndex: 1, phase: '入墓', impactLevel: 70, eventType: 'arrival' },
+            },
+          ],
+          appendEventEffects: [
+            {
+              ref: { nodeId: 'arrive-ruwanggong', objectType: 'event' },
+              effects: [
+                {
+                  id: 'arrive-ruwanggong-effect-1',
+                  summary: '吴邪从好奇转为警惕。',
+                  targetNodeId: 'wu-xie',
+                  changeTargetType: 'node-content',
+                  nodeAttributeChanges: [
+                    { fieldKey: 'currentStatus', beforeValue: '好奇', afterValue: '警惕' },
+                  ],
+                },
+              ],
+            },
           ],
           deleteEdgeIds: ['old-edge'],
         },
@@ -268,7 +388,21 @@ test('buildAnswererMessages and world graph related nodes keep story setting pla
     numeric_state: {},
     history_text: 'user: old',
     prompt: '继续推进剧情',
-    world_graph_payload: { meta: { robotId: 'robot-1' }, nodes: [], edges: [], events: [] },
+    world_graph_payload: {
+      meta: { robotId: 'robot-1' },
+      nodes: [
+        {
+          id: 'event-1',
+          objectType: 'event',
+          name: '进入墓道',
+          summary: '吴邪和张起灵进入第一段墓道。',
+          timeline: { sequenceIndex: 1 },
+          effects: [{ id: 'effect-1', summary: '吴邪开始高度警惕。' }],
+        },
+      ],
+      edges: [],
+      events: [],
+    },
     final_response: '最终正文',
     model_config: { model: 'answer-model' },
     auxiliary_model_configs: { outline: { model: 'outline-capture-model' } },
@@ -293,6 +427,10 @@ test('buildAnswererMessages and world graph related nodes keep story setting pla
   assert.ok(graphCall)
   assert.match(graphCall.systemInstruction, /主要故事设定：\n角色设定/)
   assert.doesNotMatch(graphCall.userContent, /主要故事设定：/)
+  assert.match(graphCall.userContent, /当前最大 sequenceIndex：1/)
+  assert.match(graphCall.userContent, /当前事件时间线摘要：/)
+  assert.match(graphCall.userContent, /\[1\] 进入墓道/)
+  assert.match(graphCall.userContent, /吴邪开始高度警惕/)
 })
 
 test('runs stream completes and persists thread state', async () => {
@@ -524,6 +662,30 @@ test('model client recovers structured fallback payloads with snake_case aliases
                         description: '共同探墓',
                       },
                     ],
+                    upsert_events: [
+                      {
+                        id: 'arrive-ruwanggong',
+                        name: '抵达鲁王宫',
+                        description: '吴邪一行正式进入鲁王宫地宫区域。',
+                        timeline: { sequence_index: 1, phase: '入墓', impact_level: 70, event_type: 'arrival' },
+                      },
+                    ],
+                    append_event_effects: [
+                      {
+                        ref: { node_id: 'arrive-ruwanggong', object_type: 'event' },
+                        effects: [
+                          {
+                            id: 'arrive-ruwanggong-effect-1',
+                            summary: '吴邪从好奇转为警惕。',
+                            target_node_id: 'wu-xie',
+                            change_target_type: 'node-content',
+                            node_attribute_changes: [
+                              { field_key: 'currentStatus', before_value: '好奇', after_value: '警惕' },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
                     delete_edge_ids: ['old-edge'],
                   }),
                   usage_metadata: {
@@ -556,9 +718,142 @@ test('model client recovers structured fallback payloads with snake_case aliases
   assert.equal(result.data.meta.title, '盗墓世界图谱')
   assert.equal(result.data.upsertRelationTypes[0]?.id, 'companion')
   assert.equal(result.data.upsertEdges[0]?.relationType, 'companion')
+  assert.equal(result.data.upsertEvents[0]?.timeline.sequenceIndex, 1)
+  assert.equal(result.data.appendEventEffects[0]?.effects[0]?.targetNodeId, 'wu-xie')
   assert.deepEqual(result.data.deleteNodeIds, ['old-node'])
   assert.equal(result.usage.prompt_tokens, 4)
   assert.equal(result.usage.completion_tokens, 2)
+})
+
+test('model client falls back to raw world graph patch when parsed result is empty', async () => {
+  const modelClient = createModelClient({
+    createModel() {
+      return {
+        withStructuredOutput() {
+          return {
+            async ainvoke() {
+              return {
+                parsed: {
+                  meta: { title: '', description: '' },
+                  upsertRelationTypes: [],
+                  deleteRelationTypeCodes: [],
+                  upsertNodes: [],
+                  deleteNodeIds: [],
+                  upsertEdges: [],
+                  upsertEvents: [],
+                  appendEventEffects: [],
+                  deleteEdgeIds: [],
+                },
+                raw: {
+                  content: JSON.stringify({
+                    meta: { description: '布恩迪亚家族后期关系与终局' },
+                    upsertRelationTypes: [
+                      { id: 'RT_MARRIED_TO', name: '婚姻', description: '婚姻/配偶关系', directionality: 'undirected' },
+                    ],
+                    upsertNodes: [
+                      { id: 'buendia-family', name: '布恩迪亚家族', type: 'organization', description: '家族共同体' },
+                    ],
+                    upsertEdges: [
+                      {
+                        id: 'edge-1',
+                        source: 'amaranta-ursula',
+                        target: 'aureliano-babilonia',
+                        relationType: 'RT_MARRIED_TO',
+                        description: '隐秘结合关系',
+                      },
+                    ],
+                  }),
+                  usage_metadata: {
+                    input_tokens: 9,
+                    output_tokens: 3,
+                  },
+                },
+              }
+            },
+          }
+        },
+      }
+    },
+  })
+
+  const result = await modelClient.invokeStructured(
+    {
+      provider: 'openai',
+      base_url: 'http://example.com',
+      api_key: 'test-key',
+      model: 'test-model',
+      temperature: 0.7,
+    },
+    'system',
+    'user',
+    'world_graph_patch',
+    '世界图谱演化 patch',
+  )
+
+  assert.equal(result.debug?.recovered, true)
+  assert.equal(result.data.meta.description, '布恩迪亚家族后期关系与终局')
+  assert.equal(result.data.upsertRelationTypes[0]?.id, 'RT_MARRIED_TO')
+  assert.equal(result.data.upsertRelationTypes[0]?.directionality, 'undirected')
+  assert.equal(result.data.upsertNodes[0]?.id, 'buendia-family')
+  assert.equal(result.data.upsertNodes[0]?.type, 'organization')
+  assert.equal(result.data.upsertEdges[0]?.relationType, 'RT_MARRIED_TO')
+  assert.equal(result.usage.prompt_tokens, 9)
+  assert.equal(result.usage.completion_tokens, 3)
+})
+
+test('model client rejects recovered world graph patches with unsupported enums', async () => {
+  const modelClient = createModelClient({
+    createModel() {
+      return {
+        withStructuredOutput() {
+          return {
+            async ainvoke() {
+              return {
+                parsed: {
+                  meta: { title: '', description: '' },
+                  upsertRelationTypes: [],
+                  deleteRelationTypeCodes: [],
+                  upsertNodes: [],
+                  deleteNodeIds: [],
+                  upsertEdges: [],
+                  upsertEvents: [],
+                  appendEventEffects: [],
+                  deleteEdgeIds: [],
+                },
+                raw: {
+                  content: JSON.stringify({
+                    upsertRelationTypes: [
+                      { id: 'RT_MARRIED_TO', name: '婚姻', description: '婚姻/配偶关系', directionality: 'BIDIRECTIONAL' },
+                    ],
+                    upsertNodes: [
+                      { id: 'buendia-family', name: '布恩迪亚家族', type: 'family', description: '家族共同体' },
+                    ],
+                  }),
+                },
+              }
+            },
+          }
+        },
+      }
+    },
+  })
+
+  await assert.rejects(
+    () => modelClient.invokeStructured(
+      {
+        provider: 'openai',
+        base_url: 'http://example.com',
+        api_key: 'test-key',
+        model: 'test-model',
+        temperature: 0.7,
+      },
+      'system',
+      'user',
+      'world_graph_patch',
+      '世界图谱演化 patch',
+    ),
+    /世界图谱演化 patch生成失败：/,
+  )
 })
 
 test('runs memory updates thread store', async () => {
@@ -713,7 +1008,160 @@ test('robot world graph evolution returns delete-capable patch', async () => {
       assert.deepEqual(body.world_graph_patch.delete_node_ids, ['old-node'])
       assert.deepEqual(body.world_graph_patch.delete_edge_ids, ['old-edge'])
       assert.equal(body.world_graph_patch.upsert_nodes[0].id, 'wu-xie')
+      assert.equal(body.world_graph_patch.upsert_events[0].timeline.sequenceIndex, 1)
+      assert.equal(body.world_graph_patch.append_event_effects[0].effects[0].targetNodeId, 'wu-xie')
       assert.equal(body.usage.prompt_tokens, 6)
+      const graphPatchCall = client.calls.find((item) => item.kind === 'structured' && item.schemaKind === 'world_graph_patch')
+      assert.ok(graphPatchCall)
+      assert.match(graphPatchCall.userContent, /当前最大 sequenceIndex：0/)
+      assert.match(graphPatchCall.userContent, /当前事件时间线摘要：\n\n无/)
+    })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('graphrag extract returns normalized graph payload', async () => {
+  const client = new CapturingModelClient()
+  const { dir, store } = await createTempStore()
+  try {
+    const app = await createApp({ modelClient: client, store })
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/runs/graphrag-extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_config: {
+            provider: 'openai',
+            base_url: 'http://example.com',
+            api_key: 'test-key',
+            model: 'answer-model',
+            temperature: 0.7,
+          },
+          source_name: '百年孤独.epub',
+          guidance: '生成一个角色扮演智能体',
+          document_summary: '布恩迪亚家族与马孔多的长期命运。',
+          core: {
+            name: '百年孤独智能体',
+            description: '追踪家族与马孔多命运',
+          },
+          segment_summary: '家族建立马孔多。',
+          segment_index: 0,
+          segment_total: 8,
+          current_world_graph: {
+            meta: { robotId: 'robot-1', graphVersion: 0 },
+            relationTypes: [],
+            nodes: [],
+            edges: [],
+          },
+          extraction_detail: {
+            max_entities_per_segment: 9,
+            max_relations_per_segment: 11,
+            max_events_per_segment: 5,
+            entity_importance_threshold: 0.45,
+            relation_importance_threshold: 0.5,
+            event_importance_threshold: 0.6,
+          },
+        }),
+      })
+      const body = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(body.graphrag_graph.meta.title, '百年孤独图谱')
+      assert.equal(body.graphrag_graph.entities[0]?.id, 'buendia-family')
+      assert.equal(body.graphrag_graph.events[0]?.timeline.sequenceIndex, null)
+      assert.equal(body.graphrag_graph.append_event_effects[0]?.effects[0]?.targetNodeId, 'buendia-family')
+      assert.equal(body.usage.prompt_tokens, 15)
+      const textCall = client.calls.find((item) => item.kind === 'text' && item.systemInstruction.includes('GraphRAG 原始图谱'))
+      assert.ok(textCall)
+      assert.match(textCall.userContent, /当前分片：1\/8/)
+      assert.match(textCall.userContent, /实体上限：9/)
+      assert.match(textCall.userContent, /当前最大 sequenceIndex：0/)
+    })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('graphrag retrieve returns normalized retrieval payload', async () => {
+  const client = new CapturingModelClient()
+  const { dir, store } = await createTempStore()
+  try {
+    const app = await createApp({ modelClient: client, store })
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/runs/graphrag-retrieve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_config: {
+            provider: 'openai',
+            base_url: 'http://example.com',
+            api_key: 'test-key',
+            model: 'answer-model',
+            temperature: 0.7,
+          },
+          robot_name: '百年孤独向导',
+          robot_description: '布恩迪亚家族世界观向导',
+          story_outline: '家族与马孔多命运纠缠。',
+          prompt: '马孔多是怎么建立的？',
+          history: [{ role: 'user', content: '先说说家族背景' }],
+          graphrag_documents: [
+            {
+              document_id: 'doc-1',
+              source_name: '百年孤独.epub',
+              summary: '布恩迪亚家族与马孔多',
+              graphrag_graph: {
+                communities: [{ id: 'community-1', name: '家族宿命', summary: '宿命主题' }],
+              },
+            },
+          ],
+        }),
+      })
+      const body = await response.json()
+      assert.equal(response.status, 200)
+      assert.match(body.graphrag_retrieval.summary, /布恩迪亚家族/)
+      assert.equal(body.graphrag_retrieval.chunks[0]?.document_id, 'doc-1')
+      assert.equal(body.graphrag_retrieval.communities[0]?.id, 'community-1')
+    })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('graphrag writeback returns normalized writeback facts', async () => {
+  const client = new CapturingModelClient()
+  const { dir, store } = await createTempStore()
+  try {
+    const app = await createApp({ modelClient: client, store })
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/runs/graphrag-writeback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_config: {
+            provider: 'openai',
+            base_url: 'http://example.com',
+            api_key: 'test-key',
+            model: 'answer-model',
+            temperature: 0.7,
+          },
+          robot_name: '盗墓搭档',
+          robot_description: '陪伴用户探索盗墓世界设定的智能体。',
+          prompt: '继续推进剧情',
+          final_response: '吴邪和张起灵在墓道中建立了更稳定的信任。',
+          history: [{ role: 'user', content: '继续' }],
+          current_world_graph: {
+            meta: { robotId: 'robot-1', title: '图谱', summary: '' },
+            relationTypes: [],
+            nodes: [{ id: 'zhang-qi-ling', objectType: 'character', name: '张起灵', summary: '关键同伴' }],
+            edges: [],
+          },
+        }),
+      })
+      const body = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(body.graphrag_writeback.relations[0]?.relation_type_id, 'companion')
+      assert.equal(body.graphrag_writeback.events[0]?.id, 'trust-deepen')
+      assert.equal(body.graphrag_writeback.append_event_effects[0]?.effects[0]?.targetNodeId, 'wu-xie')
     })
   } finally {
     await rm(dir, { recursive: true, force: true })

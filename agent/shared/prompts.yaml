@@ -37,6 +37,14 @@ templates:
     system_instruction: |
       你是正文生成后的世界图谱写回节点。你会收到完整世界图谱 JSON、用户输入和最终正文。你必须只输出 JSON，不要输出解释。输出格式固定为 {"upsert_nodes":[],"upsert_edges":[],"upsert_events":[],"append_node_snapshots":[],"append_edge_snapshots":[],"append_event_effects":[]}。只能写入正文里真正发生、被确认、被推进的变化，不能把仅仅计划中的内容写回。新增节点或事件时必须带 id；如果是新建节点且正文没有现成 id，可自己生成稳定临时 id。关系必须尽量使用图谱里已有 relation_type_code。不要输出 deletes，不要整图重写。
 
+      事件写回不是可选装饰，而是剧情推进的主记录方式。如果正文中出现了任何一个“被实际发生、被确认、会影响后续状态”的事件，你必须优先考虑写 `upsert_events`，而不是只更新角色/关系摘要。
+      如果正文里出现了事件带来的后果、状态改变、立场变化、关系变化、资源变化、地点状态变化，你必须输出 `append_event_effects`；不能只写事件本身而完全不写后果。
+      `append_event_effects` 默认采用“结构化最小集”：
+      - 每条 effect 至少写 `id` 和 `summary`。
+      - 如果能明确指向某个节点的状态变化，补 `targetNodeId`、`changeTargetType="node-content"` 和 `nodeAttributeChanges`。
+      - 如果能明确指向某段关系变化，补 `changeTargetType="relation"`，并填写 `relationChanges` 或 `relationDraft`。
+      - 如果后果存在但对象不够明确，可以只有 `summary`，但不能空着不写。
+
       关于事件时间点与 sequenceIndex，必须严格遵守以下规则：
       1. sequenceIndex 表示时间顺序，数字越小越早；0 是最早的时间点，通常对应开场、初始状态、故事刚开始时已成立的事件。
       2. 同一个 sequenceIndex 允许存在多个事件。sequenceIndex 不是唯一键，不要因为同一时间点已经有事件，就强行把另一个同时发生/同阶段发生的事件改到别的时间点。
@@ -49,6 +57,7 @@ templates:
       - “初始化 / 开场 / 故事开始前已成立” -> 倾向最早时间点，可为 0。
       - “当前场景里同时发生的几件事” -> 可以共享同一个 sequenceIndex。
       - “剧情已经推进后才发生的新事件” -> sequenceIndex 应不小于当前已发生阶段，通常保持不变或递增，不能倒退。
+      - “新发现导致角色状态/关系/局势发生变化” -> 除了事件本身，还应写 `append_event_effects`。
   document_summary:
     segment_system_instruction: |
       你负责把超长文档的一个片段整理成可用于后续生成与检索的中文摘要。你必须只输出纯文本，不要输出 JSON、标题、序号说明或额外解释。
@@ -114,18 +123,20 @@ templates:
       你负责根据“当前文档切片摘要 + 当前全量世界图谱”，生成一次世界图谱演化 patch。系统会把你的 patch 应用到已有图谱上，所以你必须只返回结构化 patch，不能输出解释。
 
       目标：
-      - 从当前切片里抽取新出现或被修正的稳定实体、关系和图谱摘要。
+      - 从当前切片里抽取新出现或被修正的稳定实体、关系、关键事件、事件顺序和事件后果。
       - 允许对已有图谱做新增、修改、删除，而不是每次重建整图。
       - 删除明显错误、重复、被后文推翻、命名不稳定或不再适合作为长期图谱对象的节点、边、关系类型。
 
       输出要求：
       - 只输出一个 JSON 对象，字段固定为：
-        `meta`、`upsertRelationTypes`、`deleteRelationTypeCodes`、`upsertNodes`、`deleteNodeIds`、`upsertEdges`、`deleteEdgeIds`。
+        `meta`、`upsertRelationTypes`、`deleteRelationTypeCodes`、`upsertNodes`、`deleteNodeIds`、`upsertEdges`、`upsertEvents`、`appendEventEffects`、`deleteEdgeIds`。
       - `meta` 可为空对象，也可更新 `title`、`description`。
       - `deleteRelationTypeCodes`、`deleteNodeIds`、`deleteEdgeIds` 都必须是字符串数组。
-      - `upsertRelationTypes` 中每项必须包含：`id`、`name`、`description`、`directionality`。
-      - `upsertNodes` 中每项必须包含：`id`、`name`、`type`、`description`。
+      - `upsertRelationTypes` 中每项必须包含：`id`、`name`、`description`、`directionality`；其中 `directionality` 只能是 `directed` 或 `undirected`。
+      - `upsertNodes` 中每项必须包含：`id`、`name`、`type`、`description`；其中 `type` 只能是 `character`、`organization`、`location`、`event`、`item`。
       - `upsertEdges` 中每项必须包含：`id`、`source`、`target`、`relationType`、`description`。
+      - `upsertEvents` 中每项必须包含：`id`、`name`、`description`、`timeline`，其中 `timeline.sequenceIndex` 必填。
+      - `appendEventEffects` 中每项必须包含：`ref`、`effects`；每条 effect 至少包含 `id`、`summary`。
 
       硬性约束：
       - 输入里的 `current_world_graph` 是当前全量图谱；你必须先理解它，再决定本次 patch。
@@ -136,6 +147,11 @@ templates:
       - 新增或更新边时，`source`、`target`、`relationType` 必须能在“当前图谱去掉删除项后 + 本次 upsert”中成立。
       - 不允许根据已有节点描述进行本地猜测式补边；只有当前切片明确支持的关系才可新增或修正。
       - 优先保留长期有效的实体与关系；一次性动作、纯路人、短暂过场、模糊暗示不要强行入图。
+      - 关键剧情推进、阶段切换、稳定前史、明显后果，优先写成 `upsertEvents`，不要只把它们埋进人物或地点摘要里。
+      - `sequenceIndex` 必须参考当前全量图谱与已有事件时间线：同阶段并行事件可共用同一个序号，后续推进不能回退到更早时间点。
+      - 如果当前切片描述了某个事件对角色状态、关系、局势、资源或地点状态的可持续影响，必须尽量输出 `appendEventEffects`。
+      - `appendEventEffects` 采用“结构化最小集”：优先补结构化字段；若对象不明确，至少保留 effect 的 `summary`。
+      - 不要输出 `BIDIRECTIONAL`、`family`、`person`、`place` 等别名或自定义枚举；若语义是双向关系，请直接写 `undirected`；若某个对象不完全对应现有节点类型，也必须从既有 5 种节点类型中选择最贴切的一类，不要自定义新类型。
   retrieval_summary:
     system_instruction: |
       你负责把当前对话上下文压缩成一段“知识检索摘要”，供系统去向量数据库检索相关文档。你必须只输出纯文本，不要输出 JSON、标题、解释或代码块。
@@ -146,3 +162,61 @@ templates:
       - 这是检索摘要，不是回答正文；不要替用户回答，不要展开推理。
       - 控制在 80 到 180 字之间。
       - 若存在世界观、任务目标或故事梗概，应优先保留这些能帮助命中文档知识的内容。
+  graphrag:
+    extract_system_instruction: |
+      你负责把文档摘要整理成 GraphRAG 原始图谱。你必须只输出一个 JSON 对象，不要输出解释、Markdown 或代码块。
+
+      输出字段固定为：
+      - `meta`
+      - `relationTypes`
+      - `entities`
+      - `relations`
+      - `events`
+      - `appendEventEffects`
+      - `communities`
+      - `chunks`
+
+      要求：
+      - `relationTypes` 中每项包含 `id`、`name`、`description`、`directionality`，其中 `directionality` 只能是 `directed` 或 `undirected`。
+      - `entities` 中每项包含 `id`、`name`、`type`、`summary`；`type` 只能是 `character`、`organization`、`location`、`event`、`item`。
+      - `relations` 中每项包含 `id`、`sourceId`、`targetId`、`relationTypeId`、`summary`。
+      - `events` 中每项包含 `id`、`name`、`summary`、`timeline`；如能明确参与实体，补 `participantEntityIds`。
+      - `appendEventEffects` 中每项包含 `ref`、`effects`；每条 effect 至少包含 `id`、`summary`，若能明确对象尽量补 `targetNodeId` 与变化细节。
+      - `communities` 用来表达长期主题团簇、阵营或叙事板块，包含 `id`、`name`、`summary`。
+      - `chunks` 用来保留分段锚点，包含 `segmentIndex`、`summary`、`excerpt`，并尽量补充相关实体、关系、事件、社区 id。
+      - 只保留对长期角色扮演、知识召回和世界设定有价值的稳定信息，不要把纯噪声细节塞进图里。
+      - `timeline.sequenceIndex` 必须体现叙事推进，不能把所有事件都写成 0；若无法精确判断年代，也要根据文档片段顺序给出相对先后。
+      - 如果某个事件会导致角色状态、关系、局势、资源或地点状态在后续继续生效，必须尽量输出 `appendEventEffects`，不要只保留事件标题。
+    retrieve_system_instruction: |
+      你负责基于当前会话上下文，从给定的 GraphRAG 文档中选出最相关的子图、社区和片段。你必须只输出一个 JSON 对象，不要输出解释、Markdown 或代码块。
+
+      输出字段固定为：
+      - `summary`
+      - `communities`
+      - `entities`
+      - `events`
+      - `chunks`
+
+      要求：
+      - `summary` 用中文概括本次最值得注入回答链路的知识焦点。
+      - `communities` 挑选最相关的 1 到 4 个社区，每项包含 `id`、`name`、`summary`、`score`。
+      - `entities`、`events` 只返回与当前问题高度相关的对象，不要机械全量抄回。
+      - `chunks` 返回最相关的 2 到 6 条片段，每项包含 `documentId`、`sourceName`、`segmentIndex`、`summary`、`excerpt`、`score`。
+      - 召回时优先考虑当前用户问题、最近历史、故事梗概和已有世界设定，避免只按词面硬匹配。
+    writeback_system_instruction: |
+      你负责在正文生成后，基于当前对话和现有世界图谱，抽取本轮新增或被修正的事实。你必须只输出一个 JSON 对象，不要输出解释、Markdown 或代码块。
+
+      输出字段固定为：
+      - `summary`
+      - `relationTypes`
+      - `entities`
+      - `relations`
+      - `events`
+      - `appendEventEffects`
+
+      要求：
+      - 这是“事实抽取辅助”，不是直接写产品图谱 patch；只抽取本轮正文中真正发生或被确认的变化。
+      - `relationTypes`、`entities`、`relations`、`events` 的字段要求与 GraphRAG 抽取保持一致。
+      - 如果正文出现事件推进、后果、状态变化、关系变化，必须尽量补 `events` 和 `appendEventEffects`。
+      - `appendEventEffects` 中每条 effect 至少包含 `id` 和 `summary`；若能明确对象，补 `targetNodeId`、`changeTargetType` 与变化细节。
+      - 不要为了凑数输出空对象；没有变化就返回空数组。

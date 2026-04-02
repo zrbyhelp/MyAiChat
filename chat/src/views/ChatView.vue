@@ -1,6 +1,11 @@
 <template>
   <div class="main" :style="mainStyle">
-    <PrimaryNav v-model="activePrimaryTab" />
+    <PrimaryNav
+      v-model="activePrimaryTab"
+      :show-document-generation-indicator="documentGenerationIndicatorVisible"
+      :document-generation-task="documentGenerationTask"
+      @open-document-generation="handleOpenDocumentGeneration"
+    />
     <AgentTab v-if="activePrimaryTab === 'agent'" />
     <DiscoverTab v-else-if="activePrimaryTab === 'discover'" />
     <MineTab v-else />
@@ -9,6 +14,7 @@
 
 <script setup lang="ts">
 import PrimaryNav from '@/components/chat/PrimaryNav.vue'
+import { useDocumentGenerationManager } from '@/hooks/chat-view/useDocumentGenerationManager'
 import { useWindowSize } from '@/hooks/useWindowSize'
 import { computed, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -20,6 +26,11 @@ const MineTab = defineAsyncComponent(() => import('@/components/tabs/MineTab.vue
 const router = useRouter()
 const route = useRoute()
 const { width: windowWidth, height: windowHeight } = useWindowSize()
+const {
+  documentGenerationTask,
+  documentGenerationIndicatorVisible,
+  reopenDocumentGenerationDialog,
+} = useDocumentGenerationManager()
 
 const mainStyle = computed(() => ({
   width: windowWidth.value > 0 ? `${windowWidth.value}px` : '100vw',
@@ -40,6 +51,13 @@ const activePrimaryTab = computed<'agent' | 'discover' | 'mine'>({
     void router.push({ name: value })
   },
 })
+
+async function handleOpenDocumentGeneration() {
+  if (route.name !== 'agent') {
+    await router.push({ name: 'agent' })
+  }
+  reopenDocumentGenerationDialog()
+}
 </script>
 
 <style src="./ChatView.css"></style>

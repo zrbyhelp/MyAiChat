@@ -17,6 +17,7 @@ import type {
   RobotWorldGraphMeta,
   RobotWorldRelationType,
   RobotGenerationTaskResponse,
+  RobotGenerationExtractionDetail,
   RobotsResponse,
   TestConnectionResponse,
   WorldEdge,
@@ -147,6 +148,7 @@ export async function createRobotGenerationTask(
   guidance: string,
   modelConfigId = '',
   embeddingModelConfigId = '',
+  extractionDetail?: Partial<RobotGenerationExtractionDetail>,
 ) {
   const formData = new FormData()
   formData.append('file', file)
@@ -156,6 +158,22 @@ export async function createRobotGenerationTask(
   }
   if (embeddingModelConfigId) {
     formData.append('embeddingModelConfigId', embeddingModelConfigId)
+  }
+  if (extractionDetail) {
+    const entries: Array<[string, number | undefined]> = [
+      ['targetSegmentChars', extractionDetail.targetSegmentChars],
+      ['maxEntitiesPerSegment', extractionDetail.maxEntitiesPerSegment],
+      ['maxRelationsPerSegment', extractionDetail.maxRelationsPerSegment],
+      ['maxEventsPerSegment', extractionDetail.maxEventsPerSegment],
+      ['entityImportanceThreshold', extractionDetail.entityImportanceThreshold],
+      ['relationImportanceThreshold', extractionDetail.relationImportanceThreshold],
+      ['eventImportanceThreshold', extractionDetail.eventImportanceThreshold],
+    ]
+    for (const [key, value] of entries) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        formData.append(key, String(value))
+      }
+    }
   }
 
   const response = await requestWithAuth('/api/robots/generation-tasks', {
@@ -172,6 +190,12 @@ export async function createRobotGenerationTask(
 
 export function getRobotGenerationTask(taskId: string) {
   return requestJson<RobotGenerationTaskResponse>(`/api/robots/generation-tasks/${encodeURIComponent(taskId)}`)
+}
+
+export function cancelRobotGenerationTask(taskId: string) {
+  return requestJson<RobotGenerationTaskResponse>(`/api/robots/generation-tasks/${encodeURIComponent(taskId)}`, {
+    method: 'DELETE',
+  })
 }
 
 export async function getModels(provider: string, baseUrl: string, apiKey: string) {

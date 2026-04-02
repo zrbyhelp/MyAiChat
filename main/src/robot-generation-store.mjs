@@ -40,7 +40,7 @@ function normalizeProgress(value) {
 }
 
 function normalizeTaskStatus(value) {
-  return ['pending', 'processing', 'completed', 'failed'].includes(String(value || ''))
+  return ['pending', 'processing', 'canceling', 'completed', 'failed', 'canceled'].includes(String(value || ''))
     ? String(value)
     : 'pending'
 }
@@ -96,6 +96,22 @@ function normalizeDocumentRecord(input = {}) {
   }
 }
 
+function normalizeGraphRagArtifactRecord(input = {}) {
+  const createdAt = typeof input.createdAt === 'string' && input.createdAt ? input.createdAt : nowIso()
+  return {
+    id: String(input.id || '').trim(),
+    robotId: String(input.robotId || '').trim(),
+    documentId: String(input.documentId || '').trim(),
+    sessionId: String(input.sessionId || '').trim(),
+    kind: ['extract', 'retrieve', 'writeback'].includes(String(input.kind || '')) ? String(input.kind) : 'extract',
+    summary: String(input.summary || ''),
+    payload: input.payload && typeof input.payload === 'object' ? input.payload : {},
+    meta: input.meta && typeof input.meta === 'object' ? input.meta : {},
+    createdAt,
+    updatedAt: typeof input.updatedAt === 'string' && input.updatedAt ? input.updatedAt : createdAt,
+  }
+}
+
 async function ensureFileStorage(user) {
   const userId = resolveUserId(user, true)
   const userDir = join(USERS_DIR, userId)
@@ -103,6 +119,7 @@ async function ensureFileStorage(user) {
   return {
     tasksFile: join(userDir, 'robot-generation-tasks.json'),
     documentsFile: join(userDir, 'robot-knowledge-documents.json'),
+    graphragArtifactsFile: join(userDir, 'graphrag-artifacts.json'),
   }
 }
 
@@ -126,6 +143,88 @@ export async function initializeRobotGenerationStore() {
   }
   await mkdir(DATA_DIR, { recursive: true })
   await mkdir(USERS_DIR, { recursive: true })
+}
+
+export async function createGraphRagArtifact(user, input) {
+  const record = normalizeGraphRagArtifactRecord(input)
+  if (!record.id) {
+    throw new Error('GraphRAG artifact ID 不能为空')
+  }
+
+  if (getStorageDriver() === 'mysql') {
+    const { GraphRagArtifact } = getModels()
+    await GraphRagArtifact.create({
+      id: scopeId(user, record.id),
+      userId: resolveUserId(user),
+      robotId: record.robotId ? scopeId(user, record.robotId) : '',
+      documentId: record.documentId ? scopeId(user, record.documentId) : '',
+      sessionId: record.sessionId,
+      kind: record.kind,
+      summary: record.summary,
+      payloadJson: JSON.stringify(record.payload),
+      metaJson: JSON.stringify(record.meta),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    })
+    return record
+  }
+
+  const { graphragArtifactsFile } = await ensureFileStorage(user)
+  const artifacts = await readFileList(graphragArtifactsFile)
+  artifacts.unshift(record)
+  await writeFileList(graphragArtifactsFile, artifacts)
+  return record
+}
+
+export async function listGraphRagArtifacts(user, filters = {}) {
+  const robotId = String(filters.robotId || '').trim()
+  const documentId = String(filters.documentId || '').trim()
+  const sessionId = String(filters.sessionId || '').trim()
+  const kind = String(filters.kind || '').trim()
+
+  if (getStorageDriver() === 'mysql') {
+    const { GraphRagArtifact } = getModels()
+    const where = {
+      userId: resolveUserId(user),
+    }
+    if (robotId) {
+      where.robotId = scopeId(user, robotId)
+    }
+    if (documentId) {
+      where.documentId = scopeId(user, documentId)
+    }
+    if (sessionId) {
+      where.sessionId = sessionId
+    }
+    if (kind) {
+      where.kind = kind
+    }
+    const rows = await GraphRagArtifact.findAll({
+      where,
+      order: [['createdAt', 'DESC']],
+    })
+    return rows.map((row) => normalizeGraphRagArtifactRecord({
+      id: unscopeId(user, row.id),
+      robotId: row.robotId ? unscopeId(user, row.robotId) : '',
+      documentId: row.documentId ? unscopeId(user, row.documentId) : '',
+      sessionId: row.sessionId,
+      kind: row.kind,
+      summary: row.summary,
+      payload: safeJsonParse(row.payloadJson, {}),
+      meta: safeJsonParse(row.metaJson, {}),
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : row.updatedAt,
+    }))
+  }
+
+  const { graphragArtifactsFile } = await ensureFileStorage(user)
+  const artifacts = await readFileList(graphragArtifactsFile)
+  return artifacts
+    .map((item) => normalizeGraphRagArtifactRecord(item))
+    .filter((item) => (!robotId || item.robotId === robotId))
+    .filter((item) => (!documentId || item.documentId === documentId))
+    .filter((item) => (!sessionId || item.sessionId === sessionId))
+    .filter((item) => (!kind || item.kind === kind))
 }
 
 export async function createRobotGenerationTask(user, input) {

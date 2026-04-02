@@ -29,6 +29,7 @@
 - Vue 组件文件采用 PascalCase（如 `ChatAgentPanels.vue`）。
 - 组合式函数采用 `useXxx` 命名（如 `useChatStreaming.ts`）。
 - 先复用现有模块，再新增工具；保持最小改动面。
+- 报错提示：所有报错信息均需中文，避免使用英文。
 
 ## Testing Guidelines
 - 单元测试：Vitest（`chat/vitest.config.ts`，`jsdom` 环境）。
@@ -40,7 +41,7 @@
 
 ## Commit & Pull Request Guidelines
 - 提交历史主要遵循 Conventional Commit：`feat`、`fix`、`refactor`、`docs`，可带 scope（如 `feat(upload): ...`）。
-- 提交信息用祈使句，单次提交只做一类逻辑改动。
+- 提交信息用祈使句，单次提交可包含多种逻辑改动，每个改动用逗号分隔，使用中文描述。
 - PR 必填内容：
   - 变更目的与影响范围
   - 涉及模块（如 `chat`、`main`、`agent`、`upload`）

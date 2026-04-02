@@ -217,9 +217,19 @@ export interface RobotsResponse {
   robots: AIRobotCard[]
 }
 
+export interface RobotGenerationExtractionDetail {
+  targetSegmentChars: number
+  maxEntitiesPerSegment: number
+  maxRelationsPerSegment: number
+  maxEventsPerSegment: number
+  entityImportanceThreshold: number
+  relationImportanceThreshold: number
+  eventImportanceThreshold: number
+}
+
 export interface RobotGenerationTask {
   id: string
-  status: 'pending' | 'processing' | 'completed' | 'failed'
+  status: 'pending' | 'processing' | 'canceling' | 'completed' | 'failed' | 'canceled'
   stage: string
   progress: number
   message: string

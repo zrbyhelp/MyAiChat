@@ -600,6 +600,12 @@
   gap: 12px;
 }
 
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .form-grid-span-2 {
   grid-column: 1 / -1;
 }
@@ -1046,6 +1052,18 @@
 
   .form-grid-2 {
     grid-template-columns: 1fr;
+  }
+
+  .form-grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .document-generation-slider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .document-generation-slider-span-2 {
+    grid-column: auto;
   }
 
   .robot-picker-grid-desktop {

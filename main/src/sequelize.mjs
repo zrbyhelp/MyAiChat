@@ -537,6 +537,58 @@ export function getModels() {
     },
   })
 
+  const GraphRagArtifact = sequelize.define('GraphRagArtifact', {
+    id: {
+      type: DataTypes.STRING(120),
+      primaryKey: true,
+    },
+    userId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      field: 'user_id',
+    },
+    robotId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_id',
+    },
+    documentId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'document_id',
+    },
+    sessionId: {
+      type: DataTypes.STRING(120),
+      allowNull: false,
+      defaultValue: '',
+      field: 'session_id',
+    },
+    kind: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: 'extract',
+    },
+    summary: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '',
+    },
+    payloadJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{}',
+      field: 'payload_json',
+    },
+    metaJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{}',
+      field: 'meta_json',
+    },
+  })
+
   const Session = sequelize.define('Session', {
     id: {
       type: DataTypes.STRING(120),
@@ -871,6 +923,10 @@ export function getModels() {
     foreignKey: 'userId',
     as: 'robotKnowledgeDocuments',
   })
+  User.hasMany(GraphRagArtifact, {
+    foreignKey: 'userId',
+    as: 'graphRagArtifacts',
+  })
   ModelConfig.belongsTo(User, {
     foreignKey: 'userId',
     as: 'user',
@@ -897,6 +953,13 @@ export function getModels() {
     foreignKey: 'robotId',
     sourceKey: 'id',
     as: 'knowledgeDocuments',
+    onDelete: 'CASCADE',
+    hooks: true,
+  })
+  Robot.hasMany(GraphRagArtifact, {
+    foreignKey: 'robotId',
+    sourceKey: 'id',
+    as: 'graphRagArtifacts',
     onDelete: 'CASCADE',
     hooks: true,
   })
@@ -935,6 +998,15 @@ export function getModels() {
     targetKey: 'id',
     as: 'robot',
   })
+  GraphRagArtifact.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  })
+  GraphRagArtifact.belongsTo(Robot, {
+    foreignKey: 'robotId',
+    targetKey: 'id',
+    as: 'robot',
+  })
   SessionMessage.belongsTo(Session, {
     foreignKey: 'sessionId',
     as: 'session',
@@ -949,6 +1021,7 @@ export function getModels() {
     RobotWorldRelationType,
     RobotGenerationTask,
     RobotKnowledgeDocument,
+    GraphRagArtifact,
     Session,
     SessionMessage,
   }

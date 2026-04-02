@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { __resetDocumentGenerationManagerForTests } from './useDocumentGenerationManager'
 import { useChatRobotManager } from './useChatRobotManager'
 import type { AIRobotCard, MemorySchemaState } from '@/types/ai'
 
 const {
+  cancelRobotGenerationTask,
   createRobotGenerationTask,
   getRobotGenerationTask,
   getRobots,
@@ -17,6 +19,7 @@ const {
   error,
 } = vi.hoisted(() => ({
   getRobots: vi.fn(),
+  cancelRobotGenerationTask: vi.fn(),
   createRobotGenerationTask: vi.fn(),
   getRobotGenerationTask: vi.fn(),
   getRobotWorldGraph: vi.fn(),
@@ -30,6 +33,7 @@ const {
 }))
 
 vi.mock('@/lib/api', () => ({
+  cancelRobotGenerationTask,
   createRobotGenerationTask,
   getRobotGenerationTask,
   getRobots,
@@ -157,6 +161,7 @@ describe('useChatRobotManager', () => {
     deleteLocalRobot.mockResolvedValue(undefined)
     success.mockReset()
     error.mockReset()
+    cancelRobotGenerationTask.mockReset()
     createRobotGenerationTask.mockReset()
     getRobotGenerationTask.mockReset()
     getRobots.mockClear()
@@ -166,6 +171,7 @@ describe('useChatRobotManager', () => {
     listLocalRobots.mockClear()
     putLocalRobot.mockClear()
     deleteLocalRobot.mockClear()
+    __resetDocumentGenerationManagerForTests()
     createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:agent-template')
     revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   })

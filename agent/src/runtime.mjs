@@ -699,6 +699,8 @@ export async function worldGraphWritebackNode(state, modelClient) {
       `用户最新输入：${state.prompt}`,
       `最终正文：\n${state.final_response || ''}`,
       `内部故事梗概：\n${resolveStoryOutline(state) || '暂无故事梗概。'}`,
+      `当前最大 sequenceIndex：${getWorldGraphMaxSequenceIndex(worldGraphPayload)}`,
+      `当前事件时间线摘要：\n${summarizeWorldGraphTimelineText(worldGraphPayload)}`,
       `完整世界图谱 JSON：\n${JSON.stringify(worldGraphPayload)}`,
     ].join('\n\n'),
   )
@@ -741,6 +743,55 @@ export function buildMemorySchemaPrompt(request, core) {
   ].join('\n\n')
 }
 
+function normalizeSequenceIndex(value, fallback = 0) {
+  const candidate = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(candidate) ? Math.max(0, Math.round(candidate)) : fallback
+}
+
+function readEventSequenceIndex(event) {
+  return normalizeSequenceIndex(
+    event?.timeline?.sequenceIndex ?? event?.timeline?.sequence_index ?? event?.startSequenceIndex ?? event?.start_sequence_index,
+    0,
+  )
+}
+
+function listTimelineEvents(graph) {
+  return (Array.isArray(graph?.nodes) ? graph.nodes : [])
+    .filter((item) => item && item.objectType === 'event')
+    .sort((left, right) =>
+      readEventSequenceIndex(left) - readEventSequenceIndex(right)
+      || String(left?.name || '').localeCompare(String(right?.name || ''), 'zh-CN')
+      || String(left?.id || '').localeCompare(String(right?.id || ''), 'zh-CN'))
+}
+
+function summarizeEventEffects(event, limit = 2) {
+  const summaries = (Array.isArray(event?.effects) ? event.effects : [])
+    .map((item) => String(item?.summary || '').trim())
+    .filter(Boolean)
+    .slice(0, Math.max(0, limit))
+  return summaries.length ? `；影响：${summaries.join('；')}` : ''
+}
+
+function summarizeWorldGraphTimelineText(graph, limit = 8) {
+  const events = listTimelineEvents(graph)
+  if (!events.length) {
+    return '无'
+  }
+  return events
+    .slice(0, Math.max(1, limit))
+    .map((event) => {
+      const sequenceIndex = readEventSequenceIndex(event)
+      const name = String(event?.name || '').trim() || String(event?.id || '').trim() || '未命名事件'
+      const summary = String(event?.summary || '').trim()
+      return `- [${sequenceIndex}] ${name}${summary ? `：${summary}` : ''}${summarizeEventEffects(event)}`
+    })
+    .join('\n')
+}
+
+function getWorldGraphMaxSequenceIndex(graph) {
+  return listTimelineEvents(graph).reduce((max, event) => Math.max(max, readEventSequenceIndex(event)), 0)
+}
+
 export function buildWorldGraphEvolutionPrompt(request) {
   return [
     `文档名称：${request.source_name || '未命名文档'}`,
@@ -751,6 +802,75 @@ export function buildWorldGraphEvolutionPrompt(request) {
     `当前切片：${Number(request.segment_index || 0) + 1}/${Math.max(Number(request.segment_total || 1), 1)}`,
     '当前切片摘要：',
     String(request.segment_summary || '').trim() || '无',
+    `当前最大 sequenceIndex：${getWorldGraphMaxSequenceIndex(request.current_world_graph || {})}`,
+    '当前事件时间线摘要：',
+    summarizeWorldGraphTimelineText(request.current_world_graph || {}),
+    '当前全量世界图谱 JSON：',
+    JSON.stringify(request.current_world_graph || {}, null, 2),
+  ].join('\n\n')
+}
+
+export function buildGraphRagExtractPrompt(request) {
+  const extractionDetail = request.extraction_detail || {}
+  const segmentSummary = String(request.segment_summary || '').trim()
+  const fallbackSegmentSummary = Array.isArray(request.segment_summaries)
+    ? request.segment_summaries.map((item) => String(item || '').trim()).filter(Boolean).join('\n\n')
+    : ''
+  return [
+    `文档名称：${request.source_name || '未命名文档'}`,
+    `用户引导语：${request.guidance || '无'}`,
+    '智能体核心定位：',
+    `名称：${request.core?.name || '未命名智能体'}`,
+    `简介：${request.core?.description || '无'}`,
+    '文档整体摘要：',
+    String(request.document_summary || '').trim() || '无',
+    `当前分片：${Number(request.segment_index || 0) + 1}/${Math.max(Number(request.segment_total || 1), 1)}`,
+    '当前分片摘要：',
+    segmentSummary || fallbackSegmentSummary || '无',
+    '本次抽取细度控制：',
+    `- 实体上限：${Math.max(1, Number(extractionDetail.max_entities_per_segment || extractionDetail.maxEntitiesPerSegment || 12) || 12)}`,
+    `- 关系上限：${Math.max(1, Number(extractionDetail.max_relations_per_segment || extractionDetail.maxRelationsPerSegment || 16) || 16)}`,
+    `- 事件上限：${Math.max(1, Number(extractionDetail.max_events_per_segment || extractionDetail.maxEventsPerSegment || 8) || 8)}`,
+    `- 实体重要性阈值：${Number(extractionDetail.entity_importance_threshold || extractionDetail.entityImportanceThreshold || 0.35)}`,
+    `- 关系重要性阈值：${Number(extractionDetail.relation_importance_threshold || extractionDetail.relationImportanceThreshold || 0.35)}`,
+    `- 事件重要性阈值：${Number(extractionDetail.event_importance_threshold || extractionDetail.eventImportanceThreshold || 0.4)}`,
+    `当前最大 sequenceIndex：${getWorldGraphMaxSequenceIndex(request.current_world_graph || {})}`,
+    '当前事件时间线摘要：',
+    summarizeWorldGraphTimelineText(request.current_world_graph || {}),
+    '当前全量世界图谱 JSON：',
+    JSON.stringify(request.current_world_graph || {}, null, 2),
+    '任务要求：',
+    '请只针对当前分片抽取适合长期保留的实体、关系、关键事件、社区主题和片段锚点，并与当前全量世界图谱保持时间与事实一致。',
+  ].join('\n\n')
+}
+
+export function buildGraphRagRetrievePrompt(request) {
+  return [
+    `机器人名称：${request.robot_name || '当前智能体'}`,
+    `机器人简介：${request.robot_description || '无'}`,
+    `故事梗概：${request.story_outline || '无'}`,
+    '最近对话：',
+    historyText(request.history, 8),
+    '用户当前输入：',
+    String(request.prompt || '').trim() || '无',
+    '可用 GraphRAG 文档：',
+    JSON.stringify(request.graphrag_documents || [], null, 2),
+  ].join('\n\n')
+}
+
+export function buildGraphRagWritebackPrompt(request) {
+  return [
+    `机器人名称：${request.robot_name || '当前智能体'}`,
+    `机器人简介：${request.robot_description || '无'}`,
+    `故事梗概：${request.story_outline || '无'}`,
+    '历史消息：',
+    historyText(request.history, 10),
+    `用户最新输入：${String(request.prompt || '').trim() || '无'}`,
+    '最终正文：',
+    String(request.final_response || '').trim() || '无',
+    `当前最大 sequenceIndex：${getWorldGraphMaxSequenceIndex(request.current_world_graph || {})}`,
+    '当前事件时间线摘要：',
+    summarizeWorldGraphTimelineText(request.current_world_graph || {}),
     '当前全量世界图谱 JSON：',
     JSON.stringify(request.current_world_graph || {}, null, 2),
   ].join('\n\n')

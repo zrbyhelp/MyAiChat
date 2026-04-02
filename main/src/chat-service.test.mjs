@@ -175,6 +175,48 @@ test('applies world graph writeback only to session snapshot state', () => {
   assert.equal(result.graph.nodes.find((item) => item.id === 'new-event')?.objectType, 'event')
 })
 
+test('keeps event timeline and appended effects in session snapshot writeback', () => {
+  const originalGraph = {
+    meta: { robotId: 'robot-1', graphVersion: 1, title: '模板图谱' },
+    relationTypes: [],
+    nodes: [
+      { id: 'hero', objectType: 'character', name: '吴邪', summary: '初始状态', attributes: {}, timelineSnapshots: [] },
+    ],
+    edges: [],
+  }
+
+  const result = applyWorldGraphWritebackToSessionGraph(originalGraph, null, {
+    upsert_events: [
+      {
+        id: 'event-1',
+        objectType: 'event',
+        name: '进入墓道',
+        summary: '吴邪进入墓道。',
+        timeline: { sequenceIndex: 1, phase: '入墓', impactLevel: 60, eventType: 'arrival' },
+      },
+    ],
+    append_event_effects: [
+      {
+        ref: { nodeId: 'event-1' },
+        effects: [
+          {
+            id: 'event-1-effect-1',
+            summary: '吴邪从好奇转为警惕。',
+            targetNodeId: 'hero',
+            changeTargetType: 'node-content',
+            nodeAttributeChanges: [
+              { fieldKey: 'currentStatus', beforeValue: '好奇', afterValue: '警惕' },
+            ],
+          },
+        ],
+      },
+    ],
+  })
+
+  assert.equal(result.graph.nodes.find((item) => item.id === 'event-1')?.timeline?.sequenceIndex, 1)
+  assert.equal(result.graph.nodes.find((item) => item.id === 'event-1')?.effects[0]?.targetNodeId, 'hero')
+})
+
 test('runs world graph background job when robot template exists', () => {
   assert.equal(
     shouldRunWorldGraphBackgroundJob({

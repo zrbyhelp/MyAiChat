@@ -18,6 +18,9 @@ import {
 } from './runtime.mjs'
 import {
   parseDocumentSummaryRequest,
+  parseGraphRagExtractRequest,
+  parseGraphRagRetrieveRequest,
+  parseGraphRagWritebackRequest,
   parseRetrievalSummaryRequest,
   parseRobotGenerationRequest,
   parseRobotWorldGraphEvolutionRequest,
@@ -27,6 +30,9 @@ import { ThreadStore } from './thread-store.mjs'
 import {
   createRobotGenerationWorkflow,
   createStreamWorkflow,
+  runGraphRagExtract,
+  runGraphRagRetrieve,
+  runGraphRagWriteback,
   runWorldGraphEvolution,
 } from './workflows.mjs'
 
@@ -187,6 +193,70 @@ export async function createApp(options = {}) {
       summary: result.text,
       usage: result.usage,
     })
+  }))
+
+  app.post('/runs/graphrag-extract', asyncRoute(async (req, res) => {
+    const request = parseGraphRagExtractRequest(req.body)
+    if (!request.model_settings.model) {
+      throw createHttpError(400, 'model 不能为空')
+    }
+    if (
+      !String(request.segment_summary || '').trim()
+      && !String(request.document_summary || '').trim()
+      && !request.segment_summaries.some((item) => String(item || '').trim())
+    ) {
+      throw createHttpError(400, 'segment_summary 不能为空')
+    }
+    try {
+      const result = await runGraphRagExtract({
+        modelClient,
+        modelSettings: request.model_settings,
+        request,
+      })
+      res.json(result)
+    } catch (error) {
+      throw createHttpError(502, error instanceof Error ? error.message : 'GraphRAG 抽取失败')
+    }
+  }))
+
+  app.post('/runs/graphrag-retrieve', asyncRoute(async (req, res) => {
+    const request = parseGraphRagRetrieveRequest(req.body)
+    if (!request.model_settings.model) {
+      throw createHttpError(400, 'model 不能为空')
+    }
+    if (!String(request.prompt || '').trim() && !request.history.some((item) => String(item.content || '').trim())) {
+      throw createHttpError(400, 'prompt 不能为空')
+    }
+    try {
+      const result = await runGraphRagRetrieve({
+        modelClient,
+        modelSettings: request.model_settings,
+        request,
+      })
+      res.json(result)
+    } catch (error) {
+      throw createHttpError(502, error instanceof Error ? error.message : 'GraphRAG 召回失败')
+    }
+  }))
+
+  app.post('/runs/graphrag-writeback', asyncRoute(async (req, res) => {
+    const request = parseGraphRagWritebackRequest(req.body)
+    if (!request.model_settings.model) {
+      throw createHttpError(400, 'model 不能为空')
+    }
+    if (!String(request.final_response || '').trim()) {
+      throw createHttpError(400, 'final_response 不能为空')
+    }
+    try {
+      const result = await runGraphRagWriteback({
+        modelClient,
+        modelSettings: request.model_settings,
+        request,
+      })
+      res.json(result)
+    } catch (error) {
+      throw createHttpError(502, error instanceof Error ? error.message : 'GraphRAG 写回失败')
+    }
   }))
 
   app.post('/runs/stream', asyncRoute(async (req, res) => {
