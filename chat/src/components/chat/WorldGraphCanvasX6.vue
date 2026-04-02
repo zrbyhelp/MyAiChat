@@ -153,6 +153,20 @@ function resolveEdgeOpacity(edge: WorldEdge) {
   return isEdgeFocused(edge) ? 1 : 0
 }
 
+function renderableEdges() {
+  const edges = visibleEdges()
+  if (props.selectedEdgeId) {
+    return edges.filter((edge) => edge.id === props.selectedEdgeId)
+  }
+
+  const focusNodeId = getActiveFocusNodeId()
+  if (focusNodeId) {
+    return edges.filter((edge) => edge.sourceNodeId === focusNodeId || edge.targetNodeId === focusNodeId)
+  }
+
+  return []
+}
+
 function getNodeCenter(node: WorldNode) {
   return {
     x: node.position.x + NODE_SIZE / 2,
@@ -160,19 +174,49 @@ function getNodeCenter(node: WorldNode) {
   }
 }
 
-function buildCurveVertex(sourceNode: WorldNode | undefined, targetNode: WorldNode | undefined) {
+function buildEdgeGroupKey(edge: WorldEdge) {
+  return [edge.sourceNodeId, edge.targetNodeId].sort((left, right) => left.localeCompare(right, 'zh-CN')).join('::')
+}
+
+function resolveEdgeSiblingOffset(edge: WorldEdge, edges: WorldEdge[]) {
+  const siblings = (Array.isArray(edges) ? edges : [])
+    .filter((item) => buildEdgeGroupKey(item) === buildEdgeGroupKey(edge))
+    .sort((left, right) =>
+      left.sourceNodeId.localeCompare(right.sourceNodeId, 'zh-CN')
+      || left.targetNodeId.localeCompare(right.targetNodeId, 'zh-CN')
+      || left.id.localeCompare(right.id, 'zh-CN'),
+    )
+
+  if (siblings.length <= 1) {
+    return 0
+  }
+
+  const index = siblings.findIndex((item) => item.id === edge.id)
+  if (index < 0) {
+    return 0
+  }
+
+  return index - (siblings.length - 1) / 2
+}
+
+function buildCurveVertex(sourceNode: WorldNode | undefined, targetNode: WorldNode | undefined, siblingOffset = 0) {
   if (!sourceNode || !targetNode) {
     return []
   }
 
   const source = getNodeCenter(sourceNode)
   const target = getNodeCenter(targetNode)
+  if (!siblingOffset) {
+    return []
+  }
+
   const middleX = (source.x + target.x) / 2
   const middleY = (source.y + target.y) / 2
   const deltaX = target.x - source.x
   const deltaY = target.y - source.y
   const length = Math.max(1, Math.hypot(deltaX, deltaY))
-  const offset = Math.min(110, Math.max(42, length * 0.2))
+  const baseOffset = Math.min(110, Math.max(42, length * 0.16))
+  const offset = baseOffset * siblingOffset
 
   return [
     {
@@ -212,15 +256,18 @@ function createNodeCell(node: WorldNode) {
 }
 
 function createEdgeCell(edge: WorldEdge) {
-  const sourceNode = visibleNodes().find((item) => item.id === edge.sourceNodeId)
-  const targetNode = visibleNodes().find((item) => item.id === edge.targetNodeId)
+  const nodes = visibleNodes()
+  const edges = renderableEdges()
+  const sourceNode = nodes.find((item) => item.id === edge.sourceNodeId)
+  const targetNode = nodes.find((item) => item.id === edge.targetNodeId)
   const isSelectedEdge = props.selectedEdgeId === edge.id
+  const siblingOffset = resolveEdgeSiblingOffset(edge, edges)
 
   return new Shape.Edge({
     id: edge.id,
     source: { cell: edge.sourceNodeId },
     target: { cell: edge.targetNodeId },
-    vertices: buildCurveVertex(sourceNode, targetNode),
+    vertices: buildCurveVertex(sourceNode, targetNode, siblingOffset),
     connector: { name: 'smooth' },
     attrs: {
       line: {
@@ -295,7 +342,8 @@ const miniMapScene = computed(() => {
     y: Number((y * scale + offsetY).toFixed(2)),
   })
 
-  const edgeItems = visibleEdges().map((edge) => {
+  const edges = renderableEdges()
+  const edgeItems = edges.map((edge) => {
     const sourceNode = visibleNodeMap.get(edge.sourceNodeId)
     const targetNode = visibleNodeMap.get(edge.targetNodeId)
     if (!sourceNode || !targetNode) {
@@ -304,7 +352,7 @@ const miniMapScene = computed(() => {
 
     const source = projectPoint(getNodeCenter(sourceNode).x, getNodeCenter(sourceNode).y)
     const target = projectPoint(getNodeCenter(targetNode).x, getNodeCenter(targetNode).y)
-    const vertices = buildCurveVertex(sourceNode, targetNode).map((vertex) => projectPoint(vertex.x, vertex.y))
+    const vertices = buildCurveVertex(sourceNode, targetNode, resolveEdgeSiblingOffset(edge, edges)).map((vertex) => projectPoint(vertex.x, vertex.y))
     const path = vertices[0]
       ? `M ${source.x} ${source.y} Q ${vertices[0].x} ${vertices[0].y} ${target.x} ${target.y}`
       : `M ${source.x} ${source.y} L ${target.x} ${target.y}`
@@ -425,7 +473,7 @@ function renderGraph() {
 
   graph.resetCells([
     ...visibleNodes().map(createNodeCell),
-    ...visibleEdges().map(createEdgeCell),
+    ...renderableEdges().map(createEdgeCell),
   ])
   syncSelection()
   graph.updateScroller()
