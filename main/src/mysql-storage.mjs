@@ -120,24 +120,26 @@ async function ensureDefaults(user) {
   const { Robot } = getModels()
 
   if ((await Robot.count({ where: { userId } })) === 0) {
-    await Robot.bulkCreate(normalizeRobots(DEFAULT_ROBOTS).map((robot) => ({
-      id: scopeId(user, robot.id),
-      userId,
-      name: robot.name,
-      description: robot.description,
-      avatar: robot.avatar,
-      commonPrompt: robot.commonPrompt,
-      systemPrompt: robot.systemPrompt,
-      memoryModelConfigId: robot.memoryModelConfigId,
-      outlineModelConfigId: robot.outlineModelConfigId,
-      knowledgeRetrievalModelConfigId: robot.knowledgeRetrievalModelConfigId,
-      worldGraphModelConfigId: robot.worldGraphModelConfigId,
-      numericComputationEnabled: false,
-      numericComputationPrompt: '',
-      numericComputationSchema: '[]',
-      numericComputationModelConfigId: '',
-      memorySchemaJson: JSON.stringify(robot.memorySchema),
-    })))
+    for (const robot of normalizeRobots(DEFAULT_ROBOTS)) {
+      await Robot.upsert({
+        id: scopeId(user, robot.id),
+        userId,
+        name: robot.name,
+        description: robot.description,
+        avatar: robot.avatar,
+        commonPrompt: robot.commonPrompt,
+        systemPrompt: robot.systemPrompt,
+        memoryModelConfigId: robot.memoryModelConfigId,
+        outlineModelConfigId: robot.outlineModelConfigId,
+        knowledgeRetrievalModelConfigId: robot.knowledgeRetrievalModelConfigId,
+        worldGraphModelConfigId: robot.worldGraphModelConfigId,
+        numericComputationEnabled: false,
+        numericComputationPrompt: '',
+        numericComputationSchema: '[]',
+        numericComputationModelConfigId: '',
+        memorySchemaJson: JSON.stringify(robot.memorySchema),
+      })
+    }
   }
 }
 

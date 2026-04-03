@@ -278,17 +278,144 @@ export function historyText(history, limit = DEFAULT_STRUCTURED_MEMORY_HISTORY_L
 
 export function normalizeWorldGraphWritebackOps(input) {
   const value = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
-  const readList = (snakeKey, camelKey) => {
-    const raw = Array.isArray(value[snakeKey]) ? value[snakeKey] : value[camelKey]
+  const readList = (...keys) => {
+    const raw = keys.find((key) => Array.isArray(value[key])) ? value[keys.find((key) => Array.isArray(value[key]))] : undefined
     return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') : []
   }
   return {
-    upsert_nodes: readList('upsert_nodes', 'upsertNodes'),
-    upsert_edges: readList('upsert_edges', 'upsertEdges'),
-    upsert_events: readList('upsert_events', 'upsertEvents'),
-    append_node_snapshots: readList('append_node_snapshots', 'appendNodeSnapshots'),
-    append_edge_snapshots: readList('append_edge_snapshots', 'appendEdgeSnapshots'),
-    append_event_effects: readList('append_event_effects', 'appendEventEffects'),
+    upsert_nodes: readList('upsert_nodes', 'upsertNodes', 'un'),
+    upsert_edges: readList('upsert_edges', 'upsertEdges', 'ue'),
+    upsert_events: readList('upsert_events', 'upsertEvents', 'uv'),
+    append_node_snapshots: readList('append_node_snapshots', 'appendNodeSnapshots', 'ans'),
+    append_edge_snapshots: readList('append_edge_snapshots', 'appendEdgeSnapshots', 'aes'),
+    append_event_effects: readList('append_event_effects', 'appendEventEffects', 'aef'),
+  }
+}
+
+function canonicalNodeId(item) {
+  return String(item?.id || item?.nodeId || item?.node_id || '').trim()
+}
+
+function canonicalEdgeId(item) {
+  return String(item?.id || item?.edgeId || item?.edge_id || '').trim()
+}
+
+function canonicalEffectTargetNodeId(item) {
+  return String(item?.targetNodeId || item?.target_node_id || '').trim()
+}
+
+function normalizeObjectRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : {}
+}
+
+function removeExactDuplicateStatusAttribute(source) {
+  if (
+    source?.attributes
+    && typeof source.attributes === 'object'
+    && !Array.isArray(source.attributes)
+    && String(source.status || '').trim()
+    && String(source.attributes.currentStatus || '').trim()
+    && String(source.attributes.currentStatus).trim() === String(source.status).trim()
+  ) {
+    const nextAttributes = { ...source.attributes }
+    delete nextAttributes.currentStatus
+    source.attributes = nextAttributes
+    if (!Object.keys(nextAttributes).length) {
+      delete source.attributes
+    }
+  }
+  return source
+}
+
+function removeExactDuplicateTextFields(source) {
+  const summary = String(source.summary || '').trim()
+  const knownFacts = String(source.knownFacts || source.known_facts || '').trim()
+  const longTermMemory = String(source.longTermMemory || source.long_term_memory || '').trim()
+  const status = String(source.status || '').trim()
+
+  if (knownFacts && (knownFacts === summary || knownFacts === status)) {
+    source.knownFacts = ''
+    delete source.known_facts
+  }
+  if (longTermMemory && (longTermMemory === summary || longTermMemory === status || longTermMemory === knownFacts)) {
+    source.longTermMemory = ''
+    delete source.long_term_memory
+  }
+  return source
+}
+
+function dedupeNodeLikeItem(item, { isEvent = false } = {}) {
+  const source = item && typeof item === 'object' && !Array.isArray(item) ? { ...item } : {}
+  source.objectType = String(source.objectType || source.object_type || (isEvent ? 'event' : '')).trim() || undefined
+  return removeExactDuplicateTextFields(removeExactDuplicateStatusAttribute(source))
+}
+
+function dedupeNodeSnapshotItem(item) {
+  return removeExactDuplicateStatusAttribute(normalizeObjectRecord(item))
+}
+
+function dedupeEventEffectItem(item) {
+  const source = normalizeObjectRecord(item)
+  if (
+    source.nodeAttributeChanges
+    && typeof source.nodeAttributeChanges === 'object'
+    && !Array.isArray(source.nodeAttributeChanges)
+    && source.summary
+    && source.nodeAttributeChanges.currentStatus
+    && String(source.nodeAttributeChanges.currentStatus).trim() === String(source.summary).trim()
+  ) {
+    const nextChanges = { ...source.nodeAttributeChanges }
+    delete nextChanges.currentStatus
+    source.nodeAttributeChanges = nextChanges
+    if (!Object.keys(nextChanges).length) {
+      delete source.nodeAttributeChanges
+    }
+  }
+  return source
+}
+
+function summarizeWritebackOps(ops) {
+  return {
+    upsertNodeCount: Array.isArray(ops?.upsert_nodes) ? ops.upsert_nodes.length : 0,
+    upsertEdgeCount: Array.isArray(ops?.upsert_edges) ? ops.upsert_edges.length : 0,
+    upsertEventCount: Array.isArray(ops?.upsert_events) ? ops.upsert_events.length : 0,
+    appendNodeSnapshotCount: Array.isArray(ops?.append_node_snapshots) ? ops.append_node_snapshots.length : 0,
+    appendEdgeSnapshotCount: Array.isArray(ops?.append_edge_snapshots) ? ops.append_edge_snapshots.length : 0,
+    appendEventEffectCount: Array.isArray(ops?.append_event_effects) ? ops.append_event_effects.length : 0,
+  }
+}
+
+function compactWorldGraphWritebackOps(input) {
+  const normalized = normalizeWorldGraphWritebackOps(input)
+  const upsertNodeIds = new Set(normalized.upsert_nodes.map(canonicalNodeId).filter(Boolean))
+  const upsertEdgeIds = new Set(normalized.upsert_edges.map(canonicalEdgeId).filter(Boolean))
+  const effectTargetIds = new Set(normalized.append_event_effects.map(canonicalEffectTargetNodeId).filter(Boolean))
+
+  return {
+    upsert_nodes: normalized.upsert_nodes
+      .map((item) => dedupeNodeLikeItem(item))
+      .filter((item) => String(item?.id || '').trim() && String(item?.name || '').trim()),
+    upsert_edges: normalized.upsert_edges
+      .map((item) => normalizeObjectRecord(item))
+      .filter((item) =>
+        String(item?.id || '').trim()
+        && String(item?.sourceNodeId || item?.source_node_id || '').trim()
+        && String(item?.targetNodeId || item?.target_node_id || '').trim()
+        && String(item?.relationTypeCode || item?.relation_type_code || '').trim()),
+    upsert_events: normalized.upsert_events
+      .map((item) => dedupeNodeLikeItem(item, { isEvent: true }))
+      .filter((item) => String(item?.id || '').trim() && String(item?.name || '').trim()),
+    append_node_snapshots: normalized.append_node_snapshots
+      .filter((item) => !upsertNodeIds.has(canonicalNodeId(item)))
+      .filter((item) => !effectTargetIds.has(String(item?.nodeId || item?.node_id || '').trim()))
+      .map((item) => dedupeNodeSnapshotItem(item))
+      .filter((item) => String(item?.nodeId || item?.node_id || '').trim()),
+    append_edge_snapshots: normalized.append_edge_snapshots
+      .filter((item) => !upsertEdgeIds.has(canonicalEdgeId(item)))
+      .map((item) => normalizeObjectRecord(item)),
+    append_event_effects: normalized.append_event_effects
+      .map((item) => dedupeEventEffectItem(item))
+      .filter((item) => String(item?.id || '').trim() && String(item?.summary || '').trim()),
   }
 }
 
@@ -604,6 +731,26 @@ export async function worldGraphUpdateNode(state, modelClient) {
     }
   }
 
+  const userContent = [
+    `故事设定：\n${resolveSystemPrompt(state) || '无'}`,
+    `长期记忆：\n${String(state.structured_memory?.long_term_memory || '').trim() || '无'}`,
+    `短期记忆：\n${String(state.structured_memory?.short_term_memory || '').trim() || '无'}`,
+    `内部故事草稿：\n${formatStoryDraftForPrompt(state.story_outline)}`,
+    `用户最新输入：${state.prompt}`,
+    `最终正文：\n${state.final_response || ''}`,
+    `完整世界图谱 JSON：\n${JSON.stringify(worldGraphPayload)}`,
+  ].join('\n\n')
+  const startedAt = Date.now()
+  debugLog('[agent:world-graph-update:start]', {
+    threadId: String(state.thread_id || state.threadId || ''),
+    robotId: String(worldGraphPayload?.meta?.robotId || ''),
+    nodeCount: Array.isArray(worldGraphPayload?.nodes) ? worldGraphPayload.nodes.length : 0,
+    edgeCount: Array.isArray(worldGraphPayload?.edges) ? worldGraphPayload.edges.length : 0,
+    relationTypeCount: Array.isArray(worldGraphPayload?.relationTypes) ? worldGraphPayload.relationTypes.length : 0,
+    storyOutlineLength: String(formatStoryDraftForPrompt(state.story_outline) || '').length,
+    finalResponseLength: String(state.final_response || '').length,
+    promptLength: userContent.length,
+  })
   const response = await modelClient.invokeText(
     resolveNodeModelConfig(state, 'world_graph'),
     composeSystemPrompt(
@@ -611,18 +758,29 @@ export async function worldGraphUpdateNode(state, modelClient) {
       `主要故事设定：\n${resolveSystemPrompt(state)}`,
       promptConfig.templates.world_graph_update.system_instruction,
     ),
-    [
-      `故事设定：\n${resolveSystemPrompt(state) || '无'}`,
-      `长期记忆：\n${String(state.structured_memory?.long_term_memory || '').trim() || '无'}`,
-      `短期记忆：\n${String(state.structured_memory?.short_term_memory || '').trim() || '无'}`,
-      `内部故事草稿：\n${formatStoryDraftForPrompt(state.story_outline)}`,
-      `用户最新输入：${state.prompt}`,
-      `最终正文：\n${state.final_response || ''}`,
-      `完整世界图谱 JSON：\n${JSON.stringify(worldGraphPayload)}`,
-    ].join('\n\n'),
+    userContent,
   )
+  const parsedRaw = parseJsonObject(response.text, {})
+  const parsedOps = normalizeWorldGraphWritebackOps(parsedRaw)
+  const compactedOps = compactWorldGraphWritebackOps(parsedOps)
+  debugLog('[agent:world-graph-update:done]', {
+    threadId: String(state.thread_id || state.threadId || ''),
+    robotId: String(worldGraphPayload?.meta?.robotId || ''),
+    durationMs: Date.now() - startedAt,
+    responseLength: String(response?.text || '').length,
+    usage: response?.usage || emptyUsage(),
+    timing: response?.timing || null,
+    parsedRaw,
+    parsedOps,
+    compactedOps,
+    writebackSummary: {
+      raw: summarizeWritebackOps(parsedOps),
+      compacted: summarizeWritebackOps(compactedOps),
+    },
+    rawResponseText: response?.text || '',
+  })
   return {
-    world_graph_update_ops: normalizeWorldGraphWritebackOps(parseJsonObject(response.text, {})),
+    world_graph_update_ops: compactedOps,
     usage: response.usage,
   }
 }
