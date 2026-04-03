@@ -9,17 +9,13 @@ import type {
   ChatSessionDetail,
   MemorySchemaField,
   MemorySchemaState,
-  NumericComputationItem,
   RobotWorldGraph,
   SessionMemoryState,
   SessionRobotState,
   SessionUsageState,
-  StructuredMemoryCategory,
+  StoryOutlineState,
   StructuredMemoryState,
 } from '@/types/ai'
-
-export const DEFAULT_STRUCTURED_MEMORY_INTERVAL = 3
-export const DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT = 12
 
 export const DEFAULT_SESSION_MEMORY: SessionMemoryState = {
   summary: '',
@@ -28,14 +24,12 @@ export const DEFAULT_SESSION_MEMORY: SessionMemoryState = {
   persistToServer: true,
   threshold: 20,
   recentMessageLimit: 10,
-  structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-  structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
   prompt: [
-    '请根据旧摘要和新增对话，输出一份新的完整中文会话摘要。',
+    '请根据长期记忆、短期记忆、本轮输入和本轮回复更新记忆。',
     '要求：',
-    '1. 只输出摘要正文，不要加标题，不要输出 JSON。',
-    '2. 保留重要上下文、用户偏好、约束、任务进展和仍未解决的问题。',
-    '3. 内容尽量精炼，但不要遗漏后续对话需要继续依赖的信息。',
+    '1. 长期记忆保留稳定有效的设定、关系、偏好、约束和长期目标。',
+    '2. 短期记忆保留当前阶段状态、近期推进、待办事项和未解决问题。',
+    '3. 两部分都要尽量完整，不要遗漏后续仍会依赖的信息。',
   ].join('\n'),
 }
 
@@ -46,7 +40,34 @@ export const DEFAULT_SESSION_USAGE: SessionUsageState = {
 
 export const DEFAULT_STRUCTURED_MEMORY: StructuredMemoryState = {
   updatedAt: '',
-  categories: [],
+  longTermMemory: '',
+  shortTermMemory: '',
+}
+
+export const DEFAULT_STORY_OUTLINE: StoryOutlineState = {
+  storyDraft: {
+    characters: [],
+    items: [],
+    organizations: [],
+    locations: [],
+    events: [],
+  },
+  retrievalQuery: '',
+}
+
+export function normalizeStoryOutline(storyOutline?: Partial<StoryOutlineState> | null): StoryOutlineState {
+  const storyDraft = (storyOutline?.storyDraft || {}) as Partial<StoryOutlineState['storyDraft']>
+  const toList = (value?: string[] | null) => (Array.isArray(value) ? value.map((item) => String(item || '').trim()).filter(Boolean) : [])
+  return {
+    storyDraft: {
+      characters: toList(storyDraft.characters),
+      items: toList(storyDraft.items),
+      organizations: toList(storyDraft.organizations),
+      locations: toList(storyDraft.locations),
+      events: toList(storyDraft.events),
+    },
+    retrievalQuery: typeof storyOutline?.retrievalQuery === 'string' ? storyOutline.retrievalQuery : '',
+  }
 }
 
 export const DEFAULT_MEMORY_SCHEMA: MemorySchemaState = {
@@ -138,14 +159,6 @@ export function normalizeSessionMemory(memory?: Partial<SessionMemoryState> | nu
       typeof memory?.recentMessageLimit === 'number' && memory.recentMessageLimit > 0
         ? Math.round(memory.recentMessageLimit)
         : DEFAULT_SESSION_MEMORY.recentMessageLimit,
-    structuredMemoryInterval:
-      typeof memory?.structuredMemoryInterval === 'number' && memory.structuredMemoryInterval > 0
-        ? Math.round(memory.structuredMemoryInterval)
-        : DEFAULT_SESSION_MEMORY.structuredMemoryInterval,
-    structuredMemoryHistoryLimit:
-      typeof memory?.structuredMemoryHistoryLimit === 'number' && memory.structuredMemoryHistoryLimit > 0
-        ? Math.round(memory.structuredMemoryHistoryLimit)
-        : DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit,
     prompt:
       typeof memory?.prompt === 'string' && memory.prompt.trim()
         ? memory.prompt
@@ -156,19 +169,8 @@ export function normalizeSessionMemory(memory?: Partial<SessionMemoryState> | nu
 export function normalizeStructuredMemory(memory?: Partial<StructuredMemoryState> | null): StructuredMemoryState {
   return {
     updatedAt: typeof memory?.updatedAt === 'string' ? memory.updatedAt : '',
-    categories: (Array.isArray(memory?.categories) ? memory.categories : []).map((category) => ({
-      categoryId: String(category?.categoryId || '').trim(),
-      label: String(category?.label || '').trim(),
-      description: String(category?.description || '').trim(),
-      updatedAt: typeof category?.updatedAt === 'string' ? category.updatedAt : '',
-      items: (Array.isArray(category?.items) ? category.items : []).map((item, index) => ({
-        id: String(item?.id || `item-${index + 1}`),
-        summary: String(item?.summary || ''),
-        sourceTurnId: String(item?.sourceTurnId || ''),
-        updatedAt: typeof item?.updatedAt === 'string' ? item.updatedAt : '',
-        values: typeof item?.values === 'object' && item?.values !== null ? item.values : {},
-      })),
-    })),
+    longTermMemory: typeof memory?.longTermMemory === 'string' ? memory.longTermMemory : '',
+    shortTermMemory: typeof memory?.shortTermMemory === 'string' ? memory.shortTermMemory : '',
   }
 }
 
@@ -274,12 +276,6 @@ export function normalizeSessionMessages(session: ChatSessionDetail) {
 }
 
 interface UseChatSessionStateManagerOptions {
-  cloneNumericComputationItems: (items?: NumericComputationItem[] | null) => NumericComputationItem[]
-  validateNumericComputationItems: (
-    items: NumericComputationItem[],
-  ) =>
-    | { ok: true; normalized: NumericComputationItem[] }
-    | { ok: false; message: string }
   onSyncCurrentSessionMeta: () => Promise<void>
 }
 
@@ -295,8 +291,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     ...DEFAULT_STRUCTURED_MEMORY,
   })
   const currentUsage = reactive<SessionUsageState>({ ...DEFAULT_SESSION_USAGE })
-  const currentNumericState = ref<Record<string, unknown>>({})
-  const currentStoryOutline = ref('')
+  const currentStoryOutline = ref<StoryOutlineState>({ ...DEFAULT_STORY_OUTLINE })
   const currentSessionWorldGraph = ref<RobotWorldGraph | null>(null)
 
   const sessionRobot = reactive<SessionRobotState>({
@@ -308,13 +303,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     memoryModelConfigId: '',
     outlineModelConfigId: '',
     knowledgeRetrievalModelConfigId: '',
-    numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
-    numericComputationEnabled: false,
-    numericComputationPrompt: '',
-    numericComputationItems: [],
-    structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-    structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
   })
   const sessionRobotDraft = reactive<SessionRobotState>({
     id: '',
@@ -325,13 +314,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     memoryModelConfigId: '',
     outlineModelConfigId: '',
     knowledgeRetrievalModelConfigId: '',
-    numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
-    numericComputationEnabled: false,
-    numericComputationPrompt: '',
-    numericComputationItems: [],
-    structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-    structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
   })
   const sessionMemoryDraft = reactive<SessionMemoryState>(
     normalizeSessionMemory(DEFAULT_SESSION_MEMORY),
@@ -341,38 +324,8 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   const memoryUpdatedLabel = computed(() =>
     currentStructuredMemory.updatedAt ? new Date(currentStructuredMemory.updatedAt).toLocaleString() : '未生成',
   )
-  const memoryDisplayCategories = computed<StructuredMemoryCategory[]>(() => {
-    const categoryMap = new Map(
-      currentStructuredMemory.categories.map((category) => [category.categoryId, category] as const),
-    )
-
-    const merged = currentMemorySchema.categories.map((schemaCategory) => {
-      const matched = categoryMap.get(schemaCategory.id)
-      return {
-        categoryId: schemaCategory.id,
-        label: matched?.label || schemaCategory.label,
-        description: matched?.description || schemaCategory.description || '',
-        updatedAt: matched?.updatedAt || '',
-        items: matched?.items || [],
-      }
-    })
-
-    currentStructuredMemory.categories.forEach((category) => {
-      if (!merged.some((item) => item.categoryId === category.categoryId)) {
-        merged.push({
-          categoryId: category.categoryId,
-          label: category.label,
-          description: category.description || '',
-          updatedAt: category.updatedAt || '',
-          items: category.items,
-        })
-      }
-    })
-
-    return merged
-  })
   const structuredMemoryRecordCount = computed(() =>
-    memoryDisplayCategories.value.reduce((count, category) => count + category.items.length, 0),
+    [currentStructuredMemory.longTermMemory, currentStructuredMemory.shortTermMemory].filter((item) => String(item || '').trim()).length,
   )
 
   const sessionPromptTokens = computed(() => currentUsage.promptTokens)
@@ -386,15 +339,14 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     currentSessionMemory.persistToServer = true
     currentSessionMemory.threshold = normalized.threshold
     currentSessionMemory.recentMessageLimit = normalized.recentMessageLimit
-    currentSessionMemory.structuredMemoryInterval = normalized.structuredMemoryInterval
-    currentSessionMemory.structuredMemoryHistoryLimit = normalized.structuredMemoryHistoryLimit
     currentSessionMemory.prompt = normalized.prompt
   }
 
   function applyStructuredMemory(memory?: Partial<StructuredMemoryState> | null) {
     const normalized = normalizeStructuredMemory(memory)
     currentStructuredMemory.updatedAt = normalized.updatedAt
-    currentStructuredMemory.categories = normalized.categories
+    currentStructuredMemory.longTermMemory = normalized.longTermMemory
+    currentStructuredMemory.shortTermMemory = normalized.shortTermMemory
   }
 
   function applyMemorySchema(schema?: Partial<MemorySchemaState> | null) {
@@ -408,13 +360,8 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     currentUsage.completionTokens = normalized.completionTokens
   }
 
-  function applyNumericState(value?: Record<string, unknown> | null) {
-    currentNumericState.value =
-      typeof value === 'object' && value !== null ? { ...value } : {}
-  }
-
-  function applyStoryOutline(value?: string | null) {
-    currentStoryOutline.value = typeof value === 'string' ? value : ''
+  function applyStoryOutline(value?: Partial<StoryOutlineState> | null) {
+    currentStoryOutline.value = normalizeStoryOutline(value)
   }
 
   function applySessionWorldGraph(graph?: RobotWorldGraph | null) {
@@ -431,7 +378,6 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionRobotDraft.memoryModelConfigId = sessionRobot.memoryModelConfigId
     sessionRobotDraft.outlineModelConfigId = sessionRobot.outlineModelConfigId
     sessionRobotDraft.knowledgeRetrievalModelConfigId = sessionRobot.knowledgeRetrievalModelConfigId
-    sessionRobotDraft.numericComputationModelConfigId = sessionRobot.numericComputationModelConfigId
     sessionRobotDraft.worldGraphModelConfigId = sessionRobot.worldGraphModelConfigId
     sessionRobotVisible.value = true
   }
@@ -441,7 +387,6 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionRobot.memoryModelConfigId = String(sessionRobotDraft.memoryModelConfigId || '').trim()
     sessionRobot.outlineModelConfigId = String(sessionRobotDraft.outlineModelConfigId || '').trim()
     sessionRobot.knowledgeRetrievalModelConfigId = String(sessionRobotDraft.knowledgeRetrievalModelConfigId || '').trim()
-    sessionRobot.numericComputationModelConfigId = String(sessionRobotDraft.numericComputationModelConfigId || '').trim()
     sessionRobot.worldGraphModelConfigId = String(sessionRobotDraft.worldGraphModelConfigId || '').trim()
     sessionRobotVisible.value = false
     await options.onSyncCurrentSessionMeta()
@@ -465,7 +410,6 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     sessionMemoryDraft,
     currentRobotLabel,
     memoryUpdatedLabel,
-    memoryDisplayCategories,
     structuredMemoryRecordCount,
     sessionPromptTokens,
     sessionCompletionTokens,
@@ -473,14 +417,12 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     applyStructuredMemory,
     applyMemorySchema,
     applySessionUsage,
-    applyNumericState,
     applyStoryOutline,
     applySessionWorldGraph,
     openMemoryDialog,
     openSessionRobotDialog,
     applySessionRobot,
     applySessionMemorySettings,
-    currentNumericState,
     currentStoryOutline,
     currentSessionWorldGraph,
   }

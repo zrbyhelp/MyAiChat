@@ -7,6 +7,7 @@ import {
   normalizeMemorySchema,
   normalizeSession,
   normalizeSessionRobot,
+  normalizeStoryOutline,
   normalizeSessionUsage,
   normalizeStructuredMemory,
   readModelConfigs,
@@ -29,29 +30,19 @@ import {
   reconcileAssistantStructuredOutput,
 } from './structured.mjs'
 import {
-  buildGraphRagArtifactId,
-  mapGraphRagWritebackToWorldGraphUpdate,
-  mergeGraphRagRelationTypesIntoWorldGraph,
   retrieveRobotKnowledgeByGraphRag,
   retrieveRobotKnowledgeBySummary,
 } from './robot-generation-service.mjs'
-import { createGraphRagArtifact } from './robot-generation-store.mjs'
 import {
   applyWorldGraphWritebackToSnapshot,
   cloneWorldGraphSnapshot,
-  createEmptyWorldGraphSnapshot,
-  getWorldGraph,
+  getConfiguredWorldGraph,
   normalizeWorldGraphSnapshot,
 } from './world-graph-service.mjs'
-import { enqueueBackgroundJob } from './background-job-queue.mjs'
 
 const DEFAULT_AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8000'
-const SESSION_BACKGROUND_STATUS_TTL_MS = 5000
-const SESSION_BACKGROUND_TASK_KIND_MEMORY = 'memory'
-const SESSION_BACKGROUND_TASK_KIND_WORLD_GRAPH = 'graph_writeback'
-const sessionBackgroundStateMap = new Map()
 
-function createSessionBackgroundState(sessionId = '') {
+export function getSessionBackgroundStatus(sessionId) {
   return {
     sessionId: String(sessionId || '').trim(),
     status: 'idle',
@@ -60,117 +51,6 @@ function createSessionBackgroundState(sessionId = '') {
     lastError: '',
     updatedAt: new Date().toISOString(),
   }
-}
-
-function cloneSessionBackgroundState(state) {
-  const source = state && typeof state === 'object' ? state : createSessionBackgroundState()
-  return {
-    sessionId: String(source.sessionId || '').trim(),
-    status: ['queued', 'memory_processing', 'graph_writeback_processing', 'completed', 'failed', 'idle']
-      .includes(String(source.status || ''))
-      ? String(source.status)
-      : 'idle',
-    pendingTaskCount: Number.isFinite(Number(source.pendingTaskCount))
-      ? Math.max(0, Math.round(Number(source.pendingTaskCount)))
-      : 0,
-    currentTask: [SESSION_BACKGROUND_TASK_KIND_MEMORY, SESSION_BACKGROUND_TASK_KIND_WORLD_GRAPH].includes(String(source.currentTask || ''))
-      ? String(source.currentTask)
-      : '',
-    lastError: String(source.lastError || ''),
-    updatedAt: String(source.updatedAt || new Date().toISOString()),
-  }
-}
-
-function updateSessionBackgroundState(sessionId, updater) {
-  const key = String(sessionId || '').trim()
-  if (!key) {
-    return createSessionBackgroundState()
-  }
-
-  const current = cloneSessionBackgroundState(sessionBackgroundStateMap.get(key) || createSessionBackgroundState(key))
-  const nextValue = typeof updater === 'function' ? updater(current) : updater
-  const next = cloneSessionBackgroundState({ ...current, ...(nextValue || {}), sessionId: key, updatedAt: new Date().toISOString() })
-  sessionBackgroundStateMap.set(key, next)
-  return next
-}
-
-function incrementSessionBackgroundPendingTasks(sessionId, count) {
-  return updateSessionBackgroundState(sessionId, (current) => {
-    const nextPendingTaskCount = current.pendingTaskCount + Math.max(0, Math.round(Number(count) || 0))
-    if (!nextPendingTaskCount) {
-      return current
-    }
-    return {
-      pendingTaskCount: nextPendingTaskCount,
-      status: current.currentTask ? current.status : 'queued',
-      lastError: '',
-    }
-  })
-}
-
-function markSessionBackgroundTaskStarted(sessionId, taskKind) {
-  const nextStatus = taskKind === SESSION_BACKGROUND_TASK_KIND_MEMORY
-    ? 'memory_processing'
-    : 'graph_writeback_processing'
-  return updateSessionBackgroundState(sessionId, {
-    status: nextStatus,
-    currentTask: taskKind,
-    lastError: '',
-  })
-}
-
-function completeSessionBackgroundTask(sessionId) {
-  return updateSessionBackgroundState(sessionId, (current) => {
-    const nextPendingTaskCount = Math.max(0, current.pendingTaskCount - 1)
-    return {
-      pendingTaskCount: nextPendingTaskCount,
-      currentTask: '',
-      status: nextPendingTaskCount > 0 ? 'queued' : 'completed',
-    }
-  })
-}
-
-function failSessionBackgroundPipeline(sessionId, error, taskCountToDrop) {
-  const normalizedTaskCount = Math.max(1, Math.round(Number(taskCountToDrop) || 1))
-  return updateSessionBackgroundState(sessionId, (current) => ({
-    pendingTaskCount: Math.max(0, current.pendingTaskCount - normalizedTaskCount),
-    status: 'failed',
-    currentTask: '',
-    lastError: error instanceof Error ? error.message : String(error || '会话异步处理失败'),
-  }))
-}
-
-function shouldExpireCompletedBackgroundStatus(state) {
-  if (state.status !== 'completed' || state.pendingTaskCount > 0) {
-    return false
-  }
-
-  const updatedAtMs = Date.parse(String(state.updatedAt || ''))
-  if (!Number.isFinite(updatedAtMs)) {
-    return true
-  }
-
-  return Date.now() - updatedAtMs >= SESSION_BACKGROUND_STATUS_TTL_MS
-}
-
-export function getSessionBackgroundStatus(sessionId) {
-  const key = String(sessionId || '').trim()
-  if (!key) {
-    return createSessionBackgroundState()
-  }
-
-  const current = cloneSessionBackgroundState(sessionBackgroundStateMap.get(key) || createSessionBackgroundState(key))
-  if (shouldExpireCompletedBackgroundStatus(current)) {
-    const idleState = updateSessionBackgroundState(key, {
-      status: 'idle',
-      pendingTaskCount: 0,
-      currentTask: '',
-      lastError: '',
-    })
-    return cloneSessionBackgroundState(idleState)
-  }
-
-  return current
 }
 
 export function sanitizeBaseUrl(baseUrl) {
@@ -433,6 +313,26 @@ function buildKnowledgeContextText(result) {
   ].join('\n\n')
 }
 
+function hasStoryOutlineContent(outline) {
+  const normalized = normalizeStoryOutline(outline)
+  return Boolean(
+    normalized.retrievalQuery
+    || normalized.storyDraft.characters.length
+    || normalized.storyDraft.items.length
+    || normalized.storyDraft.organizations.length
+    || normalized.storyDraft.locations.length
+    || normalized.storyDraft.events.length
+  )
+}
+
+function formatStoryDraftForMonitor(outline) {
+  const normalized = normalizeStoryOutline(outline)
+  return {
+    retrievalQuery: normalized.retrievalQuery,
+    storyDraft: normalized.storyDraft,
+  }
+}
+
 function buildGraphRagKnowledgeContextText(result) {
   const summary = String(result?.summary || '').trim()
   const communities = Array.isArray(result?.communities) ? result.communities : []
@@ -502,7 +402,7 @@ async function resolveGraphRagKnowledgeContext(user, payload, session, robot, mo
     return ''
   }
   const retrievalQuery = String(retrievalBaseRequest.prompt || '').trim()
-  const retrievalQuerySource = 'story_outline'
+  const retrievalQuerySource = 'story_outline.retrieval_query'
 
   try {
     const graphRagRetrieval = await retrieveRobotKnowledgeByGraphRag(user, {
@@ -517,14 +417,17 @@ async function resolveGraphRagKnowledgeContext(user, payload, session, robot, mo
         summary: graphRagContextText ? 'GraphRAG 检索命中' : 'GraphRAG 检索无结果',
         requestSnapshot: {
           mode: 'graphrag',
+          robotId,
+          sessionId: payload.sessionId,
           retrievalQuerySource,
           retrievalQuery,
           originalPrompt: String(payload.prompt || ''),
-          ...retrievalBaseRequest,
+          storyOutline: formatStoryDraftForMonitor(retrievalBaseRequest.storyOutline),
+          history: sanitizeHistoryForMonitor(retrievalBaseRequest.history),
         },
         responseSnapshot: {
           mode: 'graphrag',
-          retrieval: graphRagRetrieval,
+          retrieval: summarizeKnowledgeRetrievalForMonitor(graphRagRetrieval),
           contextText: graphRagContextText,
         },
       })
@@ -542,10 +445,13 @@ async function resolveGraphRagKnowledgeContext(user, payload, session, robot, mo
         summary: error instanceof Error ? error.message : 'GraphRAG 知识检索失败',
         requestSnapshot: {
           mode: 'graphrag',
+          robotId,
+          sessionId: payload.sessionId,
           retrievalQuerySource,
           retrievalQuery,
           originalPrompt: String(payload.prompt || ''),
-          ...retrievalBaseRequest,
+          storyOutline: formatStoryDraftForMonitor(retrievalBaseRequest.storyOutline),
+          history: sanitizeHistoryForMonitor(retrievalBaseRequest.history),
         },
         responseSnapshot: {
           mode: 'graphrag',
@@ -573,7 +479,7 @@ async function resolveVectorKnowledgeContext(user, payload, session, robot, moni
   }
 
   const retrievalQuery = String(retrievalBaseRequest.prompt || '').trim()
-  const retrievalQuerySource = 'story_outline'
+  const retrievalQuerySource = 'story_outline.retrieval_query'
 
   try {
     const retrieval = await retrieveRobotKnowledgeBySummary(user, {
@@ -596,12 +502,12 @@ async function resolveVectorKnowledgeContext(user, payload, session, robot, moni
           retrievalSummary: String(retrieval?.summary || ''),
           embeddingInput: String(retrieval?.summary || ''),
           prompt: retrievalQuery,
-          history: retrievalBaseRequest.history,
-          storyOutline: retrievalBaseRequest.storyOutline,
+          history: sanitizeHistoryForMonitor(retrievalBaseRequest.history),
+          storyOutline: formatStoryDraftForMonitor(retrievalBaseRequest.storyOutline),
         },
         responseSnapshot: {
           mode: 'summary',
-          retrieval,
+          retrieval: summarizeKnowledgeRetrievalForMonitor(retrieval),
           contextText,
         },
       })
@@ -617,10 +523,13 @@ async function resolveVectorKnowledgeContext(user, payload, session, robot, moni
         summary: error instanceof Error ? error.message : '知识检索失败',
         requestSnapshot: {
           mode: 'summary',
+          robotId,
+          sessionId: payload.sessionId,
           retrievalQuerySource,
           retrievalQuery,
           originalPrompt: String(payload.prompt || ''),
-          ...retrievalBaseRequest,
+          storyOutline: formatStoryDraftForMonitor(retrievalBaseRequest.storyOutline),
+          history: sanitizeHistoryForMonitor(retrievalBaseRequest.history),
         },
         responseSnapshot: {
           mode: 'summary',
@@ -637,119 +546,17 @@ async function resolveVectorKnowledgeContext(user, payload, session, robot, moni
   }
 }
 
-async function maybeResolveKnowledgeContext(user, payload, session, robot, monitorReplyId = '', storyOutlineInput = '') {
-  const storyOutline = String(storyOutlineInput || '').trim()
-  if (!storyOutline) {
-    return ''
-  }
-
-  const resolvedHistory = (session?.messages || []).map((item) => ({
-    role: item.role,
-    content: item.content,
-  }))
-
-  const retrievalBaseRequest = {
-    sessionId: payload.sessionId,
-    robotId: String(robot?.id || '').trim(),
-    robotName: robot?.name || '',
-    robotDescription: robot?.description || '',
-    modelConfigId: payload.modelConfigId,
-    knowledgeRetrievalModelConfigId: robot?.knowledgeRetrievalModelConfigId || '',
-    storyOutline,
-    prompt: storyOutline,
-    history: resolvedHistory,
-  }
-
-  const graphRagContextText = await resolveGraphRagKnowledgeContext(
-    user,
-    payload,
-    session,
-    robot,
-    monitorReplyId,
-    retrievalBaseRequest,
-  )
-  const vectorContextText = await resolveVectorKnowledgeContext(
-    user,
-    payload,
-    session,
-    robot,
-    monitorReplyId,
-    retrievalBaseRequest,
-  )
-
-  return [graphRagContextText, vectorContextText].filter(Boolean).join('\n\n')
-}
-
-async function prefetchNumericState(baseRequest, payload, session, monitorReplyId = '') {
-  if (monitorReplyId) {
-    appendAgentMonitorStep({
-      replyId: monitorReplyId,
-      mergeKey: 'numeric',
-      stage: 'numeric',
-      eventType: 'numeric',
-      status: 'running',
-      summary: '数值生成中',
-      requestSnapshot: baseRequest,
-    })
-  }
-
-  const numericResponse = await requestAgentJson(
-    '/runs/numeric',
-    baseRequest,
-    payload,
-    session,
-    '数值生成',
-  )
-  const numericState =
-    typeof (numericResponse?.numeric_state || numericResponse?.numericState) === 'object'
-      && (numericResponse?.numeric_state || numericResponse?.numericState) !== null
-      ? (numericResponse.numeric_state || numericResponse.numericState)
-      : {}
-
-  if (monitorReplyId) {
-    appendAgentMonitorStep({
-      replyId: monitorReplyId,
-      mergeKey: 'numeric',
-      stage: 'numeric',
-      eventType: 'numeric',
-      status: 'success',
-      summary: '数值生成完成',
-      requestSnapshot: baseRequest,
-      responseSnapshot: {
-        numeric_state: numericState,
-        usage: numericResponse?.usage || null,
-      },
-    })
-  }
-
-  return {
-    numericState,
-    usage: normalizeUsage(numericResponse?.usage),
-  }
-}
-
 async function prefetchStoryOutline(baseRequest, payload, session, monitorReplyId = '') {
-  if (monitorReplyId) {
-    appendAgentMonitorStep({
-      replyId: monitorReplyId,
-      mergeKey: 'story_outline',
-      stage: 'story_outline',
-      eventType: 'story_outline',
-      status: 'running',
-      summary: '故事梗概生成中',
-      requestSnapshot: baseRequest,
-    })
-  }
-
+  const outlineRequest = buildStoryOutlineAgentRequest(baseRequest)
   const outlineResponse = await requestAgentJson(
     '/runs/story-outline',
-    baseRequest,
+    outlineRequest,
     payload,
     session,
     '故事梗概生成',
   )
-  const storyOutline = String(outlineResponse?.story_outline || outlineResponse?.storyOutline || '').trim()
-  if (!storyOutline) {
+  const storyOutline = normalizeStoryOutline(outlineResponse?.story_outline || outlineResponse?.storyOutline || {})
+  if (!hasStoryOutlineContent(storyOutline)) {
     throw new Error('故事梗概为空')
   }
 
@@ -761,9 +568,9 @@ async function prefetchStoryOutline(baseRequest, payload, session, monitorReplyI
       eventType: 'story_outline',
       status: 'success',
       summary: '故事梗概生成完成',
-      requestSnapshot: baseRequest,
+      requestSnapshot: sanitizeAgentRequestForMonitor(outlineRequest),
       responseSnapshot: {
-        story_outline: storyOutline,
+        story_outline: formatStoryDraftForMonitor(storyOutline),
         usage: outlineResponse?.usage || null,
       },
     })
@@ -772,27 +579,6 @@ async function prefetchStoryOutline(baseRequest, payload, session, monitorReplyI
   return {
     storyOutline,
     usage: normalizeUsage(outlineResponse?.usage),
-  }
-}
-
-function buildStructuredMemoryTriggerMeta(agentRequest) {
-  const history = Array.isArray(agentRequest?.history) ? agentRequest.history : []
-  const existingUserTurnCount = countUserTurns(history)
-  const interval = normalizePositiveInteger(
-    agentRequest?.structured_memory_interval ?? agentRequest?.structuredMemoryInterval,
-    3,
-  )
-  const nextUserTurnIndex = existingUserTurnCount + 1
-  return {
-    interval,
-    existingUserTurnCount,
-    nextUserTurnIndex,
-    triggered: nextUserTurnIndex % interval === 0,
-    historyLength: history.length,
-    schemaCategoryCount: Array.isArray(agentRequest?.memory_schema?.categories)
-      ? agentRequest.memory_schema.categories.length
-      : 0,
-    structuredMemoryItemCount: countStructuredMemoryItems(agentRequest?.structured_memory || agentRequest?.structuredMemory),
   }
 }
 
@@ -861,53 +647,16 @@ async function loadWorldGraphPayload(user, payload, session) {
   }
 
   if (!robotId) {
-    return createEmptyWorldGraphSnapshot(robotId, robotName)
+    return null
   }
 
-  try {
-    return cloneWorldGraphSnapshot(await getWorldGraph(user, robotId))
-  } catch {
-    return createEmptyWorldGraphSnapshot(robotId, robotName)
-  }
+  const configuredGraph = await getConfiguredWorldGraph(user, robotId).catch(() => null)
+  return configuredGraph ? cloneWorldGraphSnapshot(configuredGraph) : null
 }
 
 async function loadWorldGraphPayloadWithMonitor(user, payload, session, monitorReplyId = '') {
-  const robotId = resolveSessionRobotId(payload, session)
-  const robotName = resolveChatRobotName(payload, session)
-  const requestSnapshot = {
-    sessionId: payload?.sessionId || '',
-    robotId,
-    robotName,
-    hasSessionGraph: Boolean(
-      session?.worldGraph
-      || payload?.sessionSnapshot?.worldGraph
-      || payload?.sessionSnapshot?.world_graph,
-    ),
-    sessionWorldGraph: session?.worldGraph || null,
-    sessionSnapshotWorldGraph:
-      payload?.sessionSnapshot?.worldGraph
-      || payload?.sessionSnapshot?.world_graph
-      || null,
-  }
-  const graph = await loadWorldGraphPayload(user, payload, session)
-  if (monitorReplyId) {
-    appendAgentMonitorStep({
-      replyId: monitorReplyId,
-      stage: 'graph_context_recall',
-      eventType: 'graph_context_recall',
-      summary: '图谱上下文召回完成',
-      requestSnapshot,
-      responseSnapshot: {
-        robotId,
-        robotName,
-        nodeCount: Array.isArray(graph?.nodes) ? graph.nodes.length : 0,
-        edgeCount: Array.isArray(graph?.edges) ? graph.edges.length : 0,
-        relationTypeCount: Array.isArray(graph?.relationTypes) ? graph.relationTypes.length : 0,
-        graph,
-      },
-    })
-  }
-  return graph
+  void monitorReplyId
+  return loadWorldGraphPayload(user, payload, session)
 }
 
 function buildPrimaryAgentModelConfig(payload) {
@@ -920,6 +669,234 @@ function buildPrimaryAgentModelConfig(payload) {
     api_key: String(payload.apiKey || ''),
     model: String(payload.model || ''),
     temperature: typeof payload.temperature === 'number' ? payload.temperature : 0.7,
+  }
+}
+
+function sanitizeModelConfigForMonitor(config) {
+  if (!config || typeof config !== 'object') {
+    return null
+  }
+  return {
+    model_config_id: String(config.model_config_id || config.modelConfigId || '').trim(),
+    provider: String(config.provider || '').trim(),
+    base_url: String(config.base_url || config.baseUrl || '').trim(),
+    model: String(config.model || '').trim(),
+    temperature: typeof config.temperature === 'number' ? config.temperature : null,
+  }
+}
+
+function sanitizeStructuredMemoryForMonitor(memory) {
+  if (!memory || typeof memory !== 'object') {
+    return null
+  }
+  return {
+    updatedAt: String(memory.updatedAt || memory.updated_at || '').trim(),
+    longTermMemory: String(memory.longTermMemory || memory.long_term_memory || '').trim(),
+    shortTermMemory: String(memory.shortTermMemory || memory.short_term_memory || '').trim(),
+  }
+}
+
+function sanitizeHistoryForMonitor(history) {
+  return (Array.isArray(history) ? history : []).slice(-2).map((item) => ({
+    role: String(item?.role || '').trim(),
+    content: String(item?.content || '').trim(),
+  }))
+}
+
+function summarizeWorldGraphForMonitor(graph) {
+  if (!graph || typeof graph !== 'object') {
+    return null
+  }
+  return {
+    meta: graph?.meta
+      ? {
+        robotId: String(graph.meta.robotId || '').trim(),
+        title: String(graph.meta.title || '').trim(),
+        summary: String(graph.meta.summary || '').trim(),
+        graphVersion: Number(graph.meta.graphVersion || 0),
+        calendar: graph.meta.calendar
+          ? {
+            calendarId: String(graph.meta.calendar.calendarId || '').trim(),
+            calendarName: String(graph.meta.calendar.calendarName || '').trim(),
+            formatTemplate: String(graph.meta.calendar.formatTemplate || '').trim(),
+          }
+          : null,
+      }
+      : null,
+    relationTypeCount: Array.isArray(graph?.relationTypes) ? graph.relationTypes.length : 0,
+    nodeCount: Array.isArray(graph?.nodes) ? graph.nodes.length : 0,
+    edgeCount: Array.isArray(graph?.edges) ? graph.edges.length : 0,
+  }
+}
+
+function summarizeKnowledgeRetrievalForMonitor(retrieval) {
+  if (!retrieval || typeof retrieval !== 'object') {
+    return null
+  }
+  return {
+    summary: String(retrieval.summary || '').trim(),
+    itemCount: Array.isArray(retrieval.items) ? retrieval.items.length : 0,
+    communityCount: Array.isArray(retrieval.communities) ? retrieval.communities.length : 0,
+    entityCount: Array.isArray(retrieval.entities) ? retrieval.entities.length : 0,
+    eventCount: Array.isArray(retrieval.events) ? retrieval.events.length : 0,
+    chunkCount: Array.isArray(retrieval.chunks) ? retrieval.chunks.length : 0,
+  }
+}
+
+function summarizeMemoryForMonitor(memory) {
+  const normalized = sanitizeStructuredMemoryForMonitor(memory)
+  if (!normalized) {
+    return null
+  }
+  return {
+    updatedAt: normalized.updatedAt,
+    longTermMemoryLength: normalized.longTermMemory.length,
+    shortTermMemoryLength: normalized.shortTermMemory.length,
+    longTermMemoryPreview: normalized.longTermMemory.slice(0, 240),
+    shortTermMemoryPreview: normalized.shortTermMemory.slice(0, 240),
+  }
+}
+
+function summarizeWorldGraphWritebackResultForMonitor(result) {
+  if (!result || typeof result !== 'object') {
+    return null
+  }
+  return {
+    graph: summarizeWorldGraphForMonitor(result.graph),
+    warnings: Array.isArray(result.warnings) ? result.warnings.slice(0, 10) : [],
+    usage: result.usage || null,
+    writebackSummary: result.writebackSummary || null,
+    persistenceMode: String(result.persistenceMode || '').trim(),
+    appliedRelationTypeCount: Number(result.appliedRelationTypeCount || 0),
+    appliedNodeCount: Number(result.appliedNodeCount || 0),
+    appliedEdgeCount: Number(result.appliedEdgeCount || 0),
+    appliedEffectCount: Number(result.appliedEffectCount || 0),
+    appliedSnapshotCount: Number(result.appliedSnapshotCount || 0),
+  }
+}
+
+function summarizeAgentFinalResponseForMonitor(result) {
+  return {
+    messagePreview: String(result?.message || '').trim().slice(0, 500),
+    suggestionCount: Array.isArray(result?.suggestions) ? result.suggestions.length : 0,
+    hasForm: Boolean(result?.form),
+    memory: summarizeMemoryForMonitor(result?.memory),
+    usage: result?.usage || null,
+    storyOutline: formatStoryDraftForMonitor(result?.storyOutline),
+  }
+}
+
+function summarizeAgentEventForMonitor(event) {
+  const type = String(event?.type || '').trim()
+  if (!type) {
+    return null
+  }
+  if (type === 'message_done') {
+    return {
+      type,
+      messagePreview: String(event?.message || '').trim().slice(0, 500),
+    }
+  }
+  if (type === 'error') {
+    return {
+      type,
+      message: String(event?.message || '').trim(),
+    }
+  }
+  return { type }
+}
+
+function sanitizeRobotForMonitor(robot) {
+  if (!robot || typeof robot !== 'object') {
+    return null
+  }
+  return {
+    id: String(robot.id || '').trim(),
+    name: String(robot.name || '').trim(),
+    common_prompt: String(robot.common_prompt || robot.commonPrompt || '').trim(),
+    system_prompt: String(robot.system_prompt || robot.systemPrompt || '').trim(),
+  }
+}
+
+function sanitizeAgentRequestForMonitor(agentRequest) {
+  if (!agentRequest || typeof agentRequest !== 'object') {
+    return null
+  }
+  return {
+    thread_id: String(agentRequest.thread_id || agentRequest.threadId || '').trim(),
+    session_id: String(agentRequest.session_id || agentRequest.sessionId || '').trim(),
+    prompt: String(agentRequest.prompt || '').trim(),
+    system_prompt: String(agentRequest.system_prompt || agentRequest.systemPrompt || '').trim(),
+    robot: sanitizeRobotForMonitor(agentRequest.robot),
+    history: sanitizeHistoryForMonitor(agentRequest.history),
+    structured_memory: sanitizeStructuredMemoryForMonitor(agentRequest.structured_memory || agentRequest.structuredMemory),
+    story_outline: formatStoryDraftForMonitor(agentRequest.story_outline || agentRequest.storyOutline || {}),
+    story_outline_stage_completed: Boolean(agentRequest.story_outline_stage_completed || agentRequest.storyOutlineStageCompleted),
+    vector_context_text: String(agentRequest.vector_context_text || agentRequest.vectorContextText || '').trim(),
+    world_graph: summarizeWorldGraphForMonitor(agentRequest.world_graph || agentRequest.worldGraph),
+    model_config: sanitizeModelConfigForMonitor(agentRequest.model_config || agentRequest.modelSettings),
+    auxiliary_model_configs: {
+      memory: sanitizeModelConfigForMonitor(agentRequest?.auxiliary_model_configs?.memory || agentRequest?.auxiliaryModelConfigs?.memory),
+      outline: sanitizeModelConfigForMonitor(agentRequest?.auxiliary_model_configs?.outline || agentRequest?.auxiliaryModelConfigs?.outline),
+      world_graph: sanitizeModelConfigForMonitor(agentRequest?.auxiliary_model_configs?.world_graph || agentRequest?.auxiliaryModelConfigs?.world_graph),
+    },
+  }
+}
+
+function sanitizePayloadForMonitor(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+  return {
+    sessionId: String(payload.sessionId || '').trim(),
+    prompt: String(payload.prompt || '').trim(),
+    provider: String(payload.provider || '').trim(),
+    baseUrl: String(payload.baseUrl || '').trim(),
+    model: String(payload.model || '').trim(),
+    temperature: typeof payload.temperature === 'number' ? payload.temperature : null,
+    systemPrompt: String(payload.systemPrompt || '').trim(),
+    robotName: String(payload.robotName || '').trim(),
+    sessionSnapshot: payload.sessionSnapshot
+      ? {
+        id: String(payload.sessionSnapshot.id || '').trim(),
+        title: String(payload.sessionSnapshot.title || '').trim(),
+      }
+      : null,
+  }
+}
+
+function sanitizeSessionForMonitor(session) {
+  if (!session || typeof session !== 'object') {
+    return null
+  }
+  return {
+    id: String(session.id || '').trim(),
+    threadId: String(session.threadId || '').trim(),
+    title: String(session.title || '').trim(),
+    robot: sanitizeRobotForMonitor(session.robot),
+    messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
+    structuredMemory: sanitizeStructuredMemoryForMonitor(session.structuredMemory),
+    storyOutline: formatStoryDraftForMonitor(session.storyOutline || {}),
+    worldGraph: summarizeWorldGraphForMonitor(session.worldGraph),
+  }
+}
+
+function buildStoryOutlineAgentRequest(baseRequest, historyOverride = null) {
+  return {
+    thread_id: String(baseRequest?.thread_id || '').trim(),
+    session_id: String(baseRequest?.session_id || '').trim(),
+    prompt: String(baseRequest?.prompt || '').trim(),
+    robot: sanitizeRobotForMonitor(baseRequest?.robot),
+    system_prompt: String(baseRequest?.system_prompt || '').trim(),
+    history: Array.isArray(historyOverride) ? historyOverride : sanitizeHistoryForMonitor(baseRequest?.history),
+    structured_memory: sanitizeStructuredMemoryForMonitor(baseRequest?.structured_memory || baseRequest?.structuredMemory),
+    story_outline: normalizeStoryOutline(baseRequest?.story_outline || {}),
+    story_outline_stage_completed: Boolean(baseRequest?.story_outline_stage_completed),
+    model_config: baseRequest?.model_config || baseRequest?.modelSettings || null,
+    auxiliary_model_configs: {
+      outline: baseRequest?.auxiliary_model_configs?.outline || baseRequest?.auxiliaryModelConfigs?.outline || null,
+    },
+    world_graph: baseRequest?.world_graph || null,
   }
 }
 
@@ -977,20 +954,6 @@ function buildAgentAuxiliaryModelConfigs(payload, robot) {
         temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
       }
     })(),
-    numeric_computation: (() => {
-      const config = resolveAuxiliaryModelConfig(robot?.numericComputationModelConfigId)
-      return {
-        model_config_id: String(robot?.numericComputationModelConfigId || ''),
-        provider: config.provider,
-        base_url:
-          config.provider === 'ollama'
-            ? getOllamaChatBaseUrl(config.baseUrl)
-            : sanitizeBaseUrl(config.baseUrl),
-        api_key: String(config.apiKey || ''),
-        model: String(config.model || ''),
-        temperature: typeof config.temperature === 'number' ? config.temperature : 0.7,
-      }
-    })(),
     world_graph: (() => {
       const config = resolveAuxiliaryModelConfig(robot?.worldGraphModelConfigId)
       return {
@@ -1017,41 +980,21 @@ function buildAgentRobotPayload(robot, payload) {
     system_prompt: robot?.systemPrompt || payload.systemPrompt || '',
     memory_model_config_id: String(robot?.memoryModelConfigId || ''),
     outline_model_config_id: String(robot?.outlineModelConfigId || ''),
-    numeric_computation_model_config_id: String(robot?.numericComputationModelConfigId || ''),
     world_graph_model_config_id: String(robot?.worldGraphModelConfigId || ''),
-    numeric_computation_enabled: Boolean(robot?.numericComputationEnabled),
-    numeric_computation_prompt: String(robot?.numericComputationPrompt || ''),
-    numeric_computation_items: Array.isArray(robot?.numericComputationItems) ? robot.numericComputationItems : [],
-    structured_memory_interval: normalizePositiveInteger(
-      robot?.structuredMemoryInterval,
-      DEFAULT_SESSION_ROBOT.structuredMemoryInterval,
-    ),
-    structured_memory_history_limit: normalizePositiveInteger(
-      robot?.structuredMemoryHistoryLimit,
-      DEFAULT_SESSION_ROBOT.structuredMemoryHistoryLimit,
-    ),
   }
 }
 
 async function buildAgentRequest(payload, user, session, monitorReplyId = '') {
-  const memory = session?.memory || DEFAULT_SESSION_MEMORY
   const robot = session?.robot || payload.robot || DEFAULT_SESSION_ROBOT
-  const memorySchema = resolveEffectiveMemorySchema(session?.memorySchema, payload?.robot?.memorySchema)
   const structuredMemory = normalizeStructuredMemory(session?.structuredMemory)
-  const numericState =
-    typeof session?.numericState === 'object' && session?.numericState !== null
-      ? session.numericState
-      : {}
-  const structuredMemoryInterval = normalizePositiveInteger(
-    memory?.structuredMemoryInterval,
-    normalizePositiveInteger(robot?.structuredMemoryInterval, DEFAULT_SESSION_MEMORY.structuredMemoryInterval),
-  )
-  const structuredMemoryHistoryLimit = normalizePositiveInteger(
-    memory?.structuredMemoryHistoryLimit,
-    normalizePositiveInteger(robot?.structuredMemoryHistoryLimit, DEFAULT_SESSION_MEMORY.structuredMemoryHistoryLimit),
-  )
   const worldGraph = await loadWorldGraphPayloadWithMonitor(user, payload, session, monitorReplyId)
   const auxiliaryModelConfigs = buildAgentAuxiliaryModelConfigs(payload, robot)
+  const history = (session?.messages || []).map((item) => ({
+    role: item.role,
+    content: item.content,
+  }))
+  const recentTurnHistory = history.slice(-2)
+  const recentFiveRoundHistory = history.slice(-10)
   const baseRequest = {
     thread_id: session?.threadId || payload.sessionId,
     session_id: payload.sessionId,
@@ -1064,39 +1007,77 @@ async function buildAgentRequest(payload, user, session, monitorReplyId = '') {
     model_config: buildPrimaryAgentModelConfig(payload),
     robot: buildAgentRobotPayload(robot, payload),
     system_prompt: payload.systemPrompt || robot?.systemPrompt || '',
-    history: (session?.messages || []).map((item) => ({
-      role: item.role,
-      content: item.content,
-    })),
-    memory_schema: memorySchema,
+    history: recentTurnHistory,
     structured_memory: structuredMemory,
-    numeric_state: numericState,
-    numeric_stage_completed: false,
-    story_outline: '',
+    story_outline: normalizeStoryOutline({}),
     story_outline_stage_completed: false,
     auxiliary_model_configs: auxiliaryModelConfigs,
     world_graph: worldGraph,
-    structured_memory_interval: structuredMemoryInterval,
-    structured_memory_history_limit: structuredMemoryHistoryLimit,
   }
-  const numericResult = await prefetchNumericState(baseRequest, payload, session, monitorReplyId)
-  const outlineRequest = {
+  const outlineBaseRequest = {
     ...baseRequest,
-    numeric_state: numericResult.numericState,
-    numeric_stage_completed: true,
+    history: recentFiveRoundHistory,
   }
-  const outlineResult = await prefetchStoryOutline(outlineRequest, payload, session, monitorReplyId)
-  const knowledgeContextText = await maybeResolveKnowledgeContext(user, payload, session, {
-    ...robot,
-    description: payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || '',
-  }, monitorReplyId, outlineResult.storyOutline)
+  const outlineResult = await prefetchStoryOutline(outlineBaseRequest, payload, session, monitorReplyId)
+  const graphRagContextText = await resolveGraphRagKnowledgeContext(
+    user,
+    payload,
+    session,
+    {
+      ...robot,
+      description: payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || '',
+    },
+    monitorReplyId,
+    {
+      sessionId: payload.sessionId,
+      robotId: String(robot?.id || '').trim(),
+      robotName: robot?.name || '',
+      robotDescription: payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || '',
+      modelConfigId: payload.modelConfigId,
+      knowledgeRetrievalModelConfigId: robot?.knowledgeRetrievalModelConfigId || '',
+      storyOutline: outlineResult.storyOutline,
+      prompt: outlineResult.storyOutline.retrievalQuery || String(payload.prompt || ''),
+      history: recentTurnHistory,
+    },
+  )
+  const mergedOutline = normalizeStoryOutline({
+    ...outlineResult.storyOutline,
+    graph_rag_hints: graphRagContextText,
+    story_draft: {
+      ...outlineResult.storyOutline.storyDraft,
+      events: graphRagContextText
+        ? [...outlineResult.storyOutline.storyDraft.events, `图谱线索：${graphRagContextText.slice(0, 180)}`]
+        : outlineResult.storyOutline.storyDraft.events,
+    },
+  })
+  const vectorContextText = await resolveVectorKnowledgeContext(
+    user,
+    payload,
+    session,
+    {
+      ...robot,
+      description: payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || '',
+    },
+    monitorReplyId,
+    {
+      sessionId: payload.sessionId,
+      robotId: String(robot?.id || '').trim(),
+      robotName: robot?.name || '',
+      robotDescription: payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || '',
+      modelConfigId: payload.modelConfigId,
+      knowledgeRetrievalModelConfigId: robot?.knowledgeRetrievalModelConfigId || '',
+      storyOutline: mergedOutline,
+      prompt: mergedOutline.retrievalQuery || String(payload.prompt || ''),
+      history: recentTurnHistory,
+    },
+  )
 
   return {
-    ...outlineRequest,
-    prefetch_usage: addUsageTotals(numericResult.usage, outlineResult.usage),
-    system_prompt: [baseRequest.system_prompt, knowledgeContextText].filter(Boolean).join('\n\n'),
-    story_outline: outlineResult.storyOutline,
+    ...baseRequest,
+    prefetch_usage: normalizeUsage(outlineResult.usage),
+    story_outline: mergedOutline,
     story_outline_stage_completed: true,
+    vector_context_text: vectorContextText,
   }
 }
 
@@ -1116,16 +1097,6 @@ async function requestAgentRun(payload, user) {
   const endpoint = `${getAgentServiceUrl()}/runs/stream`
   const monitorReplyId = beginAgentMonitorReply({ user, payload, session })
   const agentRequest = await buildAgentRequest(payload, user, session, monitorReplyId)
-
-  if (monitorReplyId) {
-    appendAgentMonitorStep({
-      replyId: monitorReplyId,
-      stage: 'agent_request_ready',
-      eventType: 'agent_request_ready',
-      summary: 'Agent 主请求已构建',
-      requestSnapshot: agentRequest,
-    })
-  }
 
   try {
     const response = await fetch(endpoint, {
@@ -1147,7 +1118,7 @@ async function requestAgentRun(payload, user) {
       failAgentMonitorReply(monitorReplyId, error, {
         stage: 'agent_request_failed',
         eventType: 'agent_request_failed',
-        requestSnapshot: agentRequest,
+        requestSnapshot: sanitizeAgentRequestForMonitor(agentRequest),
       })
     }
     throw new Error(formatChatErrorMessage(payload, session, new Error(describeFetchError(error, endpoint, '请求失败'))))
@@ -1183,11 +1154,7 @@ function buildBackgroundAgentRequest(agentRequest, result) {
     thread_id: String(result.threadId || agentRequest.thread_id || agentRequest.threadId || ''),
     session_id: String(agentRequest.session_id || agentRequest.sessionId || ''),
     final_response: String(result.message || ''),
-    numeric_state:
-      typeof result.numericState === 'object' && result.numericState !== null
-        ? result.numericState
-        : agentRequest.numeric_state || agentRequest.numericState || {},
-    story_outline: String(result.storyOutline || agentRequest.story_outline || agentRequest.storyOutline || ''),
+    story_outline: normalizeStoryOutline(result.storyOutline || agentRequest.story_outline || agentRequest.storyOutline || {}),
   }
 }
 
@@ -1195,15 +1162,10 @@ export function hydrateBackgroundAgentRequest(agentRequest, session) {
   const latestSession = session && typeof session === 'object' ? session : null
   return {
     ...agentRequest,
-    memory_schema: resolveEffectiveMemorySchema(
-      agentRequest?.memory_schema || agentRequest?.memorySchema,
-      latestSession?.memorySchema,
-    ),
     structured_memory: normalizeStructuredMemory(
       latestSession?.structuredMemory || agentRequest?.structured_memory || agentRequest?.structuredMemory,
     ),
-    numeric_state: agentRequest?.numeric_state || agentRequest?.numericState || {},
-    story_outline: String(agentRequest?.story_outline || agentRequest?.storyOutline || ''),
+    story_outline: normalizeStoryOutline(agentRequest?.story_outline || agentRequest?.storyOutline || {}),
     world_graph:
       latestSession?.worldGraph
         ? normalizeWorldGraphSnapshot(latestSession.worldGraph)
@@ -1212,11 +1174,7 @@ export function hydrateBackgroundAgentRequest(agentRequest, session) {
 }
 
 export function buildWorldGraphBackgroundAgentRequest(agentRequest, session) {
-  const hydrated = hydrateBackgroundAgentRequest(agentRequest, session)
-  const nextRequest = { ...hydrated }
-  delete nextRequest.memory_schema
-  delete nextRequest.memorySchema
-  return nextRequest
+  return { ...hydrateBackgroundAgentRequest(agentRequest, session) }
 }
 
 async function patchSessionStructuredMemory(user, sessionId, memory, usage) {
@@ -1251,7 +1209,6 @@ async function commitSession(payload, user, result, existingSession) {
   const now = new Date().toISOString()
   const existing = existingSession || await getSessionRecord(user, payload.sessionId)
   const nextMessages = [...(existing?.messages || [])]
-  const memorySchema = resolveEffectiveMemorySchema(existing?.memorySchema, payload?.robot?.memorySchema)
 
   nextMessages.push({
     id: `user-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -1284,15 +1241,10 @@ async function commitSession(payload, user, result, existingSession) {
     modelConfigId: payload.modelConfigId || existing?.modelConfigId || '',
     modelLabel: payload.modelLabel || existing?.modelLabel || payload.model || '',
     threadId: result.threadId || existing?.threadId || payload.sessionId,
-    storyOutline: String(result.storyOutline || existing?.storyOutline || ''),
+    storyOutline: normalizeStoryOutline(result.storyOutline || existing?.storyOutline || {}),
     messages: nextMessages,
     memory: existing?.memory,
-    memorySchema,
     structuredMemory: normalizeStructuredMemory(result.memory || existing?.structuredMemory),
-    numericState:
-      typeof result.numericState === 'object' && result.numericState !== null
-        ? result.numericState
-        : existing?.numericState || {},
     worldGraph: result.worldGraph || existing?.worldGraph || payload.sessionSnapshot?.worldGraph || null,
     usage: {
       promptTokens: existingUsage.promptTokens + nextUsage.promptTokens,
@@ -1327,32 +1279,14 @@ function shouldRecordAgentMonitorEvent(payload) {
   if (!type) {
     return false
   }
-  return !['message_delta', 'usage', 'run_started'].includes(type)
+  return type === 'message_done'
 }
 
 function summarizeAgentMonitorEvent(payload) {
   const type = String(payload?.type || '').trim()
   switch (type) {
-    case 'numeric_state_updated':
-      return '数值计算完成'
-    case 'story_outline_started':
-      return '故事梗概生成开始'
-    case 'story_outline_completed':
-      return '故事梗概生成完成'
     case 'message_done':
-      return '主回复生成完成'
-    case 'response_completed':
-      return '回复结果已汇总'
-    case 'memory_started':
-      return '结构化记忆整理开始'
-    case 'memory_updated':
-      return '结构化记忆整理完成'
-    case 'run_completed':
-      return '主链路执行完成'
-    case 'world_graph_writeback_started':
-      return '世界图谱写回开始'
-    case 'world_graph_updated':
-      return '世界图谱写回完成'
+      return '正文生成完成'
     case 'error':
       return typeof payload?.message === 'string' && payload.message.trim() ? payload.message.trim() : '执行失败'
     default:
@@ -1363,53 +1297,13 @@ function summarizeAgentMonitorEvent(payload) {
 function resolveAgentMonitorEventMergeMeta(payload) {
   const type = String(payload?.type || '').trim()
   switch (type) {
-    case 'story_outline_started':
+    case 'message_done':
       return {
-        mergeKey: 'story_outline',
-        stage: 'story_outline',
-        eventType: 'story_outline',
-        status: 'running',
-        summary: '故事梗概生成中',
-      }
-    case 'story_outline_completed':
-      return {
-        mergeKey: 'story_outline',
-        stage: 'story_outline',
-        eventType: 'story_outline',
+        mergeKey: 'answer',
+        stage: 'answer',
+        eventType: 'answer',
         status: 'success',
-        summary: '故事梗概生成完成',
-      }
-    case 'memory_started':
-      return {
-        mergeKey: 'memory_update',
-        stage: 'memory_update',
-        eventType: 'memory_update',
-        status: 'running',
-        summary: '结构化记忆整理中',
-      }
-    case 'memory_updated':
-      return {
-        mergeKey: 'memory_update',
-        stage: 'memory_update',
-        eventType: 'memory_update',
-        status: 'success',
-        summary: '结构化记忆整理完成',
-      }
-    case 'world_graph_writeback_started':
-      return {
-        mergeKey: 'world_graph_writeback',
-        stage: 'world_graph_writeback',
-        eventType: 'world_graph_writeback',
-        status: 'running',
-        summary: '世界图谱写回中',
-      }
-    case 'world_graph_updated':
-      return {
-        mergeKey: 'world_graph_writeback',
-        stage: 'world_graph_writeback',
-        eventType: 'world_graph_writeback',
-        status: 'success',
-        summary: '世界图谱写回完成',
+        summary: '正文生成完成',
       }
     default:
       return {
@@ -1426,12 +1320,9 @@ function getAgentMonitorStepRequestSnapshot(agentRequest, payload, session, pars
   const eventType = String(parsedEvent?.type || '').trim()
   const fullSnapshot = {
     eventType,
-    payload: {
-      ...payload,
-      sessionSnapshot: payload?.sessionSnapshot || null,
-    },
-    session: session || null,
-    agentRequest: agentRequest || null,
+    payload: sanitizePayloadForMonitor(payload),
+    session: sanitizeSessionForMonitor(session),
+    agentRequest: sanitizeAgentRequestForMonitor(agentRequest),
   }
   if (['message_done', 'response_completed', 'run_completed'].includes(eventType)) {
     return {
@@ -1439,26 +1330,6 @@ function getAgentMonitorStepRequestSnapshot(agentRequest, payload, session, pars
       prompt: payload?.prompt || '',
       sessionId: payload?.sessionId || '',
       threadId: agentRequest?.thread_id || agentRequest?.threadId || session?.threadId || '',
-    }
-  }
-  if (['memory_started', 'memory_updated'].includes(eventType)) {
-    return {
-      ...fullSnapshot,
-      threadId: agentRequest?.thread_id || agentRequest?.threadId || '',
-      sessionId: payload?.sessionId || '',
-    }
-  }
-  if (['story_outline_started', 'story_outline_completed'].includes(eventType)) {
-    return {
-      ...fullSnapshot,
-      prompt: payload?.prompt || '',
-      threadId: agentRequest?.thread_id || agentRequest?.threadId || '',
-    }
-  }
-  if (eventType === 'numeric_state_updated') {
-    return {
-      ...fullSnapshot,
-      prompt: payload?.prompt || '',
     }
   }
   return fullSnapshot
@@ -1476,7 +1347,7 @@ function recordAgentMonitorEvent(replyId, agentRequest, payload, session, parsed
     eventType: mergeMeta.eventType,
     summary: mergeMeta.summary,
     requestSnapshot: getAgentMonitorStepRequestSnapshot(agentRequest, payload, session, parsedEvent),
-    responseSnapshot: parsedEvent,
+    responseSnapshot: summarizeAgentEventForMonitor(parsedEvent),
     status: mergeMeta.status,
   })
 }
@@ -1501,7 +1372,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
       failAgentMonitorReply(monitorReplyId, new Error('连接中断'), {
         stage: 'agent_stream_failed',
         eventType: 'agent_stream_failed',
-        requestSnapshot: agentRequest,
+        requestSnapshot: sanitizeAgentRequestForMonitor(agentRequest),
       })
     }
     throw new Error(formatChatErrorMessage(payload, session, new Error('连接中断')))
@@ -1516,8 +1387,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
   let finalThreadId = session?.threadId || payload.sessionId
   let finalSuggestions = []
   let finalForm = null
-  let finalNumericState = session?.numericState || {}
-  let finalStoryOutline = String(session?.storyOutline || payload.sessionSnapshot?.storyOutline || '')
+  let finalStoryOutline = normalizeStoryOutline(session?.storyOutline || payload.sessionSnapshot?.storyOutline || {})
   const finalWorldGraph = await loadWorldGraphPayload(user, payload, session)
   const structuredStreamState = createStructuredStreamParser()
   let structuredStreamClosed = false
@@ -1602,16 +1472,8 @@ async function runAgentAndCollect(payload, user, onEvent) {
         if (parsed.type === 'usage') {
           finalUsage = normalizeUsage(parsed)
         }
-        if (parsed.type === 'numeric_state_updated' && parsed.state) {
-          finalNumericState = parsed.state
-        }
         if (parsed.type === 'story_outline_completed') {
-          finalStoryOutline =
-            typeof parsed.story_outline === 'string'
-              ? parsed.story_outline
-              : typeof parsed.storyOutline === 'string'
-                ? parsed.storyOutline
-                : finalStoryOutline
+          finalStoryOutline = normalizeStoryOutline(parsed.story_outline || parsed.storyOutline || finalStoryOutline)
         }
         if (parsed.type === 'response_completed') {
           const missingVisibleText = finalizeStructuredAssistantOutput(String(parsed.message || ''))
@@ -1621,12 +1483,6 @@ async function runAgentAndCollect(payload, user, onEvent) {
           }
           receivedResponseCompleted = true
           finalThreadId = String(parsed.threadId || finalThreadId)
-          finalNumericState =
-            typeof parsed.numeric_state === 'object' && parsed.numeric_state !== null
-              ? parsed.numeric_state
-              : typeof parsed.numericState === 'object' && parsed.numericState !== null
-                ? parsed.numericState
-                : finalNumericState
         }
         if (parsed.type === 'run_completed') {
           const missingVisibleText = finalizeStructuredAssistantOutput(String(parsed.message || ''))
@@ -1637,19 +1493,8 @@ async function runAgentAndCollect(payload, user, onEvent) {
           receivedRunCompleted = true
           finalThreadId = String(parsed.threadId || finalThreadId)
           finalMemory = normalizeStructuredMemory(parsed.memory || finalMemory)
-          finalNumericState =
-            typeof parsed.numeric_state === 'object' && parsed.numeric_state !== null
-              ? parsed.numeric_state
-              : typeof parsed.numericState === 'object' && parsed.numericState !== null
-                ? parsed.numericState
-                : finalNumericState
           finalUsage = normalizeUsage(parsed.usage || finalUsage)
-          finalStoryOutline =
-            typeof parsed.story_outline === 'string'
-              ? parsed.story_outline
-              : typeof parsed.storyOutline === 'string'
-                ? parsed.storyOutline
-                : finalStoryOutline
+          finalStoryOutline = normalizeStoryOutline(parsed.story_outline || parsed.storyOutline || finalStoryOutline)
         }
 
         for (const event of forwardedEvents) {
@@ -1662,7 +1507,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
       failAgentMonitorReply(monitorReplyId, error, {
         stage: 'agent_stream_failed',
         eventType: 'agent_stream_failed',
-        requestSnapshot: agentRequest,
+        requestSnapshot: sanitizeAgentRequestForMonitor(agentRequest),
       })
     }
     throw new Error(formatChatErrorMessage(payload, session, error))
@@ -1673,7 +1518,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
       failAgentMonitorReply(monitorReplyId, new Error('连接中断'), {
         stage: 'agent_stream_incomplete',
         eventType: 'agent_stream_incomplete',
-        requestSnapshot: agentRequest,
+        requestSnapshot: sanitizeAgentRequestForMonitor(agentRequest),
       })
     }
     throw new Error(formatChatErrorMessage(payload, session, new Error('连接中断')))
@@ -1688,7 +1533,6 @@ async function runAgentAndCollect(payload, user, onEvent) {
       message: finalMessage,
       suggestions: finalSuggestions,
       form: finalForm,
-      numericState: finalNumericState,
       storyOutline: finalStoryOutline,
       memory: finalMemory,
       usage: finalUsage,
@@ -1710,13 +1554,14 @@ async function runAgentAndCollect(payload, user, onEvent) {
       message: finalMessage,
       sessionTitle: savedSession?.title || session?.title || payload?.sessionSnapshot?.title || '',
       responseSnapshot: {
-        message: finalMessage,
-        suggestions: finalSuggestions,
-        form: finalForm,
-        memory: finalMemory,
-        usage: finalUsage,
-        numericState: finalNumericState,
-        storyOutline: finalStoryOutline,
+          ...summarizeAgentFinalResponseForMonitor({
+            message: finalMessage,
+            suggestions: finalSuggestions,
+            form: finalForm,
+            memory: finalMemory,
+            usage: finalUsage,
+            storyOutline: finalStoryOutline,
+          }),
       },
     })
   }
@@ -1725,7 +1570,6 @@ async function runAgentAndCollect(payload, user, onEvent) {
     message: finalMessage,
     suggestions: finalSuggestions,
     form: finalForm,
-    numericState: finalNumericState,
     memory: finalMemory,
     storyOutline: finalStoryOutline,
     usage: finalUsage,
@@ -1733,7 +1577,6 @@ async function runAgentAndCollect(payload, user, onEvent) {
     agentRequest: buildBackgroundAgentRequest(agentRequest, {
       threadId: finalThreadId,
       message: finalMessage,
-      numericState: finalNumericState,
       storyOutline: finalStoryOutline,
     }),
     session: savedSession || normalizeSession({
@@ -1745,7 +1588,6 @@ async function runAgentAndCollect(payload, user, onEvent) {
       threadId: finalThreadId,
       storyOutline: finalStoryOutline,
       structuredMemory: finalMemory,
-      numericState: finalNumericState,
       worldGraph: finalWorldGraph,
       usage: finalUsage,
     }),
@@ -1756,16 +1598,76 @@ async function runAgentAndCollect(payload, user, onEvent) {
 async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
   const latestSession = await getSessionRecord(user, payload.sessionId)
   const requestBody = hydrateBackgroundAgentRequest(agentRequest, latestSession)
-  const response = await requestAgentJson('/runs/memory', requestBody, payload, null, '结构化记忆后台任务')
+  const response = await requestAgentJson('/runs/memory', requestBody, payload, null, '结构化记忆')
   const normalizedMemory = normalizeStructuredMemory(response?.memory)
   const updatedSession = await patchSessionStructuredMemory(user, payload.sessionId, normalizedMemory, response?.usage)
 
   return {
     requestBody,
-    responseSnapshot: response,
+    responseSnapshot: {
+      memory: summarizeMemoryForMonitor(normalizedMemory),
+      usage: normalizeUsage(response?.usage),
+    },
     memory: normalizedMemory,
     usage: normalizeUsage(response?.usage),
     session: updatedSession,
+  }
+}
+
+async function runAnswerGraphUpdateJob(agentRequest, payload, user) {
+  const latestSession = await getSessionRecord(user, payload.sessionId)
+  const requestBody = {
+    ...buildWorldGraphBackgroundAgentRequest(agentRequest, latestSession),
+    robot_name: String(agentRequest?.robot?.name || payload?.robot?.name || payload?.sessionSnapshot?.robot?.name || ''),
+    robot_description: String(payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || ''),
+  }
+  const response = await requestAgentJson('/runs/answer-graph-update', requestBody, payload, null, '正文落图')
+  const writebackOps = response?.answer_graph_update_ops || response?.answerGraphUpdateOps || {}
+  const latestGraph = normalizeWorldGraphSnapshot(requestBody.world_graph || requestBody.worldGraph || null)
+  const applyResult = applyWorldGraphWritebackToSessionGraph(latestGraph, latestGraph, writebackOps)
+  const updatedSession = await patchSessionWorldGraph(user, payload.sessionId, applyResult.graph, response?.usage)
+  return {
+    requestBody,
+    graph: applyResult.graph,
+    usage: normalizeUsage(response?.usage),
+    session: updatedSession,
+    warnings: applyResult.warnings,
+    persistenceMode: applyResult.persistenceMode,
+    writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
+    appliedRelationTypeCount: 0,
+    appliedNodeCount: applyResult.appliedNodeCount,
+    appliedEdgeCount: applyResult.appliedEdgeCount,
+    appliedEffectCount: applyResult.appliedEffectCount,
+    appliedSnapshotCount: applyResult.appliedSnapshotCount,
+  }
+}
+
+async function runWorldGraphEvolutionJob(agentRequest, payload, user, latestGraph) {
+  const latestSession = await getSessionRecord(user, payload.sessionId)
+  const requestBody = {
+    ...buildWorldGraphBackgroundAgentRequest(agentRequest, latestSession),
+    world_graph: latestGraph || latestSession?.worldGraph || agentRequest?.world_graph || null,
+    robot_name: String(agentRequest?.robot?.name || payload?.robot?.name || payload?.sessionSnapshot?.robot?.name || ''),
+    robot_description: String(payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || ''),
+  }
+  const response = await requestAgentJson('/runs/world-graph-evolution', requestBody, payload, null, '世界图谱演化')
+  const writebackOps = response?.world_graph_evolution_ops || response?.worldGraphEvolutionOps || {}
+  const baseGraph = normalizeWorldGraphSnapshot(requestBody.world_graph || requestBody.worldGraph || null)
+  const applyResult = applyWorldGraphWritebackToSessionGraph(baseGraph, baseGraph, writebackOps)
+  const updatedSession = await patchSessionWorldGraph(user, payload.sessionId, applyResult.graph, response?.usage)
+  return {
+    requestBody,
+    graph: applyResult.graph,
+    usage: normalizeUsage(response?.usage),
+    session: updatedSession,
+    warnings: applyResult.warnings,
+    persistenceMode: applyResult.persistenceMode,
+    writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
+    appliedRelationTypeCount: 0,
+    appliedNodeCount: applyResult.appliedNodeCount,
+    appliedEdgeCount: applyResult.appliedEdgeCount,
+    appliedEffectCount: applyResult.appliedEffectCount,
+    appliedSnapshotCount: applyResult.appliedSnapshotCount,
   }
 }
 
@@ -1816,7 +1718,7 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
       requestBody,
       payload,
       null,
-      'GraphRAG 世界图谱后台任务',
+      'GraphRAG 世界图谱写回',
     )
     const writebackPayload = response?.graphrag_writeback || response?.graphRagWriteback || {}
     const mapped = mapGraphRagWritebackToWorldGraphUpdate(writebackPayload, { currentGraph: nextGraph })
@@ -1853,7 +1755,7 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
       requestBody,
       payload,
       null,
-      '世界图谱后台任务',
+      '世界图谱写回',
     )
     const writebackOps = response?.world_graph_writeback_ops || response?.worldGraphWritebackOps || {}
     writebackSummary = summarizeWorldGraphWritebackOps(writebackOps)
@@ -1866,7 +1768,18 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
 
   return {
     requestBody,
-    responseSnapshot: responseUsage,
+    responseSnapshot: summarizeWorldGraphWritebackResultForMonitor({
+      graph: nextGraph,
+      usage: normalizeUsage(responseUsage),
+      warnings,
+      persistenceMode,
+      writebackSummary,
+      appliedRelationTypeCount: applySummary.appliedRelationTypeCount,
+      appliedNodeCount: applySummary.appliedNodeCount,
+      appliedEdgeCount: applySummary.appliedEdgeCount,
+      appliedEffectCount: applySummary.appliedEffectCount,
+      appliedSnapshotCount: applySummary.appliedSnapshotCount,
+    }),
     graph: nextGraph,
     usage: normalizeUsage(responseUsage),
     session: updatedSession,
@@ -1881,21 +1794,13 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
 
 function buildSessionBackgroundTaskPlan(agentRequest, payload) {
   const tasks = []
-  const structuredMemoryTriggerMeta = buildStructuredMemoryTriggerMeta(agentRequest)
-  if (!structuredMemoryTriggerMeta.triggered) {
-    backgroundLog('[background-memory:skipped]', {
+  tasks.push({
+    kind: SESSION_BACKGROUND_TASK_KIND_MEMORY,
+    meta: {
+      trigger: 'always',
       sessionId: payload.sessionId,
-      threadId: agentRequest.thread_id || agentRequest.threadId,
-      persistToServer: true,
-      reason: 'interval_not_reached',
-      ...structuredMemoryTriggerMeta,
-    })
-  } else {
-    tasks.push({
-      kind: SESSION_BACKGROUND_TASK_KIND_MEMORY,
-      meta: structuredMemoryTriggerMeta,
-    })
-  }
+    },
+  })
 
   const worldGraphTriggerMeta = buildWorldGraphTriggerMeta(agentRequest)
   if (!shouldRunWorldGraphBackgroundJob(agentRequest)) {
@@ -1939,12 +1844,12 @@ async function runSessionBackgroundTask(task, agentRequest, payload, user, reply
         summary: '结构化记忆后台任务完成',
         requestSnapshot: {
           ...requestSnapshot,
-          requestBody: memoryResult.requestBody,
+          requestBody: sanitizeAgentRequestForMonitor(memoryResult.requestBody),
         },
         responseSnapshot: {
-          memory: memoryResult.memory,
-          usage: memoryResult.usage,
-        },
+            memory: summarizeMemoryForMonitor(memoryResult.memory),
+            usage: memoryResult.usage,
+          },
       })
     }
     backgroundLog('[background-memory:succeeded]', {
@@ -1979,17 +1884,11 @@ async function runSessionBackgroundTask(task, agentRequest, payload, user, reply
       summary: '世界图谱后台任务完成',
       requestSnapshot: {
         ...requestSnapshot,
-        requestBody: worldGraphResult.requestBody,
+        requestBody: sanitizeAgentRequestForMonitor(worldGraphResult.requestBody),
       },
       responseSnapshot: {
-        graph: worldGraphResult.graph,
-        usage: worldGraphResult.usage,
-        warnings: worldGraphResult.warnings,
-        persistenceMode: worldGraphResult.persistenceMode,
-        writebackSummary: worldGraphResult.writebackSummary,
-        writebackEvents: worldGraphResult.writebackEvents,
-        resultTimeline: worldGraphResult.resultTimeline,
-      },
+          ...summarizeWorldGraphWritebackResultForMonitor(worldGraphResult),
+        },
     })
   }
   backgroundLog('[background-world-graph:succeeded]', {
@@ -2072,9 +1971,76 @@ function enqueueSessionBackgroundJobs(result, payload, user) {
   return getSessionBackgroundStatus(sessionKey)
 }
 
+async function runSessionPostProcessingSync(result, payload, user) {
+  const memoryResult = await runStructuredMemoryBackgroundJob(result.agentRequest, payload, user)
+  const answerGraphResult = await runAnswerGraphUpdateJob(result.agentRequest, payload, user)
+  const worldGraphEvolutionResult = await runWorldGraphEvolutionJob(
+    result.agentRequest,
+    payload,
+    user,
+    answerGraphResult.graph,
+  )
+  if (result.monitorReplyId) {
+    appendAgentMonitorStep({
+      replyId: result.monitorReplyId,
+      stage: 'memory',
+      eventType: 'memory',
+      summary: '长期记忆与短期记忆更新完成',
+      requestSnapshot: {
+        sessionId: payload.sessionId,
+        requestBody: sanitizeAgentRequestForMonitor(memoryResult.requestBody),
+      },
+      responseSnapshot: {
+          memory: summarizeMemoryForMonitor(memoryResult.memory),
+          usage: memoryResult.usage,
+        },
+    })
+    appendAgentMonitorStep({
+      replyId: result.monitorReplyId,
+      stage: 'answer_graph_update',
+      eventType: 'answer_graph_update',
+      summary: '正文落图完成',
+      requestSnapshot: {
+        sessionId: payload.sessionId,
+        requestBody: sanitizeAgentRequestForMonitor(answerGraphResult.requestBody),
+      },
+      responseSnapshot: {
+        ...summarizeWorldGraphWritebackResultForMonitor(answerGraphResult),
+      },
+    })
+    appendAgentMonitorStep({
+      replyId: result.monitorReplyId,
+      stage: 'world_graph_evolution',
+      eventType: 'world_graph_evolution',
+      summary: '世界图谱演化完成',
+      requestSnapshot: {
+        sessionId: payload.sessionId,
+        requestBody: sanitizeAgentRequestForMonitor(worldGraphEvolutionResult.requestBody),
+      },
+      responseSnapshot: {
+        ...summarizeWorldGraphWritebackResultForMonitor(worldGraphEvolutionResult),
+      },
+    })
+  }
+  return {
+    ...result,
+    memory: memoryResult.memory,
+    worldGraph: worldGraphEvolutionResult.graph,
+    usage: addUsageTotals(
+      addUsageTotals(
+        addUsageTotals(result.usage, memoryResult.usage),
+        answerGraphResult.usage,
+      ),
+      worldGraphEvolutionResult.usage,
+    ),
+    session: worldGraphEvolutionResult.session || answerGraphResult.session || memoryResult.session || result.session,
+    worldGraphWarnings: [...(answerGraphResult.warnings || []), ...(worldGraphEvolutionResult.warnings || [])],
+  }
+}
+
 export async function requestNonStreamChat(payload, user) {
-  const result = await runAgentAndCollect(payload, user)
-  enqueueSessionBackgroundJobs(result, payload, user)
+  const baseResult = await runAgentAndCollect(payload, user)
+  const result = await runSessionPostProcessingSync(baseResult, payload, user)
   return {
     message: result.message,
     reasoning: '',
@@ -2082,6 +2048,7 @@ export async function requestNonStreamChat(payload, user) {
     form: result.form,
     session: result.session,
     memory: result.memory,
+    worldGraph: result.worldGraph,
   }
 }
 
@@ -2114,12 +2081,7 @@ export function mapAgentEventToChatEvents(payload) {
   if (payload.type === 'story_outline_completed') {
     return [{
       type: 'story_outline',
-      storyOutline:
-        typeof payload.story_outline === 'string'
-          ? payload.story_outline
-          : typeof payload.storyOutline === 'string'
-            ? payload.storyOutline
-            : '',
+      storyOutline: normalizeStoryOutline(payload.story_outline || payload.storyOutline || {}),
     }]
   }
 
@@ -2154,14 +2116,6 @@ export function mapAgentEventToChatEvents(payload) {
         message: '正在保存会话到数据库',
       },
     ]
-  }
-
-  if (payload.type === 'numeric_state_updated') {
-    return [{
-      type: 'numeric_state_updated',
-      state: payload.state,
-      summary: payload.summary || '',
-    }]
   }
 
   if (payload.type === 'world_graph_writeback_started') {
@@ -2199,12 +2153,15 @@ export async function handleChatStream(payload, res, user) {
       throw new Error('prompt 和 model 不能为空')
     }
 
-    const result = await runAgentAndCollect(payload, user, async (event) => {
+    const baseResult = await runAgentAndCollect(payload, user, async (event) => {
       forwardAgentEvent(res, event)
     })
-
+    sendSSE(res, { type: 'memory_status', status: 'running', message: '正在整理长短期记忆' })
+    const result = await runSessionPostProcessingSync(baseResult, payload, user)
+    sendSSE(res, { type: 'structured_memory', memory: result.memory })
+    sendSSE(res, { type: 'ui_loading', message: '正在写回世界图谱' })
+    sendSSE(res, { type: 'session_world_graph', graph: result.worldGraph, warnings: result.worldGraphWarnings || [] })
     sendUsageSSE(res, result.session)
-    enqueueSessionBackgroundJobs(result, payload, user)
     sendSSE(res, { type: 'done' })
   } catch (error) {
     sendSSE(res, {

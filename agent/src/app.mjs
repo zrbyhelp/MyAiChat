@@ -5,6 +5,7 @@ import { createModelClient } from './model-client.mjs'
 import { getPromptConfig } from './prompt-config.mjs'
 import {
   buildRequestState,
+  answerGraphUpdateNode,
   emptyUsage,
   formatStageError,
   hasSchemaCategories,
@@ -13,10 +14,9 @@ import {
   saveMemoryToThread,
   shouldUseRequestSchema,
   storyOutlineNode,
-  worldGraphWritebackNode,
+  worldGraphEvolutionNode,
   memoryNode,
   buildInitialState,
-  numericAgentNode,
 } from './runtime.mjs'
 import {
   parseDocumentSummaryRequest,
@@ -292,8 +292,10 @@ export async function createApp(options = {}) {
       const rawStructuredMemory = thread && !useRequestSchema ? thread.structured_memory : request.structured_memory
       const structuredMemory = normalizeStructuredMemory(memorySchema, rawStructuredMemory)
       if (thread) {
-        request.numeric_state = thread.numeric_state
-        request.story_outline = request.story_outline || thread.story_outline
+        request.story_outline = request.story_outline?.retrieval_query
+          || Object.values(request.story_outline?.story_draft || {}).some((items) => Array.isArray(items) && items.length)
+          ? request.story_outline
+          : thread.story_outline
       }
 
       const state = buildInitialState(request, history, memorySchema, structuredMemory)
@@ -315,8 +317,7 @@ export async function createApp(options = {}) {
         messages: nextMessages,
         memory_schema: memorySchema,
         structured_memory: nextState.structured_memory,
-        numeric_state: nextState.numeric_state || {},
-        story_outline: nextState.story_outline || '',
+        story_outline: nextState.story_outline || {},
       })
 
       await sendEvent({ type: 'usage', ...(nextState.usage || emptyUsage()) })
@@ -325,8 +326,7 @@ export async function createApp(options = {}) {
         threadId: request.thread_id,
         message: nextState.final_response || '',
         memory: nextState.structured_memory,
-        numeric_state: nextState.numeric_state || {},
-        story_outline: nextState.story_outline || '',
+        story_outline: nextState.story_outline || {},
         usage: nextState.usage || emptyUsage(),
       })
     } catch (error) {
@@ -352,25 +352,7 @@ export async function createApp(options = {}) {
     const payload = await storyOutlineNode(state, modelClient)
     res.json({
       threadId: request.thread_id,
-      story_outline: payload.story_outline || '',
-      usage: payload.usage || emptyUsage(),
-    })
-  }))
-
-  app.post('/runs/numeric', asyncRoute(async (req, res) => {
-    const request = parseRunRequest(req.body)
-    if (!request.model_settings.model) {
-      throw createHttpError(400, 'model 不能为空')
-    }
-    if (!String(request.prompt || '').trim()) {
-      throw createHttpError(400, 'prompt 不能为空')
-    }
-
-    const { state } = buildRequestState(request)
-    const payload = await numericAgentNode(state, modelClient)
-    res.json({
-      threadId: request.thread_id,
-      numeric_state: payload.numeric_state || {},
+      story_outline: payload.story_outline || {},
       usage: payload.usage || emptyUsage(),
     })
   }))
@@ -397,7 +379,7 @@ export async function createApp(options = {}) {
     })
   }))
 
-  app.post('/runs/world-graph-writeback', asyncRoute(async (req, res) => {
+  app.post('/runs/answer-graph-update', asyncRoute(async (req, res) => {
     const request = parseRunRequest(req.body)
     if (!request.model_settings.model) {
       throw createHttpError(400, 'model 不能为空')
@@ -407,10 +389,28 @@ export async function createApp(options = {}) {
     }
 
     const { state } = buildRequestState(request)
-    const payload = await worldGraphWritebackNode(state, modelClient)
+    const payload = await answerGraphUpdateNode(state, modelClient)
     res.json({
       threadId: request.thread_id,
-      world_graph_writeback_ops: payload.world_graph_writeback_ops || {},
+      answer_graph_update_ops: payload.answer_graph_update_ops || {},
+      usage: payload.usage || emptyUsage(),
+    })
+  }))
+
+  app.post('/runs/world-graph-evolution', asyncRoute(async (req, res) => {
+    const request = parseRunRequest(req.body)
+    if (!request.model_settings.model) {
+      throw createHttpError(400, 'model 不能为空')
+    }
+    if (!String(request.prompt || '').trim()) {
+      throw createHttpError(400, 'prompt 不能为空')
+    }
+
+    const { state } = buildRequestState(request)
+    const payload = await worldGraphEvolutionNode(state, modelClient)
+    res.json({
+      threadId: request.thread_id,
+      world_graph_evolution_ops: payload.world_graph_evolution_ops || {},
       usage: payload.usage || emptyUsage(),
     })
   }))

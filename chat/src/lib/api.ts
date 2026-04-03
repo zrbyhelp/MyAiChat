@@ -282,7 +282,7 @@ export function upsertSession(session: {
   title?: string
   robot?: SessionRobotState
   memory?: SessionMemoryState
-  storyOutline?: string
+  storyOutline?: import('@/types/ai').StoryOutlineState
   modelConfigId?: string
   modelLabel?: string
   memorySchema?: MemorySchemaState

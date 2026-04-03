@@ -6,8 +6,6 @@ import {
   DEFAULT_MODEL_CONFIGS,
   DEFAULT_RECENT_MESSAGE_LIMIT,
   DEFAULT_ROBOTS,
-  DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
-  DEFAULT_STRUCTURED_MEMORY_INTERVAL,
   DEFAULT_SESSION_MEMORY,
   DEFAULT_SESSION_ROBOT,
   DEFAULT_SESSIONS_PAYLOAD,
@@ -77,39 +75,6 @@ export function normalizeModelConfigsPayload(input) {
   }
 }
 
-function normalizeNumericComputationItems(input) {
-  let list = []
-  if (Array.isArray(input)) {
-    list = input
-  } else if (typeof input === 'string' && input.trim()) {
-    try {
-      const parsed = JSON.parse(input)
-      list = Array.isArray(parsed)
-        ? parsed
-        : parsed && typeof parsed === 'object'
-          ? Object.entries(parsed).map(([name, value]) => ({ name, currentValue: value, description: '' }))
-          : []
-    } catch {
-      list = []
-    }
-  }
-
-  return list
-    .map((item) => ({
-      name: String(item?.name || '').trim(),
-      currentValue:
-        typeof item?.currentValue === 'number' && Number.isFinite(item.currentValue)
-          ? item.currentValue
-          : typeof item?.current_value === 'number' && Number.isFinite(item.current_value)
-            ? item.current_value
-            : typeof item?.value === 'number' && Number.isFinite(item.value)
-              ? item.value
-              : Number(item?.currentValue ?? item?.current_value ?? item?.value ?? Number.NaN),
-      description: String(item?.description || '').trim(),
-    }))
-    .filter((item) => item.name && Number.isFinite(item.currentValue))
-}
-
 export function normalizeRobots(input) {
   const list = Array.isArray(input) ? input : []
   const robots = list.map((robot, index) => ({
@@ -125,21 +90,7 @@ export function normalizeRobots(input) {
     knowledgeRetrievalModelConfigId: String(
       robot?.knowledgeRetrievalModelConfigId || robot?.knowledge_retrieval_model_config_id || '',
     ).trim(),
-    numericComputationModelConfigId: String(
-      robot?.numericComputationModelConfigId || robot?.numeric_computation_model_config_id || '',
-    ).trim(),
     worldGraphModelConfigId: String(robot?.worldGraphModelConfigId || robot?.world_graph_model_config_id || '').trim(),
-    numericComputationEnabled: Boolean(robot?.numericComputationEnabled ?? robot?.imageFetchEnabled),
-    numericComputationPrompt: String((robot?.numericComputationPrompt ?? robot?.imageFetchPrompt) || '').trim(),
-    numericComputationItems: normalizeNumericComputationItems(robot?.numericComputationItems ?? robot?.numericComputationSchema),
-    structuredMemoryInterval:
-      typeof robot?.structuredMemoryInterval === 'number' && Number.isInteger(robot.structuredMemoryInterval) && robot.structuredMemoryInterval > 0
-        ? robot.structuredMemoryInterval
-        : DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-    structuredMemoryHistoryLimit:
-      typeof robot?.structuredMemoryHistoryLimit === 'number' && Number.isInteger(robot.structuredMemoryHistoryLimit) && robot.structuredMemoryHistoryLimit > 0
-        ? robot.structuredMemoryHistoryLimit
-        : DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
     memorySchema: normalizeMemorySchema(robot?.memorySchema || robot?.memory_schema || DEFAULT_MEMORY_SCHEMA),
   }))
 
@@ -158,21 +109,7 @@ export function normalizeSessionRobot(input) {
     knowledgeRetrievalModelConfigId: String(
       input?.knowledgeRetrievalModelConfigId || input?.knowledge_retrieval_model_config_id || '',
     ).trim(),
-    numericComputationModelConfigId: String(
-      input?.numericComputationModelConfigId || input?.numeric_computation_model_config_id || '',
-    ).trim(),
     worldGraphModelConfigId: String(input?.worldGraphModelConfigId || input?.world_graph_model_config_id || '').trim(),
-    numericComputationEnabled: Boolean(input?.numericComputationEnabled ?? input?.imageFetchEnabled),
-    numericComputationPrompt: String((input?.numericComputationPrompt ?? input?.imageFetchPrompt) || '').trim(),
-    numericComputationItems: normalizeNumericComputationItems(input?.numericComputationItems ?? input?.numericComputationSchema),
-    structuredMemoryInterval:
-      typeof input?.structuredMemoryInterval === 'number' && Number.isInteger(input.structuredMemoryInterval) && input.structuredMemoryInterval > 0
-        ? input.structuredMemoryInterval
-        : DEFAULT_SESSION_ROBOT.structuredMemoryInterval,
-    structuredMemoryHistoryLimit:
-      typeof input?.structuredMemoryHistoryLimit === 'number' && Number.isInteger(input.structuredMemoryHistoryLimit) && input.structuredMemoryHistoryLimit > 0
-        ? input.structuredMemoryHistoryLimit
-        : DEFAULT_SESSION_ROBOT.structuredMemoryHistoryLimit,
   }
 }
 
@@ -248,15 +185,6 @@ export function normalizeSessionMemory(input) {
     typeof input?.recentMessageLimit === 'number' && Number.isInteger(input.recentMessageLimit) && input.recentMessageLimit > 0
       ? input.recentMessageLimit
       : DEFAULT_RECENT_MESSAGE_LIMIT
-  const structuredMemoryInterval =
-    typeof input?.structuredMemoryInterval === 'number' && Number.isInteger(input.structuredMemoryInterval) && input.structuredMemoryInterval > 0
-      ? input.structuredMemoryInterval
-      : DEFAULT_STRUCTURED_MEMORY_INTERVAL
-  const structuredMemoryHistoryLimit =
-    typeof input?.structuredMemoryHistoryLimit === 'number' && Number.isInteger(input.structuredMemoryHistoryLimit) && input.structuredMemoryHistoryLimit > 0
-      ? input.structuredMemoryHistoryLimit
-      : DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT
-
   return {
     summary: String(input?.summary || ''),
     updatedAt: typeof input?.updatedAt === 'string' ? input.updatedAt : '',
@@ -268,8 +196,6 @@ export function normalizeSessionMemory(input) {
     threshold,
     recentMessageLimit,
     prompt: typeof input?.prompt === 'string' && input.prompt.trim() ? input.prompt : DEFAULT_MEMORY_PROMPT,
-    structuredMemoryInterval,
-    structuredMemoryHistoryLimit,
   }
 }
 
@@ -331,20 +257,41 @@ function normalizeStructuredTask(input, index = 0) {
 
 export function normalizeStructuredMemory(input) {
   return {
-    updatedAt: typeof input?.updatedAt === 'string' ? input.updatedAt : '',
-    categories: (Array.isArray(input?.categories) ? input.categories : []).map((category, categoryIndex) => ({
-      categoryId: String(category?.categoryId || category?.category_id || `category_${categoryIndex + 1}`).trim(),
-      label: String(category?.label || '').trim(),
-      description: String(category?.description || '').trim(),
-      updatedAt: typeof category?.updatedAt === 'string' ? category.updatedAt : '',
-      items: (Array.isArray(category?.items) ? category.items : []).map((item, itemIndex) => ({
-        id: String(item?.id || `item_${itemIndex + 1}`).trim(),
-        summary: String(item?.summary || '').trim(),
-        sourceTurnId: String(item?.sourceTurnId || item?.source_turn_id || '').trim(),
-        updatedAt: typeof item?.updatedAt === 'string' ? item.updatedAt : '',
-        values: typeof item?.values === 'object' && item?.values !== null ? item.values : {},
-      })),
-    })).filter((category) => category.categoryId),
+    updatedAt:
+      typeof input?.updatedAt === 'string'
+        ? input.updatedAt
+        : typeof input?.updated_at === 'string'
+          ? input.updated_at
+          : '',
+    longTermMemory: String(input?.longTermMemory || input?.long_term_memory || '').trim(),
+    shortTermMemory: String(input?.shortTermMemory || input?.short_term_memory || '').trim(),
+  }
+}
+
+function normalizeStoryDraftEntries(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+}
+
+export function normalizeStoryOutline(input) {
+  const source = input && typeof input === 'object' && !Array.isArray(input)
+    ? input
+    : {}
+  const storyDraft = source.storyDraft && typeof source.storyDraft === 'object' && !Array.isArray(source.storyDraft)
+    ? source.storyDraft
+    : source.story_draft && typeof source.story_draft === 'object' && !Array.isArray(source.story_draft)
+      ? source.story_draft
+      : {}
+  return {
+    storyDraft: {
+      characters: normalizeStoryDraftEntries(storyDraft.characters),
+      items: normalizeStoryDraftEntries(storyDraft.items),
+      organizations: normalizeStoryDraftEntries(storyDraft.organizations),
+      locations: normalizeStoryDraftEntries(storyDraft.locations),
+      events: normalizeStoryDraftEntries(storyDraft.events),
+    },
+    retrievalQuery: String(source.retrievalQuery || source.retrieval_query || '').trim(),
   }
 }
 
@@ -382,17 +329,13 @@ export function normalizeSession(input, index = 0) {
     modelConfigId: String(input?.modelConfigId || ''),
     modelLabel: String(input?.modelLabel || ''),
     threadId: String(input?.threadId || input?.thread_id || input?.id || `thread-${index + 1}`),
-    storyOutline: String(input?.storyOutline || input?.story_outline || ''),
+    storyOutline: normalizeStoryOutline(
+      safeJsonParse(input?.storyOutline || input?.story_outline, input?.storyOutline || input?.story_outline),
+    ),
     messages,
     memory: normalizeSessionMemory(input?.memory || DEFAULT_SESSION_MEMORY),
     memorySchema: normalizeMemorySchema(input?.memorySchema || input?.memory_schema || input?.robot?.memorySchema || DEFAULT_MEMORY_SCHEMA),
     structuredMemory: normalizeStructuredMemory(input?.structuredMemory || input?.structured_memory || DEFAULT_STRUCTURED_MEMORY),
-    numericState:
-      typeof input?.numericState === 'object' && input?.numericState !== null
-        ? input.numericState
-        : typeof input?.numeric_state === 'object' && input?.numeric_state !== null
-          ? input.numeric_state
-          : {},
     worldGraph:
       input?.worldGraph || input?.world_graph
         ? normalizeWorldGraphSnapshot(input.worldGraph || input.world_graph, {
@@ -419,7 +362,6 @@ function buildSessionPersistenceComparable(session) {
     memory: normalized.memory,
     memorySchema: normalized.memorySchema,
     structuredMemory: normalized.structuredMemory,
-    numericState: normalized.numericState,
     worldGraph: normalized.worldGraph,
     usage: normalized.usage,
     createdAt: normalized.createdAt,

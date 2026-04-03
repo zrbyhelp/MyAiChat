@@ -265,25 +265,6 @@ function coerceRobotGenerationCoreStructuredValue(input) {
     description: normalizeString(readValue(source, ['description'])),
     systemPrompt: normalizeString(readValue(source, ['systemPrompt', 'system_prompt'])),
     commonPrompt: normalizeString(readValue(source, ['commonPrompt', 'common_prompt'])),
-    numericComputationEnabled: normalizeBoolean(readValue(source, [
-      'numericComputationEnabled',
-      'numeric_computation_enabled',
-      'imageFetchEnabled',
-      'image_fetch_enabled',
-    ]), false),
-    numericComputationPrompt: normalizeString(readValue(source, [
-      'numericComputationPrompt',
-      'numeric_computation_prompt',
-      'imageFetchPrompt',
-      'image_fetch_prompt',
-    ])),
-    numericComputationItems: (Array.isArray(readValue(source, ['numericComputationItems', 'numeric_computation_items'])) ? readValue(source, ['numericComputationItems', 'numeric_computation_items']) : []).map((item) => ({
-      name: normalizeString(readValue(item, ['name'])),
-      currentValue: normalizeNumber(readValue(item, ['currentValue', 'current_value']), 0),
-      description: normalizeString(readValue(item, ['description'])),
-    })),
-    structuredMemoryInterval: normalizeInteger(readValue(source, ['structuredMemoryInterval', 'structured_memory_interval']), 3),
-    structuredMemoryHistoryLimit: normalizeInteger(readValue(source, ['structuredMemoryHistoryLimit', 'structured_memory_history_limit']), 12),
     documentSummary: normalizeString(readValue(source, ['documentSummary', 'document_summary'])),
     retrievalSummary: normalizeString(readValue(source, ['retrievalSummary', 'retrieval_summary'])),
   }

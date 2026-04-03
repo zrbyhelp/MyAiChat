@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 
 import { useChatStreaming } from './useChatStreaming'
 import type { ChatRenderMessage } from './useChatView.types'
-import type { RobotWorldGraph } from '@/types/ai'
+import type { RobotWorldGraph, StoryOutlineState } from '@/types/ai'
 
 function createStreamingTestContext() {
   const beginInteractionLock = vi.fn()
@@ -12,14 +12,21 @@ function createStreamingTestContext() {
   const syncChatResponse = vi.fn()
   const flushPendingAssistantStructuredContent = vi.fn()
   const flushPendingAssistantMemoryStatus = vi.fn()
-  const applyNumericState = vi.fn()
   const applySessionUsage = vi.fn()
   const applyStructuredMemory = vi.fn()
   const applyStoryOutline = vi.fn()
   const applySessionWorldGraph = vi.fn()
-  const cloneNumericComputationItems = vi.fn().mockReturnValue([])
   const serializeChatMessages = vi.fn().mockReturnValue([])
-  const currentStoryOutline = ref('')
+  const currentStoryOutline = ref<StoryOutlineState>({
+    storyDraft: {
+      characters: [],
+      items: [],
+      organizations: [],
+      locations: [],
+      events: [],
+    },
+    retrievalQuery: '',
+  })
   const currentSessionWorldGraph = ref<RobotWorldGraph | null>(null)
   const chatMessages = ref<ChatRenderMessage[]>([
     {
@@ -60,13 +67,7 @@ function createStreamingTestContext() {
       memoryModelConfigId: '',
       outlineModelConfigId: '',
       knowledgeRetrievalModelConfigId: '',
-      numericComputationModelConfigId: '',
       worldGraphModelConfigId: '',
-      numericComputationEnabled: false,
-      numericComputationPrompt: '',
-      numericComputationItems: [],
-      structuredMemoryInterval: 3,
-      structuredMemoryHistoryLimit: 12,
     },
     currentSessionMemory: {
       summary: '',
@@ -75,8 +76,6 @@ function createStreamingTestContext() {
       persistToServer: true,
       threshold: 20,
       recentMessageLimit: 10,
-      structuredMemoryInterval: 3,
-      structuredMemoryHistoryLimit: 12,
       prompt: '',
     },
     currentMemorySchema: {
@@ -84,16 +83,14 @@ function createStreamingTestContext() {
     },
     currentStructuredMemory: {
       updatedAt: '',
-      categories: [],
+      longTermMemory: '',
+      shortTermMemory: '',
     },
-    currentNumericState: ref({}),
     currentStoryOutline,
     currentSessionWorldGraph,
     rawChatMessages: ref([]),
     effectiveStream: computed(() => true),
     effectiveThinking: computed(() => false),
-    cloneNumericComputationItems,
-    applyNumericState,
     applySessionUsage,
     applyStructuredMemory,
     applyStoryOutline,

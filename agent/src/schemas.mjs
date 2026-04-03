@@ -68,6 +68,21 @@ function normalizeStringArray(value) {
     .filter(Boolean)
 }
 
+function normalizeStoryOutlinePayload(input) {
+  const source = asObject(input)
+  const storyDraft = asObject(pickValue(source, ['story_draft', 'storyDraft']))
+  return StoryOutlineSchema.parse({
+    story_draft: {
+      characters: normalizeStringArray(pickValue(storyDraft, ['characters'])),
+      items: normalizeStringArray(pickValue(storyDraft, ['items'])),
+      organizations: normalizeStringArray(pickValue(storyDraft, ['organizations'])),
+      locations: normalizeStringArray(pickValue(storyDraft, ['locations'])),
+      events: normalizeStringArray(pickValue(storyDraft, ['events'])),
+    },
+    retrieval_query: normalizeString(pickValue(source, ['retrieval_query', 'retrievalQuery'])),
+  })
+}
+
 export const MemorySchemaOptionSchema = z.object({
   label: z.string().default(''),
   value: z.string().default(''),
@@ -112,7 +127,27 @@ export const StructuredMemoryCategorySchema = z.object({
 
 export const StructuredMemorySchema = z.object({
   updated_at: z.string().default(''),
-  categories: z.array(StructuredMemoryCategorySchema).default([]),
+  long_term_memory: z.string().default(''),
+  short_term_memory: z.string().default(''),
+})
+
+export const StoryDraftSchema = z.object({
+  characters: z.array(z.string()).default([]),
+  items: z.array(z.string()).default([]),
+  organizations: z.array(z.string()).default([]),
+  locations: z.array(z.string()).default([]),
+  events: z.array(z.string()).default([]),
+})
+
+export const StoryOutlineSchema = z.object({
+  story_draft: StoryDraftSchema.default({
+    characters: [],
+    items: [],
+    organizations: [],
+    locations: [],
+    events: [],
+  }),
+  retrieval_query: z.string().default(''),
 })
 
 export const ChatMessageSchema = z.object({
@@ -142,19 +177,12 @@ export const RobotProfileSchema = z.object({
   system_prompt: z.string().default(''),
   memory_model_config_id: z.string().default(''),
   outline_model_config_id: z.string().default(''),
-  numeric_computation_model_config_id: z.string().default(''),
   world_graph_model_config_id: z.string().default(''),
-  numeric_computation_enabled: z.boolean().default(false),
-  numeric_computation_prompt: z.string().default(''),
-  numeric_computation_items: z.array(z.record(z.any())).default([]),
-  structured_memory_interval: z.number().int().nullable().optional().default(null),
-  structured_memory_history_limit: z.number().int().nullable().optional().default(null),
 })
 
 export const AuxiliaryModelConfigsSchema = z.object({
   memory: ModelConfigSchema.nullable().optional().default(null),
   outline: ModelConfigSchema.nullable().optional().default(null),
-  numeric_computation: ModelConfigSchema.nullable().optional().default(null),
   world_graph: ModelConfigSchema.nullable().optional().default(null),
 })
 
@@ -162,15 +190,17 @@ export const ThreadStateSchema = z.object({
   thread_id: z.string().default(''),
   messages: z.array(ChatMessageSchema).default([]),
   memory_schema: MemorySchemaSchema.default({ categories: [] }),
-  structured_memory: StructuredMemorySchema.default({ updated_at: '', categories: [] }),
-  numeric_state: z.record(z.any()).default({}),
-  story_outline: z.string().default(''),
-})
-
-export const GeneratedNumericComputationItemStructuredSchema = z.object({
-  name: z.string().default(''),
-  currentValue: z.number().default(0),
-  description: z.string().default(''),
+  structured_memory: StructuredMemorySchema.default({ updated_at: '', long_term_memory: '', short_term_memory: '' }),
+  story_outline: StoryOutlineSchema.default({
+    story_draft: {
+      characters: [],
+      items: [],
+      organizations: [],
+      locations: [],
+      events: [],
+    },
+    retrieval_query: '',
+  }),
 })
 
 export const GeneratedMemorySchemaOptionStructuredSchema = z.object({
@@ -216,6 +246,10 @@ export const GeneratedWorldGraphNodeStructuredSchema = z.object({
   name: z.string().default(''),
   type: z.enum(['character', 'organization', 'location', 'event', 'item']).default('character'),
   description: z.string().default(''),
+  knownFacts: z.string().default(''),
+  preferencesAndConstraints: z.string().default(''),
+  taskProgress: z.string().default(''),
+  longTermMemory: z.string().default(''),
 })
 
 export const GeneratedWorldGraphEdgeStructuredSchema = z.object({
@@ -426,11 +460,6 @@ export const RobotGenerationCorePayloadStructuredSchema = z.object({
   description: z.string().default(''),
   systemPrompt: z.string().default(''),
   commonPrompt: z.string().default(''),
-  numericComputationEnabled: z.boolean().default(false),
-  numericComputationPrompt: z.string().default(''),
-  numericComputationItems: z.array(GeneratedNumericComputationItemStructuredSchema).default([]),
-  structuredMemoryInterval: z.number().int().default(3),
-  structuredMemoryHistoryLimit: z.number().int().default(12),
   documentSummary: z.string().default(''),
   retrievalSummary: z.string().default(''),
 })
@@ -498,7 +527,8 @@ function normalizeStructuredMemoryCategory(input) {
 export function normalizeStructuredMemoryPayload(input) {
   return StructuredMemorySchema.parse({
     updated_at: normalizeString(pickValue(input, ['updated_at', 'updatedAt'])),
-    categories: (Array.isArray(pickValue(input, ['categories'])) ? pickValue(input, ['categories']) : []).map(normalizeStructuredMemoryCategory),
+    long_term_memory: normalizeString(pickValue(input, ['long_term_memory', 'longTermMemory'])),
+    short_term_memory: normalizeString(pickValue(input, ['short_term_memory', 'shortTermMemory'])),
   })
 }
 
@@ -539,39 +569,7 @@ function normalizeRobotProfile(input) {
     system_prompt: normalizeString(pickValue(source, ['system_prompt', 'systemPrompt']), promptDefaults.system_prompt),
     memory_model_config_id: normalizeString(pickValue(source, ['memory_model_config_id', 'memoryModelConfigId'])),
     outline_model_config_id: normalizeString(pickValue(source, ['outline_model_config_id', 'outlineModelConfigId'])),
-    numeric_computation_model_config_id: normalizeString(pickValue(source, ['numeric_computation_model_config_id', 'numericComputationModelConfigId'])),
     world_graph_model_config_id: normalizeString(pickValue(source, ['world_graph_model_config_id', 'worldGraphModelConfigId'])),
-    numeric_computation_enabled: normalizeBoolean(pickValue(source, [
-      'numeric_computation_enabled',
-      'numericComputationEnabled',
-      'image_fetch_enabled',
-      'imageFetchEnabled',
-    ]), false),
-    numeric_computation_prompt: normalizeString(pickValue(source, [
-      'numeric_computation_prompt',
-      'numericComputationPrompt',
-      'image_fetch_prompt',
-      'imageFetchPrompt',
-    ]), promptDefaults.numeric_computation_prompt),
-    numeric_computation_items: Array.isArray(pickValue(source, [
-      'numeric_computation_items',
-      'numericComputationItems',
-      'numeric_computation_schema',
-      'numericComputationSchema',
-    ]))
-      ? pickValue(source, [
-        'numeric_computation_items',
-        'numericComputationItems',
-        'numeric_computation_schema',
-        'numericComputationSchema',
-      ])
-      : [],
-    structured_memory_interval: pickValue(source, ['structured_memory_interval', 'structuredMemoryInterval']) == null
-      ? null
-      : normalizeInteger(pickValue(source, ['structured_memory_interval', 'structuredMemoryInterval']), 3),
-    structured_memory_history_limit: pickValue(source, ['structured_memory_history_limit', 'structuredMemoryHistoryLimit']) == null
-      ? null
-      : normalizeInteger(pickValue(source, ['structured_memory_history_limit', 'structuredMemoryHistoryLimit']), 12),
   })
 }
 
@@ -588,7 +586,6 @@ function normalizeAuxiliaryModelConfigs(input) {
   return AuxiliaryModelConfigsSchema.parse({
     memory: normalizeMaybeModel(pickValue(source, ['memory'])),
     outline: normalizeMaybeModel(pickValue(source, ['outline'])),
-    numeric_computation: normalizeMaybeModel(pickValue(source, ['numeric_computation', 'numericComputation'])),
     world_graph: normalizeMaybeModel(pickValue(source, ['world_graph', 'worldGraph'])),
   })
 }
@@ -605,19 +602,23 @@ export function parseRunRequest(input) {
     system_prompt: z.string().default(''),
     history: z.array(ChatMessageSchema).default([]),
     memory_schema: MemorySchemaSchema.default({ categories: [] }),
-    structured_memory: StructuredMemorySchema.default({ updated_at: '', categories: [] }),
-    structured_memory_interval: z.number().int().nullable().optional().default(null),
-    structured_memory_history_limit: z.number().int().nullable().optional().default(null),
+    structured_memory: StructuredMemorySchema.default({ updated_at: '', long_term_memory: '', short_term_memory: '' }),
     auxiliary_model_configs: AuxiliaryModelConfigsSchema.default({
       memory: null,
       outline: null,
-      numeric_computation: null,
       world_graph: null,
     }),
-    numeric_stage_completed: z.boolean().default(false),
     story_outline_stage_completed: z.boolean().default(false),
-    numeric_state: z.record(z.any()).default({}),
-    story_outline: z.string().default(''),
+    story_outline: StoryOutlineSchema.default({
+      story_draft: {
+        characters: [],
+        items: [],
+        organizations: [],
+        locations: [],
+        events: [],
+      },
+      retrieval_query: '',
+    }),
     world_graph: z.record(z.any()).default({}),
   }).parse({
     thread_id: normalizeString(pickValue(input, ['thread_id', 'threadId'])),
@@ -631,25 +632,14 @@ export function parseRunRequest(input) {
     history: (Array.isArray(pickValue(input, ['history'])) ? pickValue(input, ['history']) : []).map(normalizeChatMessage),
     memory_schema: normalizeMemorySchema(pickValue(input, ['memory_schema', 'memorySchema'])),
     structured_memory: normalizeStructuredMemoryPayload(pickValue(input, ['structured_memory', 'structuredMemory'])),
-    structured_memory_interval: pickValue(input, ['structured_memory_interval', 'structuredMemoryInterval']) == null
-      ? null
-      : normalizeInteger(pickValue(input, ['structured_memory_interval', 'structuredMemoryInterval']), 3),
-    structured_memory_history_limit: pickValue(input, ['structured_memory_history_limit', 'structuredMemoryHistoryLimit']) == null
-      ? null
-      : normalizeInteger(pickValue(input, ['structured_memory_history_limit', 'structuredMemoryHistoryLimit']), 12),
     auxiliary_model_configs: normalizeAuxiliaryModelConfigs(
       pickValue(input, ['auxiliary_model_configs', 'auxiliaryModelConfigs']),
-    ),
-    numeric_stage_completed: normalizeBoolean(
-      pickValue(input, ['numeric_stage_completed', 'numericStageCompleted']),
-      false,
     ),
     story_outline_stage_completed: normalizeBoolean(
       pickValue(input, ['story_outline_stage_completed', 'storyOutlineStageCompleted']),
       false,
     ),
-    numeric_state: asObject(pickValue(input, ['numeric_state', 'numericState'], {})),
-    story_outline: normalizeString(pickValue(input, ['story_outline', 'storyOutline'])),
+    story_outline: normalizeStoryOutlinePayload(pickValue(input, ['story_outline', 'storyOutline'])),
     world_graph: asObject(pickValue(input, ['world_graph', 'worldGraph'], {})),
   })
 }
@@ -727,14 +717,23 @@ export function parseRetrievalSummaryRequest(input) {
     model_settings: ModelConfigSchema,
     robot_name: z.string().default(''),
     robot_description: z.string().default(''),
-    story_outline: z.string().default(''),
+    story_outline: StoryOutlineSchema.default({
+      story_draft: {
+        characters: [],
+        items: [],
+        organizations: [],
+        locations: [],
+        events: [],
+      },
+      retrieval_query: '',
+    }),
     prompt: z.string().default(''),
     history: z.array(ChatMessageSchema).default([]),
   }).parse({
     model_settings: normalizeModelConfig(pickValue(input, ['model_config', 'model_settings', 'modelSettings'])),
     robot_name: normalizeString(pickValue(input, ['robot_name', 'robotName'])),
     robot_description: normalizeString(pickValue(input, ['robot_description', 'robotDescription'])),
-    story_outline: normalizeString(pickValue(input, ['story_outline', 'storyOutline'])),
+    story_outline: normalizeStoryOutlinePayload(pickValue(input, ['story_outline', 'storyOutline'])),
     prompt: normalizeString(pickValue(input, ['prompt'])),
     history: (Array.isArray(pickValue(input, ['history'])) ? pickValue(input, ['history']) : []).map(normalizeChatMessage),
   })
@@ -807,7 +806,16 @@ export function parseGraphRagRetrieveRequest(input) {
     model_settings: ModelConfigSchema,
     robot_name: z.string().default(''),
     robot_description: z.string().default(''),
-    story_outline: z.string().default(''),
+    story_outline: StoryOutlineSchema.default({
+      story_draft: {
+        characters: [],
+        items: [],
+        organizations: [],
+        locations: [],
+        events: [],
+      },
+      retrieval_query: '',
+    }),
     prompt: z.string().default(''),
     history: z.array(ChatMessageSchema).default([]),
     graphrag_documents: z.array(documentSchema).default([]),
@@ -815,7 +823,7 @@ export function parseGraphRagRetrieveRequest(input) {
     model_settings: normalizeModelConfig(pickValue(input, ['model_config', 'model_settings', 'modelSettings'])),
     robot_name: normalizeString(pickValue(input, ['robot_name', 'robotName'])),
     robot_description: normalizeString(pickValue(input, ['robot_description', 'robotDescription'])),
-    story_outline: normalizeString(pickValue(input, ['story_outline', 'storyOutline'])),
+    story_outline: normalizeStoryOutlinePayload(pickValue(input, ['story_outline', 'storyOutline'])),
     prompt: normalizeString(pickValue(input, ['prompt'])),
     history: (Array.isArray(pickValue(input, ['history'])) ? pickValue(input, ['history']) : []).map(normalizeChatMessage),
     graphrag_documents: (Array.isArray(pickValue(input, ['graphrag_documents', 'graphRagDocuments'])) ? pickValue(input, ['graphrag_documents', 'graphRagDocuments']) : []).map((item) => ({
@@ -830,23 +838,26 @@ export function parseGraphRagRetrieveRequest(input) {
 
 export function parseGraphRagWritebackRequest(input) {
   const robot = asObject(pickValue(input, ['robot'], {}))
+  const structuredMemory = asObject(pickValue(input, ['structured_memory', 'structuredMemory'], {}))
   return z.object({
     model_settings: ModelConfigSchema,
     robot_name: z.string().default(''),
     robot_description: z.string().default(''),
+    story_setting: z.string().default(''),
+    long_term_memory: z.string().default(''),
+    short_term_memory: z.string().default(''),
     prompt: z.string().default(''),
     final_response: z.string().default(''),
-    history: z.array(ChatMessageSchema).default([]),
-    story_outline: z.string().default(''),
     current_world_graph: z.record(z.any()).default({}),
   }).parse({
     model_settings: normalizeModelConfig(pickValue(input, ['model_config', 'model_settings', 'modelSettings'])),
     robot_name: normalizeString(pickValue(input, ['robot_name', 'robotName']), normalizeString(pickValue(robot, ['name']))),
     robot_description: normalizeString(pickValue(input, ['robot_description', 'robotDescription']), normalizeString(pickValue(robot, ['description']))),
+    story_setting: normalizeString(pickValue(input, ['story_setting', 'storySetting', 'system_prompt', 'systemPrompt']), normalizeString(pickValue(robot, ['system_prompt', 'systemPrompt']))),
+    long_term_memory: normalizeString(pickValue(structuredMemory, ['long_term_memory', 'longTermMemory'])),
+    short_term_memory: normalizeString(pickValue(structuredMemory, ['short_term_memory', 'shortTermMemory'])),
     prompt: normalizeString(pickValue(input, ['prompt'])),
     final_response: normalizeString(pickValue(input, ['final_response', 'finalResponse'])),
-    history: (Array.isArray(pickValue(input, ['history'])) ? pickValue(input, ['history']) : []).map(normalizeChatMessage),
-    story_outline: normalizeString(pickValue(input, ['story_outline', 'storyOutline'])),
     current_world_graph: asObject(pickValue(input, ['current_world_graph', 'currentWorldGraph', 'world_graph', 'worldGraph'], {})),
   })
 }
@@ -857,8 +868,7 @@ export function parseThreadState(input) {
     messages: (Array.isArray(pickValue(input, ['messages'])) ? pickValue(input, ['messages']) : []).map(normalizeChatMessage),
     memory_schema: normalizeMemorySchema(pickValue(input, ['memory_schema', 'memorySchema'])),
     structured_memory: normalizeStructuredMemoryPayload(pickValue(input, ['structured_memory', 'structuredMemory'])),
-    numeric_state: asObject(pickValue(input, ['numeric_state', 'numericState'], {})),
-    story_outline: normalizeString(pickValue(input, ['story_outline', 'storyOutline'])),
+    story_outline: normalizeStoryOutlinePayload(pickValue(input, ['story_outline', 'storyOutline'])),
   })
 }
 
@@ -889,15 +899,6 @@ export function normalizeRobotGenerationCorePayload(input) {
     description: normalizeString(pickValue(source, ['description'])),
     system_prompt: normalizeString(pickValue(source, ['system_prompt', 'systemPrompt'])),
     common_prompt: normalizeString(pickValue(source, ['common_prompt', 'commonPrompt'])),
-    numeric_computation_enabled: normalizeBoolean(pickValue(source, ['numeric_computation_enabled', 'numericComputationEnabled']), false),
-    numeric_computation_prompt: normalizeString(pickValue(source, ['numeric_computation_prompt', 'numericComputationPrompt'])),
-    numeric_computation_items: (Array.isArray(pickValue(source, ['numeric_computation_items', 'numericComputationItems'])) ? pickValue(source, ['numeric_computation_items', 'numericComputationItems']) : []).map((item) => ({
-      name: normalizeString(pickValue(item, ['name'])),
-      current_value: normalizeNumber(pickValue(item, ['current_value', 'currentValue']), 0),
-      description: normalizeString(pickValue(item, ['description'])),
-    })),
-    structured_memory_interval: normalizeInteger(pickValue(source, ['structured_memory_interval', 'structuredMemoryInterval']), 3),
-    structured_memory_history_limit: normalizeInteger(pickValue(source, ['structured_memory_history_limit', 'structuredMemoryHistoryLimit']), 12),
     document_summary: normalizeString(pickValue(source, ['document_summary', 'documentSummary'])),
     retrieval_summary: normalizeString(pickValue(source, ['retrieval_summary', 'retrievalSummary'])),
   }
@@ -922,6 +923,10 @@ export function normalizeGeneratedWorldGraphPatchPayload(input) {
       name: normalizeString(pickValue(item, ['name'])),
       type: normalizeString(pickValue(item, ['type', 'objectType', 'object_type']), 'character'),
       description: normalizeString(pickValue(item, ['description', 'summary'])),
+      knownFacts: normalizeString(pickValue(item, ['knownFacts', 'known_facts'])),
+      preferencesAndConstraints: normalizeString(pickValue(item, ['preferencesAndConstraints', 'preferences_and_constraints'])),
+      taskProgress: normalizeString(pickValue(item, ['taskProgress', 'task_progress'])),
+      longTermMemory: normalizeString(pickValue(item, ['longTermMemory', 'long_term_memory'])),
     })),
     delete_node_ids: normalizeStringArray(pickValue(source, ['delete_node_ids', 'deleteNodeIds'])),
     upsert_edges: (Array.isArray(pickValue(source, ['upsert_edges', 'upsertEdges'])) ? pickValue(source, ['upsert_edges', 'upsertEdges']) : []).map((item) => ({

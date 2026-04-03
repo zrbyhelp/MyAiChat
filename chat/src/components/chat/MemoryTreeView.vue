@@ -42,10 +42,21 @@
 
 <script setup lang="ts">
 import MemoryValueTree from '@/components/chat/MemoryValueTree.vue'
-import type { StructuredMemoryCategory } from '@/types/ai'
+
+type StructuredMemoryTreeCategory = {
+  categoryId: string
+  label: string
+  description: string
+  items: Array<{
+    id: string
+    summary: string
+    updatedAt: string
+    values: Record<string, unknown>
+  }>
+}
 
 defineProps<{
-  categories: StructuredMemoryCategory[]
+  categories: StructuredMemoryTreeCategory[]
 }>()
 </script>
 

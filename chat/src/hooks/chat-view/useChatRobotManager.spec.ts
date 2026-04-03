@@ -93,13 +93,7 @@ function createRobot(overrides: Partial<AIRobotCard> = {}): AIRobotCard {
     memoryModelConfigId: '',
     outlineModelConfigId: '',
     knowledgeRetrievalModelConfigId: '',
-    numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
-    numericComputationEnabled: false,
-    numericComputationPrompt: '',
-    numericComputationItems: [],
-    structuredMemoryInterval: 3,
-    structuredMemoryHistoryLimit: 12,
     memorySchema: overrides.memorySchema || defaultMemorySchema,
     worldGraph: overrides.worldGraph || null,
   }
@@ -107,16 +101,9 @@ function createRobot(overrides: Partial<AIRobotCard> = {}): AIRobotCard {
 
 function createManager() {
   return useChatRobotManager({
-    defaultStructuredMemoryInterval: 3,
-    defaultStructuredMemoryHistoryLimit: 12,
     defaultMemorySchema,
     normalizeMemorySchema: (schema?: Partial<MemorySchemaState> | null) =>
       schema?.categories?.length ? ({ categories: schema.categories } as MemorySchemaState) : defaultMemorySchema,
-    createNumericComputationItem: (index = 1) => ({
-      name: `value_${index}`,
-      currentValue: 0,
-      description: '',
-    }),
   })
 }
 

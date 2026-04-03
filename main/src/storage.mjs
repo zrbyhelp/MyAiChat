@@ -15,6 +15,7 @@ export {
   normalizeSession,
   normalizeSessionMemory,
   normalizeSessionRobot,
+  normalizeStoryOutline,
   normalizeSessionUsage,
   normalizeStructuredMemory,
 } from './storage-shared.mjs'

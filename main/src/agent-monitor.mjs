@@ -5,6 +5,29 @@ import { randomUUID } from 'node:crypto'
 const DATA_DIR = path.resolve(process.cwd(), 'main', 'data')
 const EVENT_FILE = path.join(DATA_DIR, 'agent-monitor-events.jsonl')
 
+function normalizeStoryDraftEntries(value) {
+  return (Array.isArray(value) ? value : []).map((item) => String(item || '').trim()).filter(Boolean)
+}
+
+function sanitizeStoryOutlineForMonitor(outline) {
+  const source = outline && typeof outline === 'object' && !Array.isArray(outline) ? outline : {}
+  const storyDraft = source.storyDraft && typeof source.storyDraft === 'object' && !Array.isArray(source.storyDraft)
+    ? source.storyDraft
+    : source.story_draft && typeof source.story_draft === 'object' && !Array.isArray(source.story_draft)
+      ? source.story_draft
+      : {}
+  return {
+    retrievalQuery: String(source.retrievalQuery || source.retrieval_query || '').trim(),
+    storyDraft: {
+      characters: normalizeStoryDraftEntries(storyDraft.characters),
+      items: normalizeStoryDraftEntries(storyDraft.items),
+      organizations: normalizeStoryDraftEntries(storyDraft.organizations),
+      locations: normalizeStoryDraftEntries(storyDraft.locations),
+      events: normalizeStoryDraftEntries(storyDraft.events),
+    },
+  }
+}
+
 function limitString(value, maxLength = 20000) {
   const text = typeof value === 'string' ? value : String(value ?? '')
   if (text.length <= maxLength) {
@@ -51,6 +74,134 @@ function sanitizeSnapshot(value, depth = 0) {
 
 function cloneSnapshot(value) {
   return sanitizeSnapshot(value)
+}
+
+function sanitizeModelConfigForMonitor(config) {
+  if (!config || typeof config !== 'object') {
+    return null
+  }
+  return {
+    model_config_id: String(config.model_config_id || config.modelConfigId || '').trim(),
+    provider: String(config.provider || '').trim(),
+    base_url: String(config.base_url || config.baseUrl || '').trim(),
+    model: String(config.model || '').trim(),
+    temperature: typeof config.temperature === 'number' ? config.temperature : null,
+  }
+}
+
+function summarizeWorldGraphForMonitor(graph) {
+  if (!graph || typeof graph !== 'object') {
+    return null
+  }
+  return {
+    meta: graph?.meta
+      ? {
+        robotId: String(graph.meta.robotId || '').trim(),
+        title: String(graph.meta.title || '').trim(),
+        summary: String(graph.meta.summary || '').trim(),
+        graphVersion: Number(graph.meta.graphVersion || 0),
+        calendar: graph.meta.calendar
+          ? {
+            calendarId: String(graph.meta.calendar.calendarId || '').trim(),
+            calendarName: String(graph.meta.calendar.calendarName || '').trim(),
+            formatTemplate: String(graph.meta.calendar.formatTemplate || '').trim(),
+          }
+          : null,
+      }
+      : null,
+    relationTypeCount: Array.isArray(graph?.relationTypes) ? graph.relationTypes.length : 0,
+    nodeCount: Array.isArray(graph?.nodes) ? graph.nodes.length : 0,
+    edgeCount: Array.isArray(graph?.edges) ? graph.edges.length : 0,
+  }
+}
+
+function sanitizeStructuredMemoryForMonitor(memory) {
+  if (!memory || typeof memory !== 'object') {
+    return null
+  }
+  return {
+    updatedAt: String(memory.updatedAt || memory.updated_at || '').trim(),
+    longTermMemory: String(memory.longTermMemory || memory.long_term_memory || '').trim(),
+    shortTermMemory: String(memory.shortTermMemory || memory.short_term_memory || '').trim(),
+  }
+}
+
+function sanitizeRobotForMonitor(robot) {
+  if (!robot || typeof robot !== 'object') {
+    return null
+  }
+  return {
+    id: String(robot.id || '').trim(),
+    name: String(robot.name || '').trim(),
+    common_prompt: String(robot.common_prompt || robot.commonPrompt || '').trim(),
+    system_prompt: String(robot.system_prompt || robot.systemPrompt || '').trim(),
+  }
+}
+
+function sanitizePayloadForMonitor(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+  return {
+    sessionId: String(payload.sessionId || '').trim(),
+    prompt: String(payload.prompt || '').trim(),
+    provider: String(payload.provider || '').trim(),
+    baseUrl: String(payload.baseUrl || '').trim(),
+    model: String(payload.model || '').trim(),
+    temperature: typeof payload.temperature === 'number' ? payload.temperature : null,
+    systemPrompt: String(payload.systemPrompt || '').trim(),
+    robotName: String(payload.robotName || '').trim(),
+    sessionSnapshot: payload.sessionSnapshot
+      ? {
+        id: String(payload.sessionSnapshot.id || '').trim(),
+        title: String(payload.sessionSnapshot.title || '').trim(),
+      }
+      : null,
+  }
+}
+
+function sanitizeSessionForMonitor(session) {
+  if (!session || typeof session !== 'object') {
+    return null
+  }
+  return {
+    id: String(session.id || '').trim(),
+    threadId: String(session.threadId || '').trim(),
+    title: String(session.title || '').trim(),
+    robot: sanitizeRobotForMonitor(session.robot),
+    messageCount: Array.isArray(session.messages) ? session.messages.length : 0,
+    structuredMemory: sanitizeStructuredMemoryForMonitor(session.structuredMemory),
+    storyOutline: sanitizeStoryOutlineForMonitor(session.storyOutline),
+    worldGraph: summarizeWorldGraphForMonitor(session.worldGraph),
+  }
+}
+
+function sanitizeAgentRequestForMonitor(agentRequest) {
+  if (!agentRequest || typeof agentRequest !== 'object') {
+    return null
+  }
+  return {
+    thread_id: String(agentRequest.thread_id || agentRequest.threadId || '').trim(),
+    session_id: String(agentRequest.session_id || agentRequest.sessionId || '').trim(),
+    prompt: String(agentRequest.prompt || '').trim(),
+    system_prompt: String(agentRequest.system_prompt || agentRequest.systemPrompt || '').trim(),
+    robot: sanitizeRobotForMonitor(agentRequest.robot),
+    history: (Array.isArray(agentRequest.history) ? agentRequest.history : []).slice(-2).map((item) => ({
+      role: String(item?.role || '').trim(),
+      content: String(item?.content || '').trim(),
+    })),
+    structured_memory: sanitizeStructuredMemoryForMonitor(agentRequest.structured_memory || agentRequest.structuredMemory),
+    story_outline: sanitizeStoryOutlineForMonitor(agentRequest.story_outline || agentRequest.storyOutline || {}),
+    story_outline_stage_completed: Boolean(agentRequest.story_outline_stage_completed || agentRequest.storyOutlineStageCompleted),
+    vector_context_text: String(agentRequest.vector_context_text || agentRequest.vectorContextText || '').trim(),
+    world_graph: summarizeWorldGraphForMonitor(agentRequest.world_graph || agentRequest.worldGraph),
+    model_config: sanitizeModelConfigForMonitor(agentRequest.model_config || agentRequest.modelSettings),
+    auxiliary_model_configs: {
+      memory: sanitizeModelConfigForMonitor(agentRequest?.auxiliary_model_configs?.memory || agentRequest?.auxiliaryModelConfigs?.memory),
+      outline: sanitizeModelConfigForMonitor(agentRequest?.auxiliary_model_configs?.outline || agentRequest?.auxiliaryModelConfigs?.outline),
+      world_graph: sanitizeModelConfigForMonitor(agentRequest?.auxiliary_model_configs?.world_graph || agentRequest?.auxiliaryModelConfigs?.world_graph),
+    },
+  }
 }
 
 function buildUserLabel(user) {
@@ -329,9 +480,9 @@ export function beginAgentMonitorReply({ user, payload, session, agentRequest })
     status: 'running',
     ...context,
     requestSnapshot: {
-      payload,
-      sessionSnapshot: session,
-      agentRequest,
+      payload: sanitizePayloadForMonitor(payload),
+      sessionSnapshot: sanitizeSessionForMonitor(session),
+      agentRequest: sanitizeAgentRequestForMonitor(agentRequest),
     },
   }).catch((error) => {
     console.error('记录 Agent 监控回复失败', error)

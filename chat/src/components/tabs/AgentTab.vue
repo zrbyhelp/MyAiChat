@@ -301,8 +301,6 @@
     @save-mobile-agent="saveMobileAgent"
     @save-mobile-agent-and-open-world-graph="saveMobileAgentAndOpenWorldGraph"
     @open-world-graph="openWorldGraph"
-    @remove-numeric-computation-item="removeNumericComputationItem"
-    @add-numeric-computation-item="addNumericComputationItem"
   />
 
   <TDialog
@@ -404,11 +402,9 @@
     :aux-model-options="auxModelOptions"
     :current-memory-schema="currentMemorySchema"
     :structured-memory-record-count="structuredMemoryRecordCount"
-    :memory-display-categories="memoryDisplayCategories"
+    :current-structured-memory="currentStructuredMemory"
     @apply-session-robot="applySessionRobot"
     @apply-session-memory-settings="applySessionMemorySettings"
-    @remove-numeric-computation-item="removeNumericComputationItem"
-    @add-numeric-computation-item="addNumericComputationItem"
   />
 </template>
 
@@ -447,7 +443,6 @@ import { useChatModelManager } from '@/hooks/chat-view/useChatModelManager'
 import { serializeChatMessages } from '@/hooks/chat-view/useChatView.message-utils'
 import {
   createModelConfig,
-  createNumericComputationItem,
   DEFAULT_MODEL_CONFIGS,
   normalizeModelTags,
   PROVIDER_OPTIONS,
@@ -464,8 +459,6 @@ import {
   DEFAULT_SESSION_USAGE,
   DEFAULT_STRUCTURED_MEMORY,
   DEFAULT_MEMORY_SCHEMA,
-  DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
-  DEFAULT_STRUCTURED_MEMORY_INTERVAL,
   normalizeMemorySchema,
   normalizeSessionMessages,
   useChatSessionStateManager,
@@ -608,10 +601,6 @@ const {
   mobileAgentDraft,
   selectedNewChatRobot,
   isEditingAgentDraft,
-  cloneNumericComputationItems,
-  addNumericComputationItem,
-  removeNumericComputationItem,
-  validateNumericComputationItems,
   importRobotTemplate,
   loadRobotTemplates,
   setKnowledgeDocumentFile,
@@ -631,11 +620,8 @@ const {
   saveMobileAgent,
   skipAgentStructureSetup,
 } = useChatRobotManager({
-  defaultStructuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-  defaultStructuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
   defaultMemorySchema: DEFAULT_MEMORY_SCHEMA,
   normalizeMemorySchema,
-  createNumericComputationItem,
 })
 const {
   sessionId,
@@ -668,20 +654,17 @@ const {
   sessionMemoryDraft,
   currentRobotLabel,
   memoryUpdatedLabel,
-  memoryDisplayCategories,
   structuredMemoryRecordCount,
   sessionPromptTokens,
   sessionCompletionTokens,
   currentStructuredMemory,
   currentUsage,
-  currentNumericState,
   currentStoryOutline,
   currentSessionWorldGraph,
   applySessionMemory,
   applyStructuredMemory,
   applyMemorySchema,
   applySessionUsage,
-  applyNumericState,
   applyStoryOutline,
   applySessionWorldGraph,
   openMemoryDialog,
@@ -689,8 +672,6 @@ const {
   applySessionRobot,
   applySessionMemorySettings,
 } = useChatSessionStateManager({
-  cloneNumericComputationItems,
-  validateNumericComputationItems,
   onSyncCurrentSessionMeta: syncCurrentSessionMeta,
 })
 const auxModelOptions = computed(() => [
@@ -738,13 +719,7 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
       memoryModelConfigId: sessionRobot.memoryModelConfigId,
       outlineModelConfigId: sessionRobot.outlineModelConfigId,
       knowledgeRetrievalModelConfigId: sessionRobot.knowledgeRetrievalModelConfigId,
-      numericComputationModelConfigId: sessionRobot.numericComputationModelConfigId,
       worldGraphModelConfigId: sessionRobot.worldGraphModelConfigId,
-      numericComputationEnabled: sessionRobot.numericComputationEnabled,
-      numericComputationPrompt: sessionRobot.numericComputationPrompt,
-      numericComputationItems: cloneNumericComputationItems(sessionRobot.numericComputationItems),
-      structuredMemoryInterval: sessionRobot.structuredMemoryInterval,
-      structuredMemoryHistoryLimit: sessionRobot.structuredMemoryHistoryLimit,
     },
     messages: serializedMessages,
     storyOutline: currentStoryOutline.value,
@@ -757,9 +732,9 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
     },
     structuredMemory: {
       updatedAt: currentStructuredMemory.updatedAt,
-      categories: currentStructuredMemory.categories,
+      longTermMemory: currentStructuredMemory.longTermMemory,
+      shortTermMemory: currentStructuredMemory.shortTermMemory,
     },
-    numericState: currentNumericState.value,
     worldGraph: currentSessionWorldGraph.value,
   }
 }
@@ -784,19 +759,15 @@ const {
   currentModelLabel,
   activeModelConfigId,
   modelConfigs,
-  cloneNumericComputationItems,
   applySessionMemory,
   applyMemorySchema,
   applyStructuredMemory,
   applySessionUsage,
-  applyNumericState,
   applyStoryOutline,
   applySessionWorldGraph,
   applyChatMessages,
   loadCapabilities,
   normalizeSessionMessages,
-  defaultStructuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-  defaultStructuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
   defaultMemorySchema: DEFAULT_MEMORY_SCHEMA,
   defaultSessionMemory: DEFAULT_SESSION_MEMORY,
   defaultStructuredMemory: DEFAULT_STRUCTURED_MEMORY,
@@ -1016,14 +987,11 @@ const { chatServiceConfig } = useChatStreaming({
   currentSessionMemory,
   currentMemorySchema,
   currentStructuredMemory,
-  currentNumericState,
   currentStoryOutline,
   currentSessionWorldGraph,
   rawChatMessages,
   effectiveStream,
   effectiveThinking,
-  cloneNumericComputationItems,
-  applyNumericState,
   applySessionUsage,
   applyStructuredMemory,
   applyStoryOutline,

@@ -256,7 +256,6 @@ export function createApp() {
           memorySchema: session.memorySchema,
           structuredMemory: session.structuredMemory,
           storyOutline: session.storyOutline || '',
-          numericState: session.numericState,
           worldGraph: session.worldGraph,
         },
       })
@@ -282,7 +281,6 @@ export function createApp() {
           memorySchema: session.memorySchema,
           structuredMemory: session.structuredMemory,
           storyOutline: session.storyOutline || '',
-          numericState: session.numericState,
           worldGraph: session.worldGraph,
         },
       })

@@ -53,14 +53,6 @@
                 />
               </TFormItem>
             </div>
-            <TFormItem label="数值计算模型">
-              <TSelect
-                v-model="sessionRobotDraft.numericComputationModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
           </TForm>
         </div>
       </div>
@@ -119,14 +111,6 @@
                 />
               </TFormItem>
             </div>
-            <TFormItem label="数值计算模型">
-              <TSelect
-                v-model="sessionRobotDraft.numericComputationModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
           </TForm>
         </div>
       </div>
@@ -152,32 +136,22 @@
       </div>
       <div class="memory-meta">
         <div>最近更新时间：{{ memoryUpdatedLabel }}</div>
-        <div>分类：{{ currentMemorySchema.categories.length }}</div>
+        <div>长期记忆：{{ currentStructuredMemory.longTermMemory ? '已生成' : '暂无' }}</div>
+        <div>短期记忆：{{ currentStructuredMemory.shortTermMemory ? '已生成' : '暂无' }}</div>
         <div>记录：{{ structuredMemoryRecordCount }}</div>
       </div>
-        <div class="session-robot-form-card">
-          <TForm label-align="top">
-            <div class="form-grid-2">
-              <TFormItem label="结构化记忆处理间隔">
-              <TInputNumber
-                v-model="sessionMemoryDraft.structuredMemoryInterval"
-                :min="1"
-                placeholder="3"
-              />
-            </TFormItem>
-              <TFormItem label="提示词历史消息条数">
-                <TInputNumber
-                  v-model="sessionMemoryDraft.structuredMemoryHistoryLimit"
-                  :min="1"
-                  placeholder="12"
-                />
-              </TFormItem>
-            </div>
-          </TForm>
+      <div class="session-robot-form-card memory-text-card">
+        <div class="memory-text-block">
+          <strong>长期记忆</strong>
+          <p>{{ currentStructuredMemory.longTermMemory || '暂无长期记忆' }}</p>
         </div>
-      <MemoryTreeView :categories="memoryDisplayCategories" />
+        <div class="memory-text-block">
+          <strong>短期记忆</strong>
+          <p>{{ currentStructuredMemory.shortTermMemory || '暂无短期记忆' }}</p>
+        </div>
+      </div>
       <div class="mobile-overlay-actions drawer-actions">
-        <TButton block theme="primary" @click="$emit('apply-session-memory-settings')">保存记忆设置</TButton>
+        <TButton block theme="primary" @click="$emit('update:memoryVisible', false)">关闭</TButton>
       </div>
     </div>
   </TDrawer>
@@ -194,32 +168,22 @@
     <div class="mobile-overlay-body">
       <div class="memory-meta">
         <div>最近更新时间：{{ memoryUpdatedLabel }}</div>
-        <div>分类：{{ currentMemorySchema.categories.length }}</div>
+        <div>长期记忆：{{ currentStructuredMemory.longTermMemory ? '已生成' : '暂无' }}</div>
+        <div>短期记忆：{{ currentStructuredMemory.shortTermMemory ? '已生成' : '暂无' }}</div>
         <div>记录：{{ structuredMemoryRecordCount }}</div>
       </div>
-        <div class="session-robot-form-card">
-          <TForm label-align="top">
-            <div class="form-grid-2">
-              <TFormItem label="结构化记忆处理间隔">
-              <TInputNumber
-                v-model="sessionMemoryDraft.structuredMemoryInterval"
-                :min="1"
-                placeholder="3"
-              />
-            </TFormItem>
-              <TFormItem label="提示词历史消息条数">
-                <TInputNumber
-                  v-model="sessionMemoryDraft.structuredMemoryHistoryLimit"
-                  :min="1"
-                  placeholder="12"
-                />
-              </TFormItem>
-            </div>
-          </TForm>
+      <div class="session-robot-form-card memory-text-card">
+        <div class="memory-text-block">
+          <strong>长期记忆</strong>
+          <p>{{ currentStructuredMemory.longTermMemory || '暂无长期记忆' }}</p>
         </div>
-      <MemoryTreeView :categories="memoryDisplayCategories" />
+        <div class="memory-text-block">
+          <strong>短期记忆</strong>
+          <p>{{ currentStructuredMemory.shortTermMemory || '暂无短期记忆' }}</p>
+        </div>
+      </div>
       <div class="mobile-overlay-actions drawer-actions">
-        <TButton block theme="primary" @click="$emit('apply-session-memory-settings')">保存记忆设置</TButton>
+        <TButton block theme="primary" @click="$emit('update:memoryVisible', false)">关闭</TButton>
       </div>
     </div>
   </TDialog>
@@ -234,16 +198,14 @@ import {
   Drawer as TDrawer,
   Form as TForm,
   FormItem as TFormItem,
-  InputNumber as TInputNumber,
   Select as TSelect,
 } from 'tdesign-vue-next'
 
-import MemoryTreeView from '@/components/chat/MemoryTreeView.vue'
 import type {
   MemorySchemaState,
   SessionMemoryState,
   SessionRobotState,
-  StructuredMemoryCategory,
+  StructuredMemoryState,
 } from '@/types/ai'
 
 defineProps({
@@ -283,8 +245,8 @@ defineProps({
     type: Number,
     required: true,
   },
-  memoryDisplayCategories: {
-    type: Array as PropType<StructuredMemoryCategory[]>,
+  currentStructuredMemory: {
+    type: Object as PropType<StructuredMemoryState>,
     required: true,
   },
 })

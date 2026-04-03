@@ -16,17 +16,13 @@ import type {
   AgentTemplateFileV1,
   AIRobotCard,
   MemorySchemaState,
-  NumericComputationItem,
   RobotKnowledgeDocument,
   RobotWorldGraph,
 } from '@/types/ai'
 
 interface UseChatRobotManagerOptions {
-  defaultStructuredMemoryInterval: number
-  defaultStructuredMemoryHistoryLimit: number
   defaultMemorySchema: MemorySchemaState
   normalizeMemorySchema: (schema?: Partial<MemorySchemaState> | null) => MemorySchemaState
-  createNumericComputationItem: (index?: number) => NumericComputationItem
 }
 
 interface SaveMobileAgentOptions {
@@ -82,13 +78,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       memoryModelConfigId: '',
       outlineModelConfigId: '',
       knowledgeRetrievalModelConfigId: '',
-      numericComputationModelConfigId: '',
       worldGraphModelConfigId: '',
-      numericComputationEnabled: false,
-      numericComputationPrompt: '',
-      numericComputationItems: [],
-      structuredMemoryInterval: options.defaultStructuredMemoryInterval,
-      structuredMemoryHistoryLimit: options.defaultStructuredMemoryHistoryLimit,
       memorySchema: options.normalizeMemorySchema(options.defaultMemorySchema),
       worldGraph: null,
     }
@@ -96,17 +86,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
 
   function cloneWorldGraph(graph?: RobotWorldGraph | null) {
     return graph ? JSON.parse(JSON.stringify(graph)) as RobotWorldGraph : null
-  }
-
-  function cloneNumericComputationItems(items?: NumericComputationItem[] | null) {
-    return (Array.isArray(items) ? items : []).map((item) => ({
-      name: String(item?.name || '').trim(),
-      currentValue:
-        typeof item?.currentValue === 'number' && Number.isFinite(item.currentValue)
-          ? item.currentValue
-          : 0,
-      description: String(item?.description || ''),
-    }))
   }
 
   const {
@@ -145,37 +124,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     },
   })
 
-  function addNumericComputationItem(target: { numericComputationItems: NumericComputationItem[] }) {
-    target.numericComputationItems.push(options.createNumericComputationItem(target.numericComputationItems.length + 1))
-  }
-
-  function removeNumericComputationItem(
-    target: { numericComputationItems: NumericComputationItem[] },
-    index: number,
-  ) {
-    target.numericComputationItems.splice(index, 1)
-  }
-
-  function validateNumericComputationItems(items: NumericComputationItem[]) {
-    const normalized = cloneNumericComputationItems(items)
-    const seenNames = new Set<string>()
-
-    for (const item of normalized) {
-      if (!item.name) {
-        return { ok: false as const, message: '数值结构中的名称不能为空' }
-      }
-      if (seenNames.has(item.name)) {
-        return { ok: false as const, message: `数值结构名称重复：${item.name}` }
-      }
-      if (!Number.isFinite(item.currentValue)) {
-        return { ok: false as const, message: `数值结构 ${item.name} 的当前值必须是数值` }
-      }
-      seenNames.add(item.name)
-    }
-
-    return { ok: true as const, normalized }
-  }
-
   function syncMobileAgentDraft(source?: Partial<AIRobotCard> | null) {
     const fallback = createRobotTemplate()
     mobileAgentDraft.id = String(source?.id || fallback.id)
@@ -188,19 +136,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     mobileAgentDraft.memoryModelConfigId = String(source?.memoryModelConfigId || '')
     mobileAgentDraft.outlineModelConfigId = String(source?.outlineModelConfigId || '')
     mobileAgentDraft.knowledgeRetrievalModelConfigId = String(source?.knowledgeRetrievalModelConfigId || '')
-    mobileAgentDraft.numericComputationModelConfigId = String(source?.numericComputationModelConfigId || '')
     mobileAgentDraft.worldGraphModelConfigId = String(source?.worldGraphModelConfigId || '')
-    mobileAgentDraft.numericComputationEnabled = Boolean(source?.numericComputationEnabled)
-    mobileAgentDraft.numericComputationPrompt = String(source?.numericComputationPrompt || '')
-    mobileAgentDraft.numericComputationItems = cloneNumericComputationItems(source?.numericComputationItems)
-    mobileAgentDraft.structuredMemoryInterval =
-      typeof source?.structuredMemoryInterval === 'number' && source.structuredMemoryInterval > 0
-        ? Math.round(source.structuredMemoryInterval)
-        : fallback.structuredMemoryInterval
-    mobileAgentDraft.structuredMemoryHistoryLimit =
-      typeof source?.structuredMemoryHistoryLimit === 'number' && source.structuredMemoryHistoryLimit > 0
-        ? Math.round(source.structuredMemoryHistoryLimit)
-        : fallback.structuredMemoryHistoryLimit
     mobileAgentDraft.memorySchema = options.normalizeMemorySchema(source?.memorySchema || fallback.memorySchema)
     mobileAgentDraft.worldGraph = cloneWorldGraph(source?.worldGraph)
   }
@@ -217,19 +153,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
       memoryModelConfigId: String(item.memoryModelConfigId || '').trim(),
       outlineModelConfigId: String(item.outlineModelConfigId || '').trim(),
       knowledgeRetrievalModelConfigId: String(item.knowledgeRetrievalModelConfigId || '').trim(),
-      numericComputationModelConfigId: String(item.numericComputationModelConfigId || '').trim(),
       worldGraphModelConfigId: String(item.worldGraphModelConfigId || '').trim(),
-      numericComputationEnabled: Boolean(item.numericComputationEnabled),
-      numericComputationPrompt: item.numericComputationPrompt.trim(),
-      numericComputationItems: cloneNumericComputationItems(item.numericComputationItems),
-      structuredMemoryInterval: Math.max(
-        1,
-        Math.round(item.structuredMemoryInterval || options.defaultStructuredMemoryInterval),
-      ),
-      structuredMemoryHistoryLimit: Math.max(
-        1,
-        Math.round(item.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit),
-      ),
       memorySchema: options.normalizeMemorySchema(item.memorySchema),
       worldGraph: cloneWorldGraph(item.worldGraph),
     }
@@ -620,11 +544,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
   async function saveMobileAgent(saveOptions: SaveMobileAgentOptions = {}) {
     savingMobileAgent.value = true
     try {
-      const itemsValidation = validateNumericComputationItems(mobileAgentDraft.numericComputationItems)
-      if (!itemsValidation.ok && mobileAgentDraft.numericComputationEnabled) {
-        MessagePlugin.error(itemsValidation.message)
-        return null
-      }
       const nextAgent: AIRobotCard = {
         ...mobileAgentDraft,
         name: mobileAgentDraft.name.trim(),
@@ -635,21 +554,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
         memoryModelConfigId: String(mobileAgentDraft.memoryModelConfigId || '').trim(),
         outlineModelConfigId: String(mobileAgentDraft.outlineModelConfigId || '').trim(),
         knowledgeRetrievalModelConfigId: String(mobileAgentDraft.knowledgeRetrievalModelConfigId || '').trim(),
-        numericComputationModelConfigId: String(mobileAgentDraft.numericComputationModelConfigId || '').trim(),
         worldGraphModelConfigId: String(mobileAgentDraft.worldGraphModelConfigId || '').trim(),
-        numericComputationEnabled: Boolean(mobileAgentDraft.numericComputationEnabled),
-        numericComputationPrompt: mobileAgentDraft.numericComputationPrompt.trim(),
-        numericComputationItems: itemsValidation.ok ? itemsValidation.normalized : [],
-        structuredMemoryInterval: Math.max(
-          1,
-          Math.round(mobileAgentDraft.structuredMemoryInterval || options.defaultStructuredMemoryInterval),
-        ),
-        structuredMemoryHistoryLimit: Math.max(
-          1,
-          Math.round(
-            mobileAgentDraft.structuredMemoryHistoryLimit || options.defaultStructuredMemoryHistoryLimit,
-          ),
-        ),
         memorySchema: options.normalizeMemorySchema(mobileAgentDraft.memorySchema),
       }
       const previousAgent =
@@ -750,10 +655,6 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     selectedNewChatRobot,
     isEditingAgentDraft,
     createRobotTemplate,
-    cloneNumericComputationItems,
-    addNumericComputationItem,
-    removeNumericComputationItem,
-    validateNumericComputationItems,
     exportRobotTemplate,
     importRobotTemplate,
     loadRobotTemplates,

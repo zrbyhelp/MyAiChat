@@ -1,4 +1,4 @@
-import type { AIModelConfigItem, NumericComputationItem, ProviderType } from '@/types/ai'
+import type { AIModelConfigItem, ProviderType } from '@/types/ai'
 
 export const PROVIDER_OPTIONS = [
   { label: 'OpenAI Compatible', value: 'openai' },
@@ -35,14 +35,6 @@ export function createModelConfig(provider: ProviderType = 'openai', index = 1):
     name: `模型配置 ${index}`,
     ...DEFAULT_MODEL_CONFIGS[provider],
     model: '',
-  }
-}
-
-export function createNumericComputationItem(index = 1): NumericComputationItem {
-  return {
-    name: `value_${index}`,
-    currentValue: 0,
-    description: '',
   }
 }
 

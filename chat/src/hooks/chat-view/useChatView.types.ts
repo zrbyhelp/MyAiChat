@@ -1,4 +1,5 @@
 import type { AIFormSchema, RobotWorldGraph, SuggestionOption } from '@/types/ai'
+import type { StoryOutlineState } from '@/types/ai'
 
 export type ChatbotInstance = {
   registerMergeStrategy?: (
@@ -54,7 +55,6 @@ export type NormalizedStreamPayload = {
     | 'usage'
     | 'structured_memory'
     | 'story_outline'
-    | 'numeric_state_updated'
     | 'session_world_graph'
     | 'ui_loading'
     | 'done'
@@ -68,7 +68,7 @@ export type NormalizedStreamPayload = {
   promptTokens?: number
   completionTokens?: number
   memory?: import('@/types/ai').StructuredMemoryState
-  storyOutline?: string
+  storyOutline?: StoryOutlineState
   state?: Record<string, unknown>
   graph?: RobotWorldGraph | null
   warnings?: string[]

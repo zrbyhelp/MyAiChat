@@ -937,21 +937,7 @@ function buildGeneratedRobotPayload(generated, robotId) {
     memoryModelConfigId: '',
     outlineModelConfigId: '',
     knowledgeRetrievalModelConfigId: '',
-    numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
-    numericComputationEnabled: Boolean(
-      generated?.numericComputationEnabled
-      ?? generated?.numeric_computation_enabled
-      ?? (Array.isArray(generated?.numericComputationItems || generated?.numeric_computation_items)
-        && (generated.numericComputationItems || generated.numeric_computation_items).length > 0),
-    ),
-    numericComputationPrompt: String(
-      generated?.numericComputationPrompt || generated?.numeric_computation_prompt || '',
-    ).trim(),
-    numericComputationItems:
-      generated?.numericComputationItems || generated?.numeric_computation_items || [],
-    structuredMemoryInterval: Math.max(1, Math.round(Number(generated?.structuredMemoryInterval || generated?.structured_memory_interval || 3) || 3)),
-    structuredMemoryHistoryLimit: Math.max(1, Math.round(Number(generated?.structuredMemoryHistoryLimit || generated?.structured_memory_history_limit || 12) || 12)),
     memorySchema: normalizeMemorySchema(generated?.memorySchema || generated?.memory_schema),
   }])[0]
 
@@ -2724,7 +2710,9 @@ export async function retrieveRobotKnowledgeByGraphRag(user, options) {
     model_config: buildAgentModelPayload(modelConfig, 0.2),
     robot_name: String(options?.robotName || ''),
     robot_description: String(options?.robotDescription || ''),
-    story_outline: String(options?.storyOutline || ''),
+    story_outline: typeof options?.storyOutline === 'string'
+      ? options.storyOutline
+      : JSON.stringify(options?.storyOutline || {}),
     prompt: String(options?.prompt || ''),
     history: Array.isArray(options?.history) ? options.history : [],
     graphrag_documents: graphRagDocuments,
@@ -2786,7 +2774,9 @@ export async function retrieveRobotKnowledgeBySummary(user, options) {
     },
     robot_name: String(options?.robotName || ''),
     robot_description: String(options?.robotDescription || ''),
-    story_outline: String(options?.storyOutline || ''),
+    story_outline: typeof options?.storyOutline === 'string'
+      ? options.storyOutline
+      : JSON.stringify(options?.storyOutline || {}),
     prompt: String(options?.prompt || ''),
     history: Array.isArray(options?.history) ? options.history : [],
   }, '检索摘要生成')

@@ -3,6 +3,7 @@ import { Annotation, END, START, StateGraph } from '@langchain/langgraph'
 import {
   addUsage,
   answerNode,
+  answerGraphUpdateNode,
   buildGraphRagExtractPrompt,
   buildGraphRagRetrievePrompt,
   buildGraphRagWritebackPrompt,
@@ -12,9 +13,9 @@ import {
   emptyUsage,
   ensureGeneratedRobotPayload,
   formatStageError,
-  numericAgentNode,
   parseJsonObject,
   storyOutlineNode,
+  worldGraphEvolutionNode,
 } from './runtime.mjs'
 import {
   normalizeGraphRagGraphPayload,
@@ -40,27 +41,12 @@ function compileGraph(builder) {
 export function createStreamWorkflow({ modelClient }) {
   return compileGraph(
     new StateGraph(ContextState)
-      .addNode('numeric', async ({ context }) => {
-        try {
-          const payload = await numericAgentNode(context, modelClient)
-          const nextContext = {
-            ...context,
-            numeric_state: payload.numeric_state,
-            numeric_stage_completed: true,
-            usage: addUsage(context.usage, payload.usage),
-          }
-          await context.event_sink?.({ type: 'numeric_state_updated', state: nextContext.numeric_state || {} })
-          return { context: nextContext }
-        } catch (error) {
-          throw new Error(formatStageError(context.request, '数值计算阶段', error))
-        }
-      })
       .addNode('outline', async ({ context }) => {
         try {
           await context.event_sink?.({ type: 'story_outline_started' })
-          const payload = String(context.story_outline || '').trim()
+          const payload = context.story_outline && typeof context.story_outline === 'object'
             ? {
-              story_outline: String(context.story_outline || '').trim(),
+              story_outline: context.story_outline,
               usage: emptyUsage(),
             }
             : await storyOutlineNode(context, modelClient)
@@ -72,7 +58,7 @@ export function createStreamWorkflow({ modelClient }) {
           }
           await context.event_sink?.({
             type: 'story_outline_completed',
-            story_outline: nextContext.story_outline || '',
+            story_outline: nextContext.story_outline || {},
           })
           return { context: nextContext }
         } catch (error) {
@@ -100,15 +86,13 @@ export function createStreamWorkflow({ modelClient }) {
             type: 'response_completed',
             threadId: context.thread_id,
             message: finalResponse,
-            numeric_state: nextContext.numeric_state || {},
           })
           return { context: nextContext }
         } catch (error) {
           throw new Error(formatStageError(context.request, '主回复阶段', error))
         }
       })
-      .addEdge(START, 'numeric')
-      .addEdge('numeric', 'outline')
+      .addEdge(START, 'outline')
       .addEdge('outline', 'answer')
       .addEdge('answer', END),
   )

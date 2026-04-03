@@ -80,11 +80,6 @@ export class ThreadStore {
         allowNull: false,
         field: 'structured_memory_json',
       },
-      numericStateJson: {
-        type: DataTypes.TEXT('long'),
-        allowNull: false,
-        field: 'numeric_state_json',
-      },
       storyOutlineText: {
         type: DataTypes.TEXT('long'),
         allowNull: false,
@@ -103,12 +98,6 @@ export class ThreadStore {
 
     if (!columns.memory_schema_json) {
       await queryInterface.addColumn('agent_threads', 'memory_schema_json', {
-        type: DataTypes.TEXT('long'),
-        allowNull: true,
-      })
-    }
-    if (!columns.numeric_state_json) {
-      await queryInterface.addColumn('agent_threads', 'numeric_state_json', {
         type: DataTypes.TEXT('long'),
         allowNull: true,
       })
@@ -132,13 +121,8 @@ export class ThreadStore {
     `)
     await this.sequelize.query(`
       UPDATE agent_threads
-      SET structured_memory_json='{"updated_at":"","categories":[]}'
+      SET structured_memory_json='{"updated_at":"","long_term_memory":"","short_term_memory":""}'
       WHERE structured_memory_json IS NULL OR structured_memory_json = ''
-    `)
-    await this.sequelize.query(`
-      UPDATE agent_threads
-      SET numeric_state_json='{}'
-      WHERE numeric_state_json IS NULL OR numeric_state_json = ''
     `)
     await this.sequelize.query(`
       UPDATE agent_threads
@@ -155,10 +139,6 @@ export class ThreadStore {
       allowNull: false,
     })
     await queryInterface.changeColumn('agent_threads', 'structured_memory_json', {
-      type: DataTypes.TEXT('long'),
-      allowNull: false,
-    })
-    await queryInterface.changeColumn('agent_threads', 'numeric_state_json', {
       type: DataTypes.TEXT('long'),
       allowNull: false,
     })
@@ -184,9 +164,8 @@ export class ThreadStore {
         thread_id: row.threadId,
         messages: parseJsonText(row.messagesJson, []),
         memory_schema: parseJsonText(row.memorySchemaJson, { categories: [] }),
-        structured_memory: parseJsonText(row.structuredMemoryJson, { updated_at: '', categories: [] }),
-        numeric_state: parseJsonText(row.numericStateJson, {}),
-        story_outline: row.storyOutlineText || '',
+        structured_memory: parseJsonText(row.structuredMemoryJson, { updated_at: '', long_term_memory: '', short_term_memory: '' }),
+        story_outline: parseJsonText(row.storyOutlineText, {}),
       })
     }
 
@@ -211,8 +190,7 @@ export class ThreadStore {
         messagesJson: JSON.stringify(normalized.messages),
         memorySchemaJson: JSON.stringify(normalized.memory_schema),
         structuredMemoryJson: JSON.stringify(normalized.structured_memory),
-        numericStateJson: JSON.stringify(normalized.numeric_state),
-        storyOutlineText: normalized.story_outline || '',
+        storyOutlineText: JSON.stringify(normalized.story_outline || {}),
       })
       return
     }

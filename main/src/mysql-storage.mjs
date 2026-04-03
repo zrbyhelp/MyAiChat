@@ -12,15 +12,13 @@ import {
   normalizeSession,
   normalizeSessionMemory,
   normalizeSessionRobot,
+  normalizeStoryOutline,
   normalizeStructuredMemory,
   normalizeSessionsPayload,
   safeJsonParse,
 } from './storage-shared.mjs'
 import { getModels, initializeDatabase } from './sequelize.mjs'
 import {
-  cloneWorldGraphSnapshot,
-  createEmptyWorldGraphSnapshot,
-  getWorldGraph,
   normalizeWorldGraphSnapshot,
 } from './world-graph-service.mjs'
 
@@ -73,18 +71,12 @@ function mapSessionRow(user, row) {
       memoryModelConfigId: row.robotMemoryModelConfigId,
       outlineModelConfigId: row.robotOutlineModelConfigId,
       knowledgeRetrievalModelConfigId: row.robotKnowledgeRetrievalModelConfigId,
-      numericComputationModelConfigId: row.robotNumericComputationModelConfigId,
       worldGraphModelConfigId: row.robotWorldGraphModelConfigId,
-      numericComputationEnabled: row.robotNumericComputationEnabled ?? row.robotImageFetchEnabled,
-      numericComputationPrompt: row.robotNumericComputationPrompt ?? row.robotImageFetchPrompt,
-      numericComputationItems: safeJsonParse(row.robotNumericComputationSchema, []),
-      structuredMemoryInterval: row.robotStructuredMemoryInterval,
-      structuredMemoryHistoryLimit: row.robotStructuredMemoryHistoryLimit,
     },
     modelConfigId: row.modelConfigId,
     modelLabel: row.modelLabel,
     threadId: row.threadId,
-    storyOutline: row.storyOutline || '',
+    storyOutline: safeJsonParse(row.storyOutline || '', row.storyOutline || {}),
     memory: {
       summary: row.memorySummary,
       updatedAt: row.memoryUpdatedAt instanceof Date ? row.memoryUpdatedAt.toISOString() : row.memoryUpdatedAt || '',
@@ -92,12 +84,9 @@ function mapSessionRow(user, row) {
       threshold: row.memoryThreshold,
       recentMessageLimit: row.memoryRecentMessageLimit,
       prompt: row.memoryPrompt,
-      structuredMemoryInterval: row.structuredMemoryInterval,
-      structuredMemoryHistoryLimit: row.structuredMemoryHistoryLimit,
     },
     memorySchema: normalizeMemorySchema(safeJsonParse(row.memorySchemaJson, null)),
     structuredMemory: normalizeStructuredMemory(safeJsonParse(row.structuredMemoryJson, DEFAULT_STRUCTURED_MEMORY)),
-    numericState: safeJsonParse(row.numericStateJson, {}),
     worldGraph: row.sessionWorldGraphJson
       ? normalizeWorldGraphSnapshot(safeJsonParse(row.sessionWorldGraphJson, null), {
           robotId: row.robotId,
@@ -142,13 +131,11 @@ async function ensureDefaults(user) {
       memoryModelConfigId: robot.memoryModelConfigId,
       outlineModelConfigId: robot.outlineModelConfigId,
       knowledgeRetrievalModelConfigId: robot.knowledgeRetrievalModelConfigId,
-      numericComputationModelConfigId: robot.numericComputationModelConfigId,
       worldGraphModelConfigId: robot.worldGraphModelConfigId,
-      numericComputationEnabled: robot.numericComputationEnabled,
-      numericComputationPrompt: robot.numericComputationPrompt,
-      numericComputationSchema: JSON.stringify(robot.numericComputationItems || []),
-      structuredMemoryInterval: robot.structuredMemoryInterval,
-      structuredMemoryHistoryLimit: robot.structuredMemoryHistoryLimit,
+      numericComputationEnabled: false,
+      numericComputationPrompt: '',
+      numericComputationSchema: '[]',
+      numericComputationModelConfigId: '',
       memorySchemaJson: JSON.stringify(robot.memorySchema),
     })))
   }
@@ -294,31 +281,27 @@ export async function saveSessionRecord(user, session) {
       robotMemoryModelConfigId: normalized.robot.memoryModelConfigId,
       robotOutlineModelConfigId: normalized.robot.outlineModelConfigId,
       robotKnowledgeRetrievalModelConfigId: normalized.robot.knowledgeRetrievalModelConfigId,
-      robotNumericComputationModelConfigId: normalized.robot.numericComputationModelConfigId,
       robotWorldGraphModelConfigId: normalized.robot.worldGraphModelConfigId,
+      robotNumericComputationEnabled: false,
+      robotNumericComputationPrompt: '',
+      robotNumericComputationSchema: '[]',
+      robotNumericComputationModelConfigId: '',
       robotImageFetchEnabled: false,
       robotImageFetchPrompt: '',
-      robotNumericComputationEnabled: normalized.robot.numericComputationEnabled,
-      robotNumericComputationPrompt: normalized.robot.numericComputationPrompt,
-      robotNumericComputationSchema: JSON.stringify(normalized.robot.numericComputationItems || []),
-      robotStructuredMemoryInterval: normalized.robot.structuredMemoryInterval,
-      robotStructuredMemoryHistoryLimit: normalized.robot.structuredMemoryHistoryLimit,
       modelConfigId: normalized.modelConfigId,
       modelLabel: normalized.modelLabel,
       threadId: normalized.threadId,
-      storyOutline: normalized.storyOutline || '',
+      storyOutline: JSON.stringify(normalized.storyOutline || normalizeStoryOutline({})),
       memorySummary: normalized.memory.summary,
       memoryUpdatedAt: toDateOrNull(normalized.memory.updatedAt),
       memorySourceMessageCount: normalized.memory.sourceMessageCount,
       memoryThreshold: normalized.memory.threshold,
       memoryRecentMessageLimit: normalized.memory.recentMessageLimit,
       memoryPrompt: normalized.memory.prompt,
-      structuredMemoryInterval: normalized.memory.structuredMemoryInterval,
-      structuredMemoryHistoryLimit: normalized.memory.structuredMemoryHistoryLimit,
       memorySchemaJson: JSON.stringify(normalized.memorySchema),
       structuredMemoryJson: JSON.stringify(normalized.structuredMemory || DEFAULT_STRUCTURED_MEMORY),
-      numericStateJson: JSON.stringify(normalized.numericState || {}),
       sessionWorldGraphJson: normalized.worldGraph ? JSON.stringify(normalized.worldGraph) : null,
+      numericStateJson: '{}',
       promptTokens: normalized.usage.promptTokens,
       completionTokens: normalized.usage.completionTokens,
     }, { transaction })
@@ -354,17 +337,7 @@ export async function upsertSessionRecord(user, input) {
   const now = new Date().toISOString()
   const existing = input?.id ? await getSessionRecord(user, String(input.id)) : null
   let nextWorldGraph = input?.worldGraph || input?.world_graph || existing?.worldGraph || null
-  if (!nextWorldGraph) {
-    const robotId = String(input?.robot?.id || existing?.robot?.id || '').trim()
-    const robotName = String(input?.robot?.name || existing?.robot?.name || '').trim()
-    if (robotId) {
-      try {
-        nextWorldGraph = cloneWorldGraphSnapshot(await getWorldGraph(user, robotId))
-      } catch {
-        nextWorldGraph = createEmptyWorldGraphSnapshot(robotId, robotName)
-      }
-    }
-  } else {
+  if (nextWorldGraph) {
     nextWorldGraph = normalizeWorldGraphSnapshot(nextWorldGraph, {
       robotId: input?.robot?.id || existing?.robot?.id || '',
       robotName: input?.robot?.name || existing?.robot?.name || '',
@@ -377,6 +350,7 @@ export async function upsertSessionRecord(user, input) {
     memory: normalizeSessionMemory({ ...(existing?.memory || DEFAULT_SESSION_MEMORY), ...(input?.memory || {}) }),
     memorySchema: normalizeMemorySchema(input?.memorySchema || existing?.memorySchema),
     structuredMemory: normalizeStructuredMemory(input?.structuredMemory || existing?.structuredMemory || DEFAULT_STRUCTURED_MEMORY),
+    storyOutline: normalizeStoryOutline(input?.storyOutline || input?.story_outline || existing?.storyOutline || {}),
     messages: existing?.messages || input?.messages || [],
     worldGraph: nextWorldGraph,
     createdAt: existing?.createdAt || input?.createdAt || now,
@@ -554,13 +528,7 @@ export async function readRobots(user) {
     memoryModelConfigId: row.memoryModelConfigId,
     outlineModelConfigId: row.outlineModelConfigId,
     knowledgeRetrievalModelConfigId: row.knowledgeRetrievalModelConfigId,
-    numericComputationModelConfigId: row.numericComputationModelConfigId,
     worldGraphModelConfigId: row.worldGraphModelConfigId,
-    numericComputationEnabled: row.numericComputationEnabled ?? row.imageFetchEnabled,
-    numericComputationPrompt: row.numericComputationPrompt ?? row.imageFetchPrompt,
-    numericComputationItems: safeJsonParse(row.numericComputationSchema, []),
-    structuredMemoryInterval: row.structuredMemoryInterval,
-    structuredMemoryHistoryLimit: row.structuredMemoryHistoryLimit,
     memorySchema: safeJsonParse(row.memorySchemaJson, null),
   })))
 }
@@ -595,13 +563,11 @@ export async function writeRobots(user, robots) {
         memoryModelConfigId: robot.memoryModelConfigId,
         outlineModelConfigId: robot.outlineModelConfigId,
         knowledgeRetrievalModelConfigId: robot.knowledgeRetrievalModelConfigId,
-        numericComputationModelConfigId: robot.numericComputationModelConfigId,
         worldGraphModelConfigId: robot.worldGraphModelConfigId,
-        numericComputationEnabled: robot.numericComputationEnabled,
-        numericComputationPrompt: robot.numericComputationPrompt,
-        numericComputationSchema: JSON.stringify(robot.numericComputationItems || []),
-        structuredMemoryInterval: robot.structuredMemoryInterval,
-        structuredMemoryHistoryLimit: robot.structuredMemoryHistoryLimit,
+        numericComputationEnabled: false,
+        numericComputationPrompt: '',
+        numericComputationSchema: '[]',
+        numericComputationModelConfigId: '',
         memorySchemaJson: JSON.stringify(robot.memorySchema),
       }, { transaction })
     }

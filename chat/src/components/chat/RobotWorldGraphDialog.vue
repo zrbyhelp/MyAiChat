@@ -14,6 +14,23 @@
           关系类型
         </button>
       </div>
+      <div v-if="!isReadOnly" class="meta-panel">
+        <div class="meta-panel-head">
+          <strong>世界设定</strong>
+          <TButton size="small" theme="primary" :loading="savingMeta" @click="saveGraphMeta">保存</TButton>
+        </div>
+        <TForm label-align="top" class="meta-form">
+          <TFormItem label="标题"><TInput v-model="meta.title" /></TFormItem>
+          <TFormItem label="概要"><TTextarea v-model="meta.summary" :autosize="{ minRows: 2, maxRows: 4 }" /></TFormItem>
+          <TFormItem label="历法 ID"><TInput v-model="meta.calendar.calendarId" /></TFormItem>
+          <TFormItem label="历法名称"><TInput v-model="meta.calendar.calendarName" /></TFormItem>
+          <TFormItem label="纪元"><TTextarea v-model="calendarErasInput" :autosize="{ minRows: 2, maxRows: 3 }" placeholder="每行一项" /></TFormItem>
+          <TFormItem label="月份名称"><TTextarea v-model="calendarMonthNamesInput" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="每行一项" /></TFormItem>
+          <TFormItem label="日期名称"><TTextarea v-model="calendarDayNamesInput" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="每行一项" /></TFormItem>
+          <TFormItem label="时段名称"><TTextarea v-model="calendarTimeOfDayLabelsInput" :autosize="{ minRows: 2, maxRows: 3 }" placeholder="每行一项" /></TFormItem>
+          <TFormItem label="格式模板"><TInput v-model="meta.calendar.formatTemplate" placeholder="{era} {yearLabel}年 {monthLabel} {dayLabel} {timeOfDayLabel}" /></TFormItem>
+        </TForm>
+      </div>
       <div class="sidebar-search">
         <TInput v-model="searchKeyword" borderless placeholder="搜索" />
       </div>
@@ -498,6 +515,7 @@ import {
   deleteRobotWorldRelationType,
   getRobotWorldGraph,
   updateRobotWorldEdge,
+  updateRobotWorldGraphMeta,
   updateRobotWorldGraphLayout,
   updateRobotWorldNode,
   updateRobotWorldRelationType,
@@ -554,11 +572,36 @@ type NodeFieldInput = 'text' | 'textarea' | 'number'
 type NodeField = { key: string; label: string; input: NodeFieldInput }
 
 const nodeFieldMap: Record<WorldObjectType, NodeField[]> = {
-  character: [{ key: 'age', label: '年龄', input: 'number' }, { key: 'gender', label: '性别', input: 'text' }],
-  organization: [{ key: 'orgType', label: '组织类型', input: 'text' }],
-  location: [{ key: 'locationType', label: '地点类型', input: 'text' }],
+  character: [
+    { key: 'knownFacts', label: '已知事实', input: 'textarea' },
+    { key: 'preferencesAndConstraints', label: '偏好和约束', input: 'textarea' },
+    { key: 'taskProgress', label: '任务进展', input: 'textarea' },
+    { key: 'longTermMemory', label: '长期记忆', input: 'textarea' },
+    { key: 'age', label: '年龄', input: 'number' },
+    { key: 'gender', label: '性别', input: 'text' },
+  ],
+  organization: [
+    { key: 'knownFacts', label: '已知事实', input: 'textarea' },
+    { key: 'preferencesAndConstraints', label: '偏好和约束', input: 'textarea' },
+    { key: 'taskProgress', label: '任务进展', input: 'textarea' },
+    { key: 'longTermMemory', label: '长期记忆', input: 'textarea' },
+    { key: 'orgType', label: '组织类型', input: 'text' },
+  ],
+  location: [
+    { key: 'knownFacts', label: '已知事实', input: 'textarea' },
+    { key: 'preferencesAndConstraints', label: '偏好和约束', input: 'textarea' },
+    { key: 'taskProgress', label: '任务进展', input: 'textarea' },
+    { key: 'longTermMemory', label: '长期记忆', input: 'textarea' },
+    { key: 'locationType', label: '地点类型', input: 'text' },
+  ],
   event: [],
-  item: [{ key: 'itemType', label: '物品类型', input: 'text' }],
+  item: [
+    { key: 'knownFacts', label: '已知事实', input: 'textarea' },
+    { key: 'preferencesAndConstraints', label: '偏好和约束', input: 'textarea' },
+    { key: 'taskProgress', label: '任务进展', input: 'textarea' },
+    { key: 'longTermMemory', label: '长期记忆', input: 'textarea' },
+    { key: 'itemType', label: '物品类型', input: 'text' },
+  ],
 }
 
 const eventTimelineFields: NodeField[] = [{ key: 'yearLabel', label: '年份标签', input: 'text' }, { key: 'monthLabel', label: '月份标签', input: 'text' }, { key: 'dayLabel', label: '日期标签', input: 'text' }, { key: 'timeOfDayLabel', label: '时段标签', input: 'text' }, { key: 'phase', label: '事件阶段', input: 'text' }, { key: 'impactLevel', label: '影响等级', input: 'number' }, { key: 'eventType', label: '事件类型', input: 'text' }]
@@ -592,6 +635,7 @@ const playbackSpeed = ref<'1x' | '2x' | '4x'>('1x')
 const autoplayTimer = ref<number | null>(null)
 const layoutSaveTimer = ref<number | null>(null)
 const activationFitTimer = ref<number | null>(null)
+const savingMeta = ref(false)
 const pendingLayout = ref<WorldGraphLayout | null>(null)
 const lastPersistedLayout = ref<WorldGraphLayout>({ viewportX: 0, viewportY: 0, zoom: 1 })
 const fitRequestKey = ref(0)
@@ -610,6 +654,10 @@ const meta = reactive<RobotWorldGraphMeta>({
   calendar: { calendarId: 'default-world-calendar', calendarName: '世界历', eras: ['纪元'], monthNames: [], dayNames: [], timeOfDayLabels: [], formatTemplate: '' },
   layout: { viewportX: 0, viewportY: 0, zoom: 1 },
 })
+const calendarErasInput = ref('')
+const calendarMonthNamesInput = ref('')
+const calendarDayNamesInput = ref('')
+const calendarTimeOfDayLabelsInput = ref('')
 
 const timelineLabelKeys: Array<keyof Pick<WorldTimeline, 'yearLabel' | 'monthLabel' | 'dayLabel' | 'timeOfDayLabel' | 'phase'>> = ['yearLabel', 'monthLabel', 'dayLabel', 'timeOfDayLabel', 'phase']
 const playbackSpeedOptions = [
@@ -638,6 +686,21 @@ function normalizeNumber(value: unknown, fallback = 0) {
 
 function normalizeString(value: unknown) {
   return String(value ?? '').trim()
+}
+
+function formatStringListInput(values: string[]) {
+  return (Array.isArray(values) ? values : []).map((item) => normalizeString(item)).filter(Boolean).join('\n')
+}
+
+function parseStringListInput(value: string) {
+  return String(value || '').split(/\r?\n/).map((item) => normalizeString(item)).filter(Boolean)
+}
+
+function syncCalendarInputs() {
+  calendarErasInput.value = formatStringListInput(meta.calendar.eras)
+  calendarMonthNamesInput.value = formatStringListInput(meta.calendar.monthNames)
+  calendarDayNamesInput.value = formatStringListInput(meta.calendar.dayNames)
+  calendarTimeOfDayLabelsInput.value = formatStringListInput(meta.calendar.timeOfDayLabels)
 }
 
 function compareDisplayText(left: unknown, right: unknown) {
@@ -786,6 +849,10 @@ function normalizeTimelineEffectClient(value?: Partial<WorldTimelineEffect> | nu
 function normalizeNodeClient(node: WorldNode): WorldNode {
   return {
     ...node,
+    knownFacts: normalizeString(node.knownFacts),
+    preferencesAndConstraints: normalizeString(node.preferencesAndConstraints),
+    taskProgress: normalizeString(node.taskProgress),
+    longTermMemory: normalizeString(node.longTermMemory),
     tags: Array.isArray(node.tags) ? node.tags : [],
     attributes: node.attributes && typeof node.attributes === 'object' && !Array.isArray(node.attributes) ? node.attributes : {},
     timelineSnapshots: Array.isArray(node.timelineSnapshots) ? node.timelineSnapshots : [],
@@ -916,6 +983,10 @@ function createNodeDraft(objectType: WorldObjectType): WorldNode {
     objectType,
     name: '',
     summary: '',
+    knownFacts: '',
+    preferencesAndConstraints: '',
+    taskProgress: '',
+    longTermMemory: '',
     status: '',
     tags: [],
     attributes: {},
@@ -1227,7 +1298,9 @@ const selectedNodeDetailItems = computed(() => {
   const fields = nodeFieldMap[node.objectType] || []
   return fields
     .map((field) => {
-      const rawValue = node.attributes?.[field.key]
+      const rawValue = ['knownFacts', 'preferencesAndConstraints', 'taskProgress', 'longTermMemory'].includes(field.key)
+        ? node[field.key as 'knownFacts' | 'preferencesAndConstraints' | 'taskProgress' | 'longTermMemory']
+        : node.attributes?.[field.key]
       const value = rawValue === undefined || rawValue === null || rawValue === '' ? '' : String(rawValue)
       return {
         key: field.key,
@@ -1258,7 +1331,12 @@ function readEffectNodeFieldCurrentValue(effect: WorldTimelineEffect, fieldKey: 
   if (!node) {
     return ''
   }
-  const rawValue = fieldKey === 'currentStatus' ? node.attributes?.currentStatus ?? node.status : node.attributes?.[fieldKey]
+  const rawValue =
+    fieldKey === 'currentStatus'
+      ? node.attributes?.currentStatus ?? node.status
+      : ['knownFacts', 'preferencesAndConstraints', 'taskProgress', 'longTermMemory'].includes(fieldKey)
+        ? node[fieldKey as 'knownFacts' | 'preferencesAndConstraints' | 'taskProgress' | 'longTermMemory']
+        : node.attributes?.[fieldKey]
   return rawValue === undefined || rawValue === null ? '' : String(rawValue)
 }
 
@@ -1429,6 +1507,7 @@ async function loadWorldGraph() {
     relationTypes.value = (Array.isArray(props.graphData.relationTypes) ? props.graphData.relationTypes : []).map(normalizeRelationTypeClient)
     Object.assign(meta, cloneValue(props.graphData.meta))
     lastPersistedLayout.value = cloneValue(props.graphData.meta.layout)
+    syncCalendarInputs()
     rawNodes.value = nextNodes
     applyLoadedGraphPresentation()
     return
@@ -1444,11 +1523,12 @@ async function loadWorldGraph() {
     const response = await getRobotWorldGraph(props.currentRobot.id)
     const nextNodes = (Array.isArray(response.nodes) ? response.nodes : []).map(normalizeNodeClient)
     rawEdges.value = (Array.isArray(response.edges) ? response.edges : []).map(normalizeEdgeClient)
-    relationTypes.value = (Array.isArray(response.relationTypes) ? response.relationTypes : []).map(normalizeRelationTypeClient)
-    Object.assign(meta, response.meta)
-    lastPersistedLayout.value = cloneValue(response.meta.layout)
-    rawNodes.value = nextNodes
-    applyLoadedGraphPresentation()
+      relationTypes.value = (Array.isArray(response.relationTypes) ? response.relationTypes : []).map(normalizeRelationTypeClient)
+      Object.assign(meta, response.meta)
+      lastPersistedLayout.value = cloneValue(response.meta.layout)
+      syncCalendarInputs()
+      rawNodes.value = nextNodes
+      applyLoadedGraphPresentation()
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '加载世界设定失败')
   } finally {
@@ -1539,6 +1619,36 @@ function switchPanel(panel: 'graph' | 'relation-types') {
 
 function closeWorldGraph() {
   emit('close')
+}
+
+async function saveGraphMeta() {
+  if (isReadOnly.value || !props.currentRobot?.id) {
+    return
+  }
+  savingMeta.value = true
+  try {
+    const response = await updateRobotWorldGraphMeta(props.currentRobot.id, {
+      title: meta.title,
+      summary: meta.summary,
+      calendar: {
+        calendarId: meta.calendar.calendarId,
+        calendarName: meta.calendar.calendarName,
+        eras: parseStringListInput(calendarErasInput.value),
+        monthNames: parseStringListInput(calendarMonthNamesInput.value),
+        dayNames: parseStringListInput(calendarDayNamesInput.value),
+        timeOfDayLabels: parseStringListInput(calendarTimeOfDayLabelsInput.value),
+        formatTemplate: meta.calendar.formatTemplate,
+      },
+      layout: meta.layout,
+    })
+    Object.assign(meta, response.meta)
+    syncCalendarInputs()
+    MessagePlugin.success('世界设定已保存')
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '保存世界设定失败')
+  } finally {
+    savingMeta.value = false
+  }
 }
 
 function closeEditor() {
@@ -1820,11 +1930,21 @@ async function createEdgeWithType(type: RobotWorldRelationType) {
 }
 
 function readNodeAttribute(key: string) {
-  return nodeDraft.value?.attributes?.[key] ?? ''
+  if (!nodeDraft.value) {
+    return ''
+  }
+  if (['knownFacts', 'preferencesAndConstraints', 'taskProgress', 'longTermMemory'].includes(key)) {
+    return nodeDraft.value[key as 'knownFacts' | 'preferencesAndConstraints' | 'taskProgress' | 'longTermMemory'] ?? ''
+  }
+  return nodeDraft.value.attributes?.[key] ?? ''
 }
 
 function writeNodeAttribute(key: string, value: unknown, input: NodeFieldInput) {
   if (!nodeDraft.value) {
+    return
+  }
+  if (['knownFacts', 'preferencesAndConstraints', 'taskProgress', 'longTermMemory'].includes(key)) {
+    nodeDraft.value[key as 'knownFacts' | 'preferencesAndConstraints' | 'taskProgress' | 'longTermMemory'] = normalizeString(value)
     return
   }
   const nextAttributes = { ...(nodeDraft.value.attributes || {}) }
@@ -2479,6 +2599,10 @@ onBeforeUnmount(() => {
 .sidebar-tabs.single{grid-template-columns:1fr}
 .sidebar-tab{height:42px;border:0;border-radius:16px;background:#eef0f3;color:#5b6168;font-size:14px;font-weight:600;cursor:pointer;transition:.18s ease}
 .sidebar-tab.active{background:#111827;color:#fff}
+.meta-panel{display:grid;gap:12px;padding:0 18px 16px}
+.meta-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.meta-panel-head strong{color:#111827;font-size:14px;font-weight:700}
+.meta-form{display:grid;gap:4px}
 .sidebar-search{padding:0 18px 12px}
 .sidebar-search :deep(.t-input){border-radius:16px;background:#eef0f3}
 .sidebar-list{flex:1;min-height:0;padding:0 10px 12px;overflow:auto}

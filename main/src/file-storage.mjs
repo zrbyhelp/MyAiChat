@@ -16,14 +16,12 @@ import {
   normalizeSession,
   normalizeSessionMemory,
   normalizeSessionRobot,
+  normalizeStoryOutline,
   normalizeStructuredMemory,
   normalizeSessionsPayload,
   safeJsonParse,
 } from './storage-shared.mjs'
 import {
-  cloneWorldGraphSnapshot,
-  createEmptyWorldGraphSnapshot,
-  getWorldGraph,
   normalizeWorldGraphSnapshot,
 } from './world-graph-service.mjs'
 
@@ -147,17 +145,7 @@ export async function upsertSessionRecord(user, input) {
   const now = new Date().toISOString()
   const existing = input?.id ? await getSessionRecord(user, String(input.id)) : null
   let nextWorldGraph = input?.worldGraph || input?.world_graph || existing?.worldGraph || null
-  if (!nextWorldGraph) {
-    const robotId = String(input?.robot?.id || existing?.robot?.id || '').trim()
-    const robotName = String(input?.robot?.name || existing?.robot?.name || '').trim()
-    if (robotId) {
-      try {
-        nextWorldGraph = cloneWorldGraphSnapshot(await getWorldGraph(user, robotId))
-      } catch {
-        nextWorldGraph = createEmptyWorldGraphSnapshot(robotId, robotName)
-      }
-    }
-  } else {
+  if (nextWorldGraph) {
     nextWorldGraph = normalizeWorldGraphSnapshot(nextWorldGraph, {
       robotId: input?.robot?.id || existing?.robot?.id || '',
       robotName: input?.robot?.name || existing?.robot?.name || '',
@@ -170,6 +158,7 @@ export async function upsertSessionRecord(user, input) {
     memory: normalizeSessionMemory({ ...(existing?.memory || DEFAULT_SESSION_MEMORY), ...(input?.memory || {}) }),
     memorySchema: normalizeMemorySchema(input?.memorySchema || existing?.memorySchema),
     structuredMemory: normalizeStructuredMemory(input?.structuredMemory || existing?.structuredMemory || DEFAULT_STRUCTURED_MEMORY),
+    storyOutline: normalizeStoryOutline(input?.storyOutline || input?.story_outline || existing?.storyOutline || {}),
     messages: existing?.messages || input?.messages || [],
     worldGraph: nextWorldGraph,
     createdAt: existing?.createdAt || input?.createdAt || now,

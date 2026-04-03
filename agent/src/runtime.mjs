@@ -1,7 +1,7 @@
 import { getPromptConfig } from './prompt-config.mjs'
 
-export const DEFAULT_STRUCTURED_MEMORY_INTERVAL = 3
-export const DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT = 12
+export const DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT = 2
+export const STORY_OUTLINE_HISTORY_LIMIT = 10
 const MAX_MEMORY_SUMMARY_LENGTH = 280
 
 function debugLogsEnabled() {
@@ -89,72 +89,20 @@ export function composeSystemPrompt(...sections) {
     .join('\n\n')
 }
 
-export function normalizeNumericItems(input) {
-  const results = []
-  const seen = new Set()
-  for (const item of Array.isArray(input) ? input : []) {
-    const name = String(item?.name || '').trim()
-    if (!name || seen.has(name)) {
-      continue
-    }
-    const currentValue = Number(item?.current_value ?? item?.currentValue)
-    if (!Number.isFinite(currentValue)) {
-      continue
-    }
-    seen.add(name)
-    results.push({
-      name,
-      current_value: currentValue,
-      description: String(item?.description || '').trim(),
-    })
-  }
-  return results
+export function normalizeNumericItems() {
+  return []
 }
 
-export function numericItemsToSchema(items) {
-  return Object.fromEntries(
-    normalizeNumericItems(items).map((item) => [item.name, Number(item.current_value)]),
-  )
+export function numericItemsToSchema() {
+  return {}
 }
 
-function numericItemsDescriptionText(items) {
-  if (!items.length) {
-    return '暂无字段说明。'
-  }
-  return items.map((item) => `- ${item.name}：默认值 ${Number(item.current_value)}；说明：${item.description || '无'}`).join('\n')
+export function numericPayloadForAnswerer() {
+  return []
 }
 
-export function numericPayloadForAnswerer(items, numericState) {
-  const state = numericState && typeof numericState === 'object' ? numericState : {}
-  return normalizeNumericItems(items).map((item) => ({
-    name: item.name,
-    currentValue: Number.isFinite(Number(state[item.name])) ? Number(state[item.name]) : Number(item.current_value),
-    description: item.description,
-  }))
-}
-
-export function normalizeNumericStateValue(schemaValue, currentValue, nextValue) {
-  if (schemaValue && typeof schemaValue === 'object' && !Array.isArray(schemaValue)) {
-    const current = currentValue && typeof currentValue === 'object' ? currentValue : {}
-    const next = nextValue && typeof nextValue === 'object' ? nextValue : {}
-    return Object.fromEntries(
-      Object.entries(schemaValue)
-        .map(([key, childSchema]) => [key, normalizeNumericStateValue(childSchema, current[key], next[key])])
-        .filter(([, value]) => value != null),
-    )
-  }
-
-  if (Number.isFinite(Number(nextValue))) {
-    return Number(nextValue)
-  }
-  if (Number.isFinite(Number(currentValue))) {
-    return Number(currentValue)
-  }
-  return Number(schemaValue)
-}
-
-function numericStateText(input) {
-  return JSON.stringify(input && typeof input === 'object' ? input : {}, null, 0) || '{}'
+export function normalizeNumericStateValue(_schemaValue, _currentValue, _nextValue) {
+  return null
 }
 
 function fieldTypeText(field) {
@@ -253,16 +201,12 @@ function normalizeStructuredMemoryCategory(schemaCategory, rawCategory) {
   }
 }
 
-export function normalizeStructuredMemory(schema, payload) {
-  const categoryMap = new Map(
-    (Array.isArray(payload?.categories) ? payload.categories : [])
-      .filter((item) => item && typeof item === 'object')
-      .map((item) => [String(item.category_id || item.categoryId || ''), item]),
-  )
+export function normalizeStructuredMemory(schemaOrPayload, payloadMaybe) {
+  const payload = payloadMaybe === undefined ? schemaOrPayload : payloadMaybe
   return {
-    updated_at: String(payload?.updated_at || payload?.updatedAt || utcNow()),
-    categories: (Array.isArray(schema?.categories) ? schema.categories : []).map((category) =>
-      normalizeStructuredMemoryCategory(category, categoryMap.get(category.id) || {})),
+    updated_at: String(payload?.updated_at || payload?.updatedAt || ''),
+    long_term_memory: String(payload?.long_term_memory || payload?.longTermMemory || '').trim(),
+    short_term_memory: String(payload?.short_term_memory || payload?.shortTermMemory || '').trim(),
   }
 }
 
@@ -285,28 +229,24 @@ function compactCategoryMemoryPayload(categoryMemory) {
 function compactMemoryPayload(memory) {
   return {
     updated_at: String(memory?.updated_at || ''),
-    categories: (Array.isArray(memory?.categories) ? memory.categories : []).map(compactCategoryMemoryPayload),
+    long_term_memory: String(memory?.long_term_memory || memory?.longTermMemory || ''),
+    short_term_memory: String(memory?.short_term_memory || memory?.shortTermMemory || ''),
   }
 }
 
 export function memoryText(memory) {
-  const categories = Array.isArray(memory?.categories) ? memory.categories : []
-  if (!categories.length) {
+  const longTermMemory = String(memory?.long_term_memory || memory?.longTermMemory || '').trim()
+  const shortTermMemory = String(memory?.short_term_memory || memory?.shortTermMemory || '').trim()
+  if (!longTermMemory && !shortTermMemory) {
     return '暂无结构化记忆。'
   }
-  const parts = []
-  for (const category of categories) {
-    parts.push(`${category.label || category.category_id}：`)
-    for (const item of Array.isArray(category.items) ? category.items : []) {
-      const valueText = Object.entries(item.values || {}).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(', ')
-      const summary = String(item.summary || '').trim()
-      parts.push(`- ${summary || valueText || item.id}`)
-      if (valueText && summary !== valueText) {
-        parts.push(`  ${valueText}`)
-      }
-    }
-  }
-  return parts.join('\n') || '暂无结构化记忆。'
+  return [
+    '长期记忆：',
+    longTermMemory || '暂无',
+    '',
+    '短期记忆：',
+    shortTermMemory || '暂无',
+  ].join('\n')
 }
 
 export function buildMemoryContext(memory) {
@@ -361,11 +301,65 @@ function resolveSystemPrompt(state) {
 }
 
 function resolveNumericComputationPrompt(state) {
-  return String(state.numeric_computation_prompt || getPromptConfig()?.defaults?.numeric_computation_prompt || '').trim()
+  void state
+  return ''
+}
+
+function normalizeStoryDraftEntries(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+}
+
+export function normalizeStoryOutlinePayload(input) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
+  const storyDraft = source.story_draft && typeof source.story_draft === 'object' && !Array.isArray(source.story_draft)
+    ? source.story_draft
+    : source.storyDraft && typeof source.storyDraft === 'object' && !Array.isArray(source.storyDraft)
+      ? source.storyDraft
+      : {}
+  return {
+    story_draft: {
+      characters: normalizeStoryDraftEntries(storyDraft.characters),
+      items: normalizeStoryDraftEntries(storyDraft.items),
+      organizations: normalizeStoryDraftEntries(storyDraft.organizations),
+      locations: normalizeStoryDraftEntries(storyDraft.locations),
+      events: normalizeStoryDraftEntries(storyDraft.events),
+    },
+    retrieval_query: String(source.retrieval_query || source.retrievalQuery || '').trim(),
+  }
 }
 
 function resolveStoryOutline(state) {
-  return String(state.story_outline || '').trim()
+  return normalizeStoryOutlinePayload(state.story_outline)
+}
+
+function hasStoryOutline(outline) {
+  const normalized = normalizeStoryOutlinePayload(outline)
+  return Boolean(
+    normalized.retrieval_query
+    || normalized.story_draft.characters.length
+    || normalized.story_draft.items.length
+    || normalized.story_draft.organizations.length
+    || normalized.story_draft.locations.length
+    || normalized.story_draft.events.length
+  )
+}
+
+function formatStoryDraftForPrompt(outline) {
+  const normalized = normalizeStoryOutlinePayload(outline)
+  const sections = [
+    ['人物草稿', normalized.story_draft.characters],
+    ['物品草稿', normalized.story_draft.items],
+    ['组织草稿', normalized.story_draft.organizations],
+    ['地点草稿', normalized.story_draft.locations],
+    ['事件草稿', normalized.story_draft.events],
+  ]
+  const content = sections
+    .filter(([, items]) => items.length)
+    .map(([label, items]) => `${label}：\n${items.map((item) => `- ${item}`).join('\n')}`)
+    .join('\n\n')
+  return content || '暂无故事草稿。'
 }
 
 function resolveNodeModelConfig(state, kind) {
@@ -375,12 +369,7 @@ function resolveNodeModelConfig(state, kind) {
 
 export function buildInitialState(request, history, memorySchema, structuredMemory) {
   const promptConfig = getPromptConfig()
-  const numericComputationItems = normalizeNumericItems(request.robot?.numeric_computation_items || [])
   const normalizedHistory = historyPayload(history)
-  const structuredMemoryHistoryLimit = normalizePositiveInt(
-    request.structured_memory_history_limit ?? request.robot?.structured_memory_history_limit,
-    DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
-  )
   const memoryContext = buildMemoryContext(structuredMemory)
 
   return {
@@ -389,27 +378,20 @@ export function buildInitialState(request, history, memorySchema, structuredMemo
     common_prompt: request.robot?.common_prompt || promptConfig?.defaults?.common_prompt || '',
     system_prompt: request.system_prompt || request.robot?.system_prompt || promptConfig?.defaults?.system_prompt || '',
     history: normalizedHistory,
-    history_text: historyText(normalizedHistory, structuredMemoryHistoryLimit),
+    history_text: historyText(normalizedHistory, DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT),
+    story_outline_history_text: historyText(normalizedHistory, STORY_OUTLINE_HISTORY_LIMIT),
     memory_schema: memorySchema,
     structured_memory: structuredMemory,
     structured_memory_text: memoryContext.structured_memory_text,
     structured_memory_payload_json: memoryContext.structured_memory_payload_json,
-    structured_memory_interval: normalizePositiveInt(
-      request.structured_memory_interval ?? request.robot?.structured_memory_interval,
-      DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-    ),
-    structured_memory_history_limit: structuredMemoryHistoryLimit,
     model_config: request.model_settings,
     auxiliary_model_configs: request.auxiliary_model_configs || {},
-    numeric_stage_completed: Boolean(request.numeric_stage_completed),
     story_outline_stage_completed: Boolean(request.story_outline_stage_completed),
-    numeric_computation_enabled: Boolean(request.robot?.numeric_computation_enabled),
-    numeric_computation_prompt: request.robot?.numeric_computation_prompt || promptConfig?.defaults?.numeric_computation_prompt || '',
-    numeric_computation_items: numericComputationItems,
-    numeric_state: request.numeric_state && typeof request.numeric_state === 'object' ? request.numeric_state : {},
-    story_outline: String(request.story_outline || ''),
+    story_outline: normalizeStoryOutlinePayload(request.story_outline),
     world_graph_payload: request.world_graph && typeof request.world_graph === 'object' ? request.world_graph : {},
-    world_graph_writeback_ops: normalizeWorldGraphWritebackOps({}),
+    vector_context_text: String(request.vector_context_text || request.vectorContextText || '').trim(),
+    answer_graph_update_ops: normalizeWorldGraphWritebackOps({}),
+    world_graph_evolution_ops: normalizeWorldGraphWritebackOps({}),
     final_response: String(request.final_response || ''),
     usage: emptyUsage(),
   }
@@ -417,7 +399,6 @@ export function buildInitialState(request, history, memorySchema, structuredMemo
 
 export function buildAnswererMessages(state) {
   const promptConfig = getPromptConfig()
-  const numericItems = Array.isArray(state.numeric_computation_items) ? state.numeric_computation_items : []
   return [
     {
       role: 'system',
@@ -431,21 +412,22 @@ export function buildAnswererMessages(state) {
     {
       role: 'user',
       content: [
-        '内部故事梗概：',
-        resolveStoryOutline(state) || '暂无故事梗概。',
+        '故事设定：',
+        resolveSystemPrompt(state) || '无',
         '',
-        '结构化记忆：',
-        state.structured_memory_text,
+        '内部故事草稿：',
+        formatStoryDraftForPrompt(state.story_outline),
         '',
-        '完整世界图谱 JSON：',
-        JSON.stringify(state.world_graph_payload || {}, null, 0),
+        '长期记忆：',
+        String(state.structured_memory?.long_term_memory || '').trim() || '暂无长期记忆。',
         '',
-        promptConfig.templates.answerer.numeric_guardrail,
+        '短期记忆：',
+        String(state.structured_memory?.short_term_memory || '').trim() || '暂无短期记忆。',
         '',
-        '数值信息：',
-        JSON.stringify(numericPayloadForAnswerer(numericItems, state.numeric_state)),
+        '向量检索结果：',
+        state.vector_context_text || '无',
         '',
-        '历史消息：',
+        '最近一轮历史消息：',
         state.history_text,
         '',
         `用户最新输入：${state.prompt}`,
@@ -454,72 +436,8 @@ export function buildAnswererMessages(state) {
   ]
 }
 
-export async function numericAgentNode(state, modelClient) {
-  const promptConfig = getPromptConfig()
-  const numericItems = Array.isArray(state.numeric_computation_items) ? state.numeric_computation_items : []
-  const numericSchema = numericItemsToSchema(numericItems)
-  const currentNumericState = normalizeNumericStateValue(numericSchema, {}, state.numeric_state || {})
-
-  if (state.numeric_stage_completed) {
-    return {
-      numeric_state: currentNumericState,
-      usage: emptyUsage(),
-    }
-  }
-
-  if (!state.numeric_computation_enabled || !Object.keys(numericSchema).length) {
-    return {
-      numeric_state: currentNumericState,
-      usage: emptyUsage(),
-    }
-  }
-
-  const response = await modelClient.invokeText(
-    resolveNodeModelConfig(state, 'numeric_computation'),
-    composeSystemPrompt(
-      resolveCommonPrompt(state),
-      promptConfig.templates.numeric_agent.system_instruction,
-      `${promptConfig.templates.numeric_agent.user_prompt_label}\n${resolveNumericComputationPrompt(state) || '未配置'}`,
-    ),
-    [
-      '主要故事设定：',
-      resolveSystemPrompt(state),
-      '',
-      '结构化记忆：',
-      state.structured_memory_text,
-      '',
-      '数值字段定义：',
-      numericItemsDescriptionText(numericItems),
-      '',
-      '数值结构体：',
-      JSON.stringify(numericSchema),
-      '',
-      '当前数值状态：',
-      numericStateText(currentNumericState),
-      '',
-      '历史消息：',
-      state.history_text,
-      '',
-      `用户最新输入：${state.prompt}`,
-    ].join('\n'),
-  )
-
-  const parsed = parseJsonObject(response.text, numericSchema)
-  const numericResult = normalizeNumericStateValue(numericSchema, currentNumericState, parsed)
-  debugLog('[numeric-agent]', {
-    prompt: state.prompt,
-    raw_output: response.text,
-    parsed_output: parsed,
-    numeric_result: numericResult,
-  })
-  return {
-    numeric_state: numericResult,
-    usage: response.usage,
-  }
-}
-
 export async function storyOutlineNode(state, modelClient) {
-  if (state.story_outline_stage_completed && resolveStoryOutline(state)) {
+  if (state.story_outline_stage_completed && hasStoryOutline(state.story_outline)) {
     return {
       story_outline: resolveStoryOutline(state),
       usage: emptyUsage(),
@@ -534,23 +452,30 @@ export async function storyOutlineNode(state, modelClient) {
       promptConfig.templates.story_outline.system_instruction,
     ),
     [
+      '故事设定：',
+      resolveSystemPrompt(state),
+      '',
       '结构化记忆：',
       state.structured_memory_text,
       '',
-      '完整世界图谱 JSON：',
-      JSON.stringify(state.world_graph_payload || {}),
-      '',
-      '数值信息：',
-      JSON.stringify(numericPayloadForAnswerer(state.numeric_computation_items || [], state.numeric_state)),
-      '',
       '历史消息：',
-      state.history_text,
+      state.story_outline_history_text || state.history_text,
       '',
       `用户最新输入：${state.prompt}`,
     ].join('\n'),
   )
+  const payload = normalizeStoryOutlinePayload(parseJsonObject(response.text, {
+    story_draft: {
+      characters: [],
+      items: [],
+      organizations: [],
+      locations: [],
+      events: [],
+    },
+    retrieval_query: '',
+  }))
   return {
-    story_outline: response.text.trim(),
+    story_outline: payload,
     usage: response.usage,
   }
 }
@@ -574,16 +499,8 @@ function normalizeCategoryMemoryPatch(category, payload) {
 }
 
 function normalizeMemoryPatch(schema, payload) {
-  const categoryMap = new Map(
-    (Array.isArray(payload?.categories) ? payload.categories : [])
-      .filter((item) => item && typeof item === 'object')
-      .map((item) => [String(item.category_id || item.categoryId || ''), item]),
-  )
-  return {
-    updated_at: String(payload?.updated_at || payload?.updatedAt || utcNow()),
-    categories: (Array.isArray(schema?.categories) ? schema.categories : []).map((category) =>
-      normalizeCategoryMemoryPatch(category, categoryMap.get(category.id) || {})),
-  }
+  void schema
+  return normalizeStructuredMemory(payload)
 }
 
 function mergeCategoryMemoryPatch(category, currentCategoryMemory, patch) {
@@ -630,22 +547,12 @@ function mergeCategoryMemoryPatch(category, currentCategoryMemory, patch) {
 }
 
 function mergeMemoryPatch(schema, currentMemory, patch) {
-  const memoryMap = new Map((Array.isArray(currentMemory?.categories) ? currentMemory.categories : []).map((item) => [item.category_id, item]))
-  const patchMap = new Map((Array.isArray(patch?.categories) ? patch.categories : []).map((item) => [item.category_id, item]))
-  return normalizeStructuredMemory(schema, {
+  void schema
+  void currentMemory
+  return normalizeStructuredMemory({
     updated_at: String(patch?.updated_at || patch?.updatedAt || utcNow()),
-    categories: (Array.isArray(schema?.categories) ? schema.categories : []).map((category) =>
-      mergeCategoryMemoryPatch(
-        category,
-        memoryMap.get(category.id) || {
-          category_id: category.id,
-          label: category.label,
-          description: category.description,
-          updated_at: '',
-          items: [],
-        },
-        patchMap.get(category.id) || {},
-      )),
+    long_term_memory: String(patch?.long_term_memory || patch?.longTermMemory || ''),
+    short_term_memory: String(patch?.short_term_memory || patch?.shortTermMemory || ''),
   })
 }
 
@@ -658,68 +565,110 @@ async function updateMemoryPatch(state, modelClient) {
       promptConfig.templates.memory_patch.system_instruction,
     ),
     [
-      `当前记忆 schema：\n${schemaText(state.memory_schema)}`,
-      `当前已有记忆：\n${state.structured_memory_payload_json}`,
-      `历史消息：\n${state.history_text}`,
+      `故事设定：\n${resolveSystemPrompt(state) || '无'}`,
+      `当前长期记忆：\n${String(state.structured_memory?.long_term_memory || '').trim() || '无'}`,
+      `当前短期记忆：\n${String(state.structured_memory?.short_term_memory || '').trim() || '无'}`,
+      `最近一轮历史消息：\n${state.history_text}`,
       `用户最新输入：${state.prompt}`,
       `助手最终回复：${state.final_response || ''}`,
-      `内部故事梗概：\n${resolveStoryOutline(state) || '暂无故事梗概。'}`,
+      `内部故事草稿：\n${formatStoryDraftForPrompt(state.story_outline)}`,
     ].join('\n\n'),
   )
-  const patch = normalizeMemoryPatch(state.memory_schema, parseJsonObject(response.text, {
+  const patch = normalizeStructuredMemory(parseJsonObject(response.text, {
     updated_at: utcNow(),
-    categories: [],
+    long_term_memory: '',
+    short_term_memory: '',
   }))
-  debugLog('[memory-patch]', {
-    thread_id: state.thread_id,
-    raw_output: response.text,
-    patch_category_count: patch.categories.length,
-  })
   return { patch, usage: response.usage }
 }
 
 export async function memoryNode(state, modelClient) {
   const { patch, usage } = await updateMemoryPatch(state, modelClient)
-  const memory = mergeMemoryPatch(state.memory_schema, state.structured_memory, patch)
+  const memory = normalizeStructuredMemory({
+    updated_at: patch.updated_at || utcNow(),
+    long_term_memory: patch.long_term_memory,
+    short_term_memory: patch.short_term_memory,
+  })
   return {
     structured_memory: memory,
     usage,
   }
 }
 
-export async function worldGraphWritebackNode(state, modelClient) {
+export async function answerGraphUpdateNode(state, modelClient) {
   const promptConfig = getPromptConfig()
   const worldGraphPayload = state.world_graph_payload && typeof state.world_graph_payload === 'object'
     ? state.world_graph_payload
     : {}
   if (!String(worldGraphPayload?.meta?.robotId || '').trim()) {
     return {
-      world_graph_writeback_ops: normalizeWorldGraphWritebackOps({}),
+      answer_graph_update_ops: normalizeWorldGraphWritebackOps({}),
       usage: emptyUsage(),
     }
   }
 
   const response = await modelClient.invokeText(
-    resolveNodeModelConfig(state, 'world_graph'),
-    composeSystemPrompt(
-      resolveCommonPrompt(state),
-      `主要故事设定：\n${resolveSystemPrompt(state)}`,
-      promptConfig.templates.world_graph_writeback.system_instruction,
-    ),
+      resolveNodeModelConfig(state, 'world_graph'),
+      composeSystemPrompt(
+        resolveCommonPrompt(state),
+        `主要故事设定：\n${resolveSystemPrompt(state)}`,
+        promptConfig.templates.answer_graph_update.system_instruction,
+      ),
     [
-      `结构化记忆：\n${state.structured_memory_text}`,
-      `数值信息：\n${JSON.stringify(numericPayloadForAnswerer(state.numeric_computation_items || [], state.numeric_state))}`,
-      `历史消息：\n${state.history_text}`,
+      `故事设定：\n${resolveSystemPrompt(state) || '无'}`,
+      `长期记忆：\n${String(state.structured_memory?.long_term_memory || '').trim() || '无'}`,
+      `短期记忆：\n${String(state.structured_memory?.short_term_memory || '').trim() || '无'}`,
+      `内部故事草稿：\n${formatStoryDraftForPrompt(state.story_outline)}`,
       `用户最新输入：${state.prompt}`,
       `最终正文：\n${state.final_response || ''}`,
-      `内部故事梗概：\n${resolveStoryOutline(state) || '暂无故事梗概。'}`,
-      `当前最大 sequenceIndex：${getWorldGraphMaxSequenceIndex(worldGraphPayload)}`,
-      `当前事件时间线摘要：\n${summarizeWorldGraphTimelineText(worldGraphPayload)}`,
       `完整世界图谱 JSON：\n${JSON.stringify(worldGraphPayload)}`,
     ].join('\n\n'),
   )
   return {
-    world_graph_writeback_ops: normalizeWorldGraphWritebackOps(parseJsonObject(response.text, {})),
+    answer_graph_update_ops: normalizeWorldGraphWritebackOps(parseJsonObject(response.text, {})),
+    usage: response.usage,
+  }
+}
+
+function collectPatchedObjectIds(writebackOps) {
+  const ops = normalizeWorldGraphWritebackOps(writebackOps)
+  return [...new Set([
+    ...(Array.isArray(ops.upsert_nodes) ? ops.upsert_nodes.map((item) => String(item?.id || '').trim()) : []),
+    ...(Array.isArray(ops.upsert_events) ? ops.upsert_events.map((item) => String(item?.id || '').trim()) : []),
+  ].filter(Boolean))]
+}
+
+export async function worldGraphEvolutionNode(state, modelClient) {
+  const promptConfig = getPromptConfig()
+  const worldGraphPayload = state.world_graph_payload && typeof state.world_graph_payload === 'object'
+    ? state.world_graph_payload
+    : {}
+  if (!String(worldGraphPayload?.meta?.robotId || '').trim()) {
+    return {
+      world_graph_evolution_ops: normalizeWorldGraphWritebackOps({}),
+      usage: emptyUsage(),
+    }
+  }
+  const excludedIds = collectPatchedObjectIds(state.answer_graph_update_ops)
+  const response = await modelClient.invokeText(
+    resolveNodeModelConfig(state, 'world_graph'),
+    composeSystemPrompt(
+      resolveCommonPrompt(state),
+      `主要故事设定：\n${resolveSystemPrompt(state)}`,
+      promptConfig.templates.world_graph_evolution.system_instruction,
+    ),
+    [
+      `故事设定：\n${resolveSystemPrompt(state) || '无'}`,
+      `长期记忆：\n${String(state.structured_memory?.long_term_memory || '').trim() || '无'}`,
+      `短期记忆：\n${String(state.structured_memory?.short_term_memory || '').trim() || '无'}`,
+      `用户最新输入：${state.prompt}`,
+      `最终正文：\n${state.final_response || ''}`,
+      `本轮正文已直接处理对象 ID：\n${excludedIds.join('\n') || '无'}`,
+      `完整世界图谱 JSON：\n${JSON.stringify(worldGraphPayload)}`,
+    ].join('\n\n'),
+  )
+  return {
+    world_graph_evolution_ops: normalizeWorldGraphWritebackOps(parseJsonObject(response.text, {})),
     usage: response.usage,
   }
 }
@@ -876,9 +825,9 @@ export function buildGraphRagWritebackPrompt(request) {
   return [
     `机器人名称：${request.robot_name || '当前智能体'}`,
     `机器人简介：${request.robot_description || '无'}`,
-    `故事梗概：${request.story_outline || '无'}`,
-    '历史消息：',
-    historyText(request.history, 10),
+    `故事设定：${request.story_setting || request.system_prompt || '无'}`,
+    `长期记忆：${request.long_term_memory || '无'}`,
+    `短期记忆：${request.short_term_memory || '无'}`,
     `用户最新输入：${String(request.prompt || '').trim() || '无'}`,
     '最终正文：',
     String(request.final_response || '').trim() || '无',
@@ -955,7 +904,6 @@ export async function saveMemoryToThread(store, request, memory, state) {
       messages: currentThread.messages,
       memory_schema: state.memory_schema || request.memory_schema || currentThread.memory_schema,
       structured_memory: memory,
-      numeric_state: currentThread.numeric_state,
       story_outline: currentThread.story_outline,
     })
     return
@@ -970,7 +918,6 @@ export async function saveMemoryToThread(store, request, memory, state) {
     ],
     memory_schema: request.memory_schema,
     structured_memory: memory,
-    numeric_state: state.numeric_state || {},
-    story_outline: state.story_outline || '',
+    story_outline: normalizeStoryOutlinePayload(state.story_outline || {}),
   })
 }

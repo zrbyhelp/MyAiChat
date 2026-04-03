@@ -11,12 +11,12 @@ import type {
   AIFormSchema,
   AIModelConfigItem,
   ChatSessionMessage,
-  NumericComputationItem,
   SessionRobotState,
   SessionMemoryState,
   SessionUsageState,
   MemorySchemaState,
   RobotWorldGraph,
+  StoryOutlineState,
   StructuredMemoryState,
   SuggestionOption,
 } from '@/types/ai'
@@ -31,18 +31,15 @@ interface UseChatStreamingOptions {
   currentSessionMemory: SessionMemoryState
   currentMemorySchema: MemorySchemaState
   currentStructuredMemory: StructuredMemoryState
-  currentNumericState: Ref<Record<string, unknown>>
-  currentStoryOutline: Ref<string>
+  currentStoryOutline: Ref<StoryOutlineState>
   currentSessionWorldGraph: Ref<RobotWorldGraph | null>
   rawChatMessages: Ref<ChatRenderMessage[]>
   effectiveStream: ComputedRef<boolean>
   effectiveThinking: ComputedRef<boolean>
-  cloneNumericComputationItems: (items?: NumericComputationItem[] | null) => NumericComputationItem[]
-  applyNumericState: (value?: Record<string, unknown> | null) => void
   applySessionUsage: (usage?: Partial<SessionUsageState> | null) => void
   applyStructuredMemory: (memory?: Partial<StructuredMemoryState> | null) => void
   applySessionWorldGraph: (graph?: RobotWorldGraph | null) => void
-  applyStoryOutline: (value?: string | null) => void
+  applyStoryOutline: (value?: Partial<StoryOutlineState> | null) => void
   serializeChatMessages: (messages: ChatRenderMessage[]) => ChatSessionMessage[]
   completeChatResponse: () => void
   syncChatResponse: (options?: { refreshSession?: boolean }) => void
@@ -117,7 +114,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
   }
 
   function buildAuxiliaryModelConfig(
-    kind: 'memory' | 'outline' | 'numeric_computation' | 'world_graph',
+    kind: 'memory' | 'outline' | 'world_graph',
     modelConfigId?: string | null,
   ) {
     const targetId = String(modelConfigId || '').trim()
@@ -164,21 +161,11 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             memoryModelConfigId: options.sessionRobot.memoryModelConfigId,
             outlineModelConfigId: options.sessionRobot.outlineModelConfigId,
             knowledgeRetrievalModelConfigId: options.sessionRobot.knowledgeRetrievalModelConfigId,
-            numericComputationModelConfigId: options.sessionRobot.numericComputationModelConfigId,
             worldGraphModelConfigId: options.sessionRobot.worldGraphModelConfigId,
-            numericComputationEnabled: options.sessionRobot.numericComputationEnabled,
-            numericComputationPrompt: options.sessionRobot.numericComputationPrompt,
-            numericComputationItems: options.cloneNumericComputationItems(options.sessionRobot.numericComputationItems),
-            structuredMemoryInterval: options.sessionRobot.structuredMemoryInterval,
-            structuredMemoryHistoryLimit: options.sessionRobot.structuredMemoryHistoryLimit,
           },
           auxiliaryModelConfigs: {
             memory: buildAuxiliaryModelConfig('memory', options.sessionRobot.memoryModelConfigId),
             outline: buildAuxiliaryModelConfig('outline', options.sessionRobot.outlineModelConfigId),
-            numericComputation: buildAuxiliaryModelConfig(
-              'numeric_computation',
-              options.sessionRobot.numericComputationModelConfigId,
-            ),
             worldGraph: buildAuxiliaryModelConfig('world_graph', options.sessionRobot.worldGraphModelConfigId),
           },
           sessionSnapshot: {
@@ -198,7 +185,6 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             memory: options.currentSessionMemory,
             memorySchema: options.currentMemorySchema,
             structuredMemory: options.currentStructuredMemory,
-            numericState: options.currentNumericState.value,
             storyOutline: options.currentStoryOutline.value,
             worldGraph: options.currentSessionWorldGraph.value,
             usage: {
@@ -293,11 +279,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
         return null
       }
       if (payload.type === 'story_outline') {
-        options.applyStoryOutline(payload.storyOutline || '')
-        return null
-      }
-      if (payload.type === 'numeric_state_updated' && payload.state) {
-        options.applyNumericState(payload.state)
+        options.applyStoryOutline(payload.storyOutline || null)
         return null
       }
       if (payload.type === 'session_world_graph') {

@@ -446,74 +446,8 @@
               placeholder="填写会统一加到本智能体所有生成节点顶部的通用要求。"
             />
           </TFormItem>
-          <TFormItem label="启用数值计算">
-            <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
-          </TFormItem>
-          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值计算提示词">
-            <TTextarea
-              v-model="mobileAgentDraft.numericComputationPrompt"
-              :autosize="{ minRows: 4, maxRows: 8 }"
-              placeholder="例如：根据用户行为和上下文调整好感度、危险度、财富等数值，并说明增减规则。"
-            />
-          </TFormItem>
-          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值结构体">
-            <div class="numeric-items-editor">
-              <table class="numeric-items-table">
-                <thead>
-                  <tr>
-                    <th>名称</th>
-                    <th>当前值</th>
-                    <th>说明</th>
-                    <th class="numeric-items-action-col">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(item, itemIndex) in mobileAgentDraft.numericComputationItems"
-                    :key="`mobile-agent-${itemIndex}`"
-                  >
-                    <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
-                    <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
-                    <td>
-                      <TInput
-                        v-model="item.description"
-                        placeholder="例如 好感度，受对话行为影响"
-                      />
-                    </td>
-                    <td class="numeric-items-action-col">
-                      <TButton
-                        variant="text"
-                        theme="danger"
-                        @click="$emit('remove-numeric-computation-item', mobileAgentDraft, itemIndex)"
-                        >删除</TButton
-                      >
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              <TButton variant="outline" @click="$emit('add-numeric-computation-item', mobileAgentDraft)"
-                >新增数值项</TButton
-              >
-            </div>
-          </TFormItem>
         </TForm>
         <TForm v-else-if="agentEditorStep === 3" label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="记忆间隔">
-              <TInputNumber
-                v-model="mobileAgentDraft.structuredMemoryInterval"
-                :min="1"
-                placeholder="3"
-              />
-            </TFormItem>
-            <TFormItem label="历史消息条数">
-              <TInputNumber
-                v-model="mobileAgentDraft.structuredMemoryHistoryLimit"
-                :min="1"
-                placeholder="12"
-              />
-            </TFormItem>
-          </div>
           <div class="form-grid-2">
             <TFormItem label="记忆模型">
               <TSelect
@@ -550,18 +484,11 @@
               />
             </TFormItem>
           </div>
-          <div class="form-grid-2">
-            <TFormItem label="数值计算模型">
-              <TSelect
-                v-model="mobileAgentDraft.numericComputationModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
-          </div>
           <div class="agent-schema-card">
-            <MemorySchemaEditor :schema="mobileAgentDraft.memorySchema" />
+            <div class="agent-schema-copy">
+              <strong>记忆策略</strong>
+              <span>系统会在每次回复后同步整理长期记忆和短期记忆，无需额外配置。</span>
+            </div>
           </div>
         </TForm>
         <TForm v-else label-align="top">
@@ -848,74 +775,8 @@
               placeholder="填写会统一加到本智能体所有生成节点顶部的通用要求。"
             />
           </TFormItem>
-          <TFormItem label="启用数值计算">
-            <TSwitch v-model="mobileAgentDraft.numericComputationEnabled" />
-          </TFormItem>
-          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值计算提示词">
-            <TTextarea
-              v-model="mobileAgentDraft.numericComputationPrompt"
-              :autosize="{ minRows: 4, maxRows: 8 }"
-              placeholder="例如：根据用户行为和上下文调整好感度、危险度、财富等数值，并说明增减规则。"
-            />
-          </TFormItem>
-          <TFormItem v-if="mobileAgentDraft.numericComputationEnabled" label="数值结构体">
-            <div class="numeric-items-editor">
-              <table class="numeric-items-table">
-                <thead>
-                  <tr>
-                    <th>名称</th>
-                    <th>当前值</th>
-                    <th>说明</th>
-                    <th class="numeric-items-action-col">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(item, itemIndex) in mobileAgentDraft.numericComputationItems"
-                    :key="`desktop-agent-${itemIndex}`"
-                  >
-                    <td><TInput v-model="item.name" placeholder="例如 favorability" /></td>
-                    <td><TInputNumber v-model="item.currentValue" :step="1" /></td>
-                    <td>
-                      <TInput
-                        v-model="item.description"
-                        placeholder="例如 好感度，受对话行为影响"
-                      />
-                    </td>
-                    <td class="numeric-items-action-col">
-                      <TButton
-                        variant="text"
-                        theme="danger"
-                        @click="$emit('remove-numeric-computation-item', mobileAgentDraft, itemIndex)"
-                        >删除</TButton
-                      >
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              <TButton variant="outline" @click="$emit('add-numeric-computation-item', mobileAgentDraft)"
-                >新增数值项</TButton
-              >
-            </div>
-          </TFormItem>
         </TForm>
         <TForm v-else-if="agentEditorStep === 3" label-align="top">
-          <div class="form-grid-2">
-            <TFormItem label="记忆间隔">
-              <TInputNumber
-                v-model="mobileAgentDraft.structuredMemoryInterval"
-                :min="1"
-                placeholder="3"
-              />
-            </TFormItem>
-            <TFormItem label="历史消息条数">
-              <TInputNumber
-                v-model="mobileAgentDraft.structuredMemoryHistoryLimit"
-                :min="1"
-                placeholder="12"
-              />
-            </TFormItem>
-          </div>
           <div class="form-grid-2">
             <TFormItem label="记忆模型">
               <TSelect
@@ -952,18 +813,11 @@
               />
             </TFormItem>
           </div>
-          <div class="form-grid-2">
-            <TFormItem label="数值计算模型">
-              <TSelect
-                v-model="mobileAgentDraft.numericComputationModelConfigId"
-                :options="auxModelOptions"
-                placeholder="未单独配置，默认跟随正文模型"
-                clearable
-              />
-            </TFormItem>
-          </div>
           <div class="agent-schema-card">
-            <MemorySchemaEditor :schema="mobileAgentDraft.memorySchema" />
+            <div class="agent-schema-copy">
+              <strong>记忆策略</strong>
+              <span>系统会在每次回复后同步整理长期记忆和短期记忆，无需额外配置。</span>
+            </div>
           </div>
         </TForm>
         <TForm v-else label-align="top">
@@ -1108,17 +962,14 @@ import {
   Slider as TSlider,
   StepItem as TStepItem,
   Steps as TSteps,
-  Switch as TSwitch,
   Textarea as TTextarea,
   Upload as TUpload,
   MessagePlugin,
 } from 'tdesign-vue-next'
 
-import MemorySchemaEditor from '@/components/chat/MemorySchemaEditor.vue'
 import { uploadImageFile } from '@/lib/api'
 import type {
   AIRobotCard,
-  NumericComputationItem,
   RobotGenerationTask,
   RobotKnowledgeDocument,
 } from '@/types/ai'
@@ -1688,8 +1539,6 @@ const emit = defineEmits<{
   (e: 'save-mobile-agent'): void
   (e: 'save-mobile-agent-and-open-world-graph'): void
   (e: 'open-world-graph', agentId: string): void
-  (e: 'remove-numeric-computation-item', target: { numericComputationItems: NumericComputationItem[] }, index: number): void
-  (e: 'add-numeric-computation-item', target: { numericComputationItems: NumericComputationItem[] }): void
 }>()
 </script>
 

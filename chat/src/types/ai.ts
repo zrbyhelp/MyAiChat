@@ -42,12 +42,6 @@ export interface MemorySchemaState {
   categories: MemorySchemaCategory[]
 }
 
-export interface NumericComputationItem {
-  name: string
-  currentValue: number
-  description: string
-}
-
 export interface AIRobotCard {
   id: string
   name: string
@@ -59,13 +53,7 @@ export interface AIRobotCard {
   memoryModelConfigId: string
   outlineModelConfigId: string
   knowledgeRetrievalModelConfigId: string
-  numericComputationModelConfigId: string
   worldGraphModelConfigId: string
-  numericComputationEnabled: boolean
-  numericComputationPrompt: string
-  numericComputationItems: NumericComputationItem[]
-  structuredMemoryInterval: number
-  structuredMemoryHistoryLimit: number
   memorySchema: MemorySchemaState
   worldGraph?: RobotWorldGraph | null
 }
@@ -98,13 +86,7 @@ export interface SessionRobotState {
   memoryModelConfigId: string
   outlineModelConfigId: string
   knowledgeRetrievalModelConfigId: string
-  numericComputationModelConfigId: string
   worldGraphModelConfigId: string
-  numericComputationEnabled: boolean
-  numericComputationPrompt: string
-  numericComputationItems: NumericComputationItem[]
-  structuredMemoryInterval: number
-  structuredMemoryHistoryLimit: number
 }
 
 export interface SessionMemoryState {
@@ -115,29 +97,12 @@ export interface SessionMemoryState {
   threshold: number
   recentMessageLimit: number
   prompt: string
-  structuredMemoryInterval: number
-  structuredMemoryHistoryLimit: number
-}
-
-export interface StructuredMemoryItem {
-  id: string
-  summary: string
-  sourceTurnId?: string
-  updatedAt?: string
-  values: Record<string, StructuredMemoryValue>
-}
-
-export interface StructuredMemoryCategory {
-  categoryId: string
-  label: string
-  description?: string
-  updatedAt?: string
-  items: StructuredMemoryItem[]
 }
 
 export interface StructuredMemoryState {
   updatedAt: string
-  categories: StructuredMemoryCategory[]
+  longTermMemory: string
+  shortTermMemory: string
 }
 
 export interface SessionUsageState {
@@ -196,15 +161,27 @@ export interface ChatSessionSummary {
   usage: SessionUsageState
 }
 
+export interface StoryDraftState {
+  characters: string[]
+  items: string[]
+  organizations: string[]
+  locations: string[]
+  events: string[]
+}
+
+export interface StoryOutlineState {
+  storyDraft: StoryDraftState
+  retrievalQuery: string
+}
+
 export interface ChatSessionDetail extends ChatSessionSummary {
   threadId: string
-  storyOutline?: string
+  storyOutline?: StoryOutlineState
   robot: SessionRobotState
   messages: ChatSessionMessage[]
   memory: SessionMemoryState
   memorySchema: MemorySchemaState
   structuredMemory: StructuredMemoryState
-  numericState?: Record<string, unknown>
   worldGraph?: RobotWorldGraph | null
 }
 
@@ -425,6 +402,10 @@ export interface WorldNode {
   objectType: WorldObjectType
   name: string
   summary: string
+  knownFacts: string
+  preferencesAndConstraints: string
+  taskProgress: string
+  longTermMemory: string
   status: string
   tags: string[]
   attributes: Record<string, string | number | boolean | null>

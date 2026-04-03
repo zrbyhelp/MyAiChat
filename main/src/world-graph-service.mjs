@@ -271,6 +271,10 @@ function normalizeNode(input, fallback = {}) {
     objectType,
     name: normalizeString(input?.name, objectType === 'event' ? '新事件' : '未命名对象'),
     summary: normalizeString(input?.summary),
+    knownFacts: normalizeString(input?.knownFacts, fallback.knownFacts),
+    preferencesAndConstraints: normalizeString(input?.preferencesAndConstraints, fallback.preferencesAndConstraints),
+    taskProgress: normalizeString(input?.taskProgress, fallback.taskProgress),
+    longTermMemory: normalizeString(input?.longTermMemory, fallback.longTermMemory),
     status,
     tags: normalizeStringArray(input?.tags),
     attributes,
@@ -409,6 +413,10 @@ function deserializeNode(row) {
     objectType: row.objectType,
     name: row.name,
     summary: row.summary,
+    knownFacts: row.knownFacts,
+    preferencesAndConstraints: row.preferencesAndConstraints,
+    taskProgress: row.taskProgress,
+    longTermMemory: row.longTermMemory,
     status: row.status,
     tags: safeJsonParse(row.tagsJson, []),
     attributes: safeJsonParse(row.attributesJson, {}),
@@ -626,6 +634,10 @@ async function listWorldNodes(robotId) {
         n.object_type AS objectType,
         n.name AS name,
         n.summary AS summary,
+        n.known_facts AS knownFacts,
+        n.preferences_and_constraints AS preferencesAndConstraints,
+        n.task_progress AS taskProgress,
+        n.long_term_memory AS longTermMemory,
         n.status AS status,
         n.tags_json AS tagsJson,
         n.attributes_json AS attributesJson,
@@ -681,6 +693,10 @@ async function getWorldNodeById(robotId, nodeId) {
         n.object_type AS objectType,
         n.name AS name,
         n.summary AS summary,
+        n.known_facts AS knownFacts,
+        n.preferences_and_constraints AS preferencesAndConstraints,
+        n.task_progress AS taskProgress,
+        n.long_term_memory AS longTermMemory,
         n.status AS status,
         n.tags_json AS tagsJson,
         n.attributes_json AS attributesJson,
@@ -731,6 +747,36 @@ async function getWorldEdgeById(robotId, edgeId) {
 
 export async function getWorldGraph(user, robotId) {
   const { ownership, row } = await ensureGraphMeta(user, robotId)
+  const [nodes, edges, relationTypes] = await Promise.all([
+    listWorldNodes(robotId),
+    listWorldEdges(robotId),
+    listWorldRelationTypes(user, robotId),
+  ])
+
+  return {
+    meta: {
+      robotId: ownership.robotId,
+      title: row.title,
+      summary: row.summary,
+      graphVersion: row.graphVersion,
+      calendar: normalizeCalendar(safeJsonParse(row.calendarJson, DEFAULT_WORLD_CALENDAR)),
+      layout: normalizeLayout(safeJsonParse(row.lastLayoutJson, DEFAULT_WORLD_LAYOUT)),
+    },
+    relationTypes,
+    nodes,
+    edges,
+  }
+}
+
+export async function getConfiguredWorldGraph(user, robotId) {
+  const ownership = await ensureOwnedRobot(user, robotId)
+  const { RobotWorldGraph } = getModels()
+  const recordId = scopeId(user, `world-graph:${robotId}`)
+  const row = await RobotWorldGraph.findByPk(recordId)
+  if (!row) {
+    return null
+  }
+
   const [nodes, edges, relationTypes] = await Promise.all([
     listWorldNodes(robotId),
     listWorldEdges(robotId),
@@ -925,6 +971,10 @@ export async function saveWorldNode(user, robotId, input) {
         n.object_type = $objectType,
         n.name = $name,
         n.summary = $summary,
+        n.known_facts = $knownFacts,
+        n.preferences_and_constraints = $preferencesAndConstraints,
+        n.task_progress = $taskProgress,
+        n.long_term_memory = $longTermMemory,
         n.status = $status,
         n.tags_json = $tagsJson,
         n.attributes_json = $attributesJson,
@@ -945,6 +995,10 @@ export async function saveWorldNode(user, robotId, input) {
       objectType: node.objectType,
       name: node.name,
       summary: node.summary,
+      knownFacts: node.knownFacts,
+      preferencesAndConstraints: node.preferencesAndConstraints,
+      taskProgress: node.taskProgress,
+      longTermMemory: node.longTermMemory,
       status: node.status,
       tagsJson: JSON.stringify(node.tags),
       attributesJson: JSON.stringify(node.attributes),

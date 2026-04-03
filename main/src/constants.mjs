@@ -1,14 +1,12 @@
 export const DEFAULT_MEMORY_THRESHOLD = 20
 export const DEFAULT_RECENT_MESSAGE_LIMIT = 10
-export const DEFAULT_STRUCTURED_MEMORY_INTERVAL = 3
-export const DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT = 12
 export const MAX_MESSAGE_HISTORY = 200
 export const DEFAULT_MEMORY_PROMPT = [
-  '请根据旧摘要和新增对话，输出一份新的完整中文会话摘要。',
+  '请根据上一版长期记忆、上一版短期记忆、本轮用户输入和本轮回复，输出新的长期记忆与短期记忆。',
   '要求：',
-  '1. 只输出摘要正文，不要加标题，不要输出 JSON。',
-  '2. 保留重要上下文、用户偏好、约束、任务进展和仍未解决的问题。',
-  '3. 内容尽量精炼，但不要遗漏后续对话需要继续依赖的信息。',
+  '1. 长期记忆只保留跨轮稳定有效的人设、关系、偏好、约束、长期目标和长期事实。',
+  '2. 短期记忆保留当前阶段状态、最近推进、待办事项、未解决问题和近期情境。',
+  '3. 两部分都要尽量完整，不要遗漏后续回复仍会依赖的信息。',
 ].join('\n')
 
 export const DEFAULT_MODEL_CONFIG = {
@@ -29,65 +27,7 @@ export const DEFAULT_MODEL_CONFIGS = {
   activeModelConfigId: DEFAULT_MODEL_CONFIG.id,
 }
 
-export const DEFAULT_MEMORY_SCHEMA = {
-  categories: [
-    {
-      id: 'preferences',
-      label: '用户偏好',
-      description: '记录长期稳定的偏好、风格和约束',
-      extractionInstructions: '只记录会持续影响后续回答的偏好、风格或约束条件。',
-      fields: [
-        { id: 'preference', name: 'preference', label: '偏好项', type: 'text', required: true },
-        { id: 'value', name: 'value', label: '偏好值', type: 'text', required: true },
-      ],
-    },
-    {
-      id: 'facts',
-      label: '已知事实',
-      description: '记录稳定事实、背景信息和环境上下文',
-      extractionInstructions: '只记录较稳定、后续仍可能被引用的事实信息。',
-      fields: [
-        { id: 'subject', name: 'subject', label: '主体', type: 'text', required: true },
-        { id: 'predicate', name: 'predicate', label: '关系', type: 'text', required: true },
-        { id: 'value', name: 'value', label: '值', type: 'text', required: true },
-      ],
-    },
-    {
-      id: 'tasks',
-      label: '任务进展',
-      description: '记录目标、状态、待办和阻塞项',
-      extractionInstructions: '记录任务目标、当前状态、下一步与阻塞因素。',
-      fields: [
-        { id: 'title', name: 'title', label: '任务标题', type: 'text', required: true },
-        {
-          id: 'status',
-          name: 'status',
-          label: '状态',
-          type: 'enum',
-          required: true,
-          options: [
-            { label: '待办', value: 'todo' },
-            { label: '进行中', value: 'in_progress' },
-            { label: '阻塞', value: 'blocked' },
-            { label: '完成', value: 'done' },
-          ],
-        },
-        { id: 'details', name: 'details', label: '详情', type: 'text', required: false },
-        { id: 'next_step', name: 'next_step', label: '下一步', type: 'text', required: false },
-      ],
-    },
-    {
-      id: 'long_term_memory',
-      label: '长期记忆',
-      description: '记录对后续长期有价值的稳定背景、经历和约定',
-      extractionInstructions: '只记录后续多轮对话仍值得保留的长期信息，避免写入一次性细节。',
-      fields: [
-        { id: 'topic', name: 'topic', label: '记忆主题', type: 'text', required: true },
-        { id: 'content', name: 'content', label: '记忆内容', type: 'text', required: true },
-      ],
-    },
-  ],
-}
+export const DEFAULT_MEMORY_SCHEMA = { categories: [] }
 
 export const DEFAULT_ROBOTS = [
   {
@@ -101,13 +41,7 @@ export const DEFAULT_ROBOTS = [
     memoryModelConfigId: '',
     outlineModelConfigId: '',
     knowledgeRetrievalModelConfigId: '',
-    numericComputationModelConfigId: '',
     worldGraphModelConfigId: '',
-    numericComputationEnabled: false,
-    numericComputationPrompt: '',
-    numericComputationItems: [],
-    structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-    structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
     memorySchema: DEFAULT_MEMORY_SCHEMA,
   },
 ]
@@ -121,13 +55,7 @@ export const DEFAULT_SESSION_ROBOT = {
   memoryModelConfigId: '',
   outlineModelConfigId: '',
   knowledgeRetrievalModelConfigId: '',
-  numericComputationModelConfigId: '',
   worldGraphModelConfigId: '',
-  numericComputationEnabled: false,
-  numericComputationPrompt: '',
-  numericComputationItems: [],
-  structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-  structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
 }
 
 export const DEFAULT_SESSION_MEMORY = {
@@ -138,13 +66,12 @@ export const DEFAULT_SESSION_MEMORY = {
   threshold: DEFAULT_MEMORY_THRESHOLD,
   recentMessageLimit: DEFAULT_RECENT_MESSAGE_LIMIT,
   prompt: DEFAULT_MEMORY_PROMPT,
-  structuredMemoryInterval: DEFAULT_STRUCTURED_MEMORY_INTERVAL,
-  structuredMemoryHistoryLimit: DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT,
 }
 
 export const DEFAULT_STRUCTURED_MEMORY = {
   updatedAt: '',
-  categories: [],
+  longTermMemory: '',
+  shortTermMemory: '',
 }
 
 export const DEFAULT_SESSIONS_PAYLOAD = {

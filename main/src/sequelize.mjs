@@ -168,12 +168,6 @@ export function getModels() {
       defaultValue: '',
       field: 'knowledge_retrieval_model_config_id',
     },
-    numericComputationModelConfigId: {
-      type: DataTypes.STRING(120),
-      allowNull: false,
-      defaultValue: '',
-      field: 'numeric_computation_model_config_id',
-    },
     formOptionModelConfigId: {
       type: DataTypes.STRING(120),
       allowNull: false,
@@ -185,18 +179,6 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'world_graph_model_config_id',
-    },
-    imageFetchEnabled: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
-      field: 'image_fetch_enabled',
-    },
-    imageFetchPrompt: {
-      type: DataTypes.TEXT,
-      allowNull: false,
-      defaultValue: '',
-      field: 'image_fetch_prompt',
     },
     numericComputationEnabled: {
       type: DataTypes.BOOLEAN,
@@ -213,19 +195,26 @@ export function getModels() {
     numericComputationSchema: {
       type: DataTypes.TEXT('long'),
       allowNull: false,
+      defaultValue: '[]',
       field: 'numeric_computation_schema',
     },
-    structuredMemoryInterval: {
-      type: DataTypes.INTEGER,
+    numericComputationModelConfigId: {
+      type: DataTypes.STRING(120),
       allowNull: false,
-      defaultValue: 3,
-      field: 'structured_memory_interval',
+      defaultValue: '',
+      field: 'numeric_computation_model_config_id',
     },
-    structuredMemoryHistoryLimit: {
-      type: DataTypes.INTEGER,
+    imageFetchEnabled: {
+      type: DataTypes.BOOLEAN,
       allowNull: false,
-      defaultValue: 12,
-      field: 'structured_memory_history_limit',
+      defaultValue: false,
+      field: 'image_fetch_enabled',
+    },
+    imageFetchPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'image_fetch_prompt',
     },
     memorySchemaJson: {
       type: DataTypes.TEXT('long'),
@@ -666,12 +655,6 @@ export function getModels() {
       defaultValue: '',
       field: 'robot_knowledge_retrieval_model_config_id',
     },
-    robotNumericComputationModelConfigId: {
-      type: DataTypes.STRING(120),
-      allowNull: false,
-      defaultValue: '',
-      field: 'robot_numeric_computation_model_config_id',
-    },
     robotFormOptionModelConfigId: {
       type: DataTypes.STRING(120),
       allowNull: false,
@@ -683,18 +666,6 @@ export function getModels() {
       allowNull: false,
       defaultValue: '',
       field: 'robot_world_graph_model_config_id',
-    },
-    robotImageFetchEnabled: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
-      field: 'robot_image_fetch_enabled',
-    },
-    robotImageFetchPrompt: {
-      type: DataTypes.TEXT,
-      allowNull: false,
-      defaultValue: '',
-      field: 'robot_image_fetch_prompt',
     },
     robotNumericComputationEnabled: {
       type: DataTypes.BOOLEAN,
@@ -711,19 +682,26 @@ export function getModels() {
     robotNumericComputationSchema: {
       type: DataTypes.TEXT('long'),
       allowNull: false,
+      defaultValue: '[]',
       field: 'robot_numeric_computation_schema',
     },
-    robotStructuredMemoryInterval: {
-      type: DataTypes.INTEGER,
+    robotNumericComputationModelConfigId: {
+      type: DataTypes.STRING(120),
       allowNull: false,
-      defaultValue: 3,
-      field: 'robot_structured_memory_interval',
+      defaultValue: '',
+      field: 'robot_numeric_computation_model_config_id',
     },
-    robotStructuredMemoryHistoryLimit: {
-      type: DataTypes.INTEGER,
+    robotImageFetchEnabled: {
+      type: DataTypes.BOOLEAN,
       allowNull: false,
-      defaultValue: 12,
-      field: 'robot_structured_memory_history_limit',
+      defaultValue: false,
+      field: 'robot_image_fetch_enabled',
+    },
+    robotImageFetchPrompt: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: '',
+      field: 'robot_image_fetch_prompt',
     },
     robotMemoryPrompt: {
       type: DataTypes.TEXT,
@@ -787,18 +765,6 @@ export function getModels() {
       defaultValue: '',
       field: 'memory_prompt',
     },
-    structuredMemoryInterval: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 3,
-      field: 'structured_memory_interval',
-    },
-    structuredMemoryHistoryLimit: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 12,
-      field: 'structured_memory_history_limit',
-    },
     memorySchemaJson: {
       type: DataTypes.TEXT('long'),
       allowNull: false,
@@ -811,15 +777,16 @@ export function getModels() {
       defaultValue: '{"updatedAt":"","preferences":[],"facts":[],"tasks":[]}',
       field: 'structured_memory_json',
     },
-    numericStateJson: {
-      type: DataTypes.TEXT('long'),
-      allowNull: false,
-      field: 'numeric_state_json',
-    },
     sessionWorldGraphJson: {
       type: DataTypes.TEXT('long'),
       allowNull: true,
       field: 'session_world_graph_json',
+    },
+    numericStateJson: {
+      type: DataTypes.TEXT('long'),
+      allowNull: false,
+      defaultValue: '{}',
+      field: 'numeric_state_json',
     },
     promptTokens: {
       type: DataTypes.INTEGER,

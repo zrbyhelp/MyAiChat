@@ -52,6 +52,5 @@ export function getPromptDefaults() {
   return {
     common_prompt: String(config?.defaults?.common_prompt || ''),
     system_prompt: String(config?.defaults?.system_prompt || ''),
-    numeric_computation_prompt: String(config?.defaults?.numeric_computation_prompt || ''),
   }
 }
