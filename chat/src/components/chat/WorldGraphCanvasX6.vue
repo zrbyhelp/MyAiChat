@@ -755,4 +755,10 @@ onBeforeUnmount(() => {
 .mini-map-svg text{fill:#6b7280;font-size:11px}
 .linking-hint{position:absolute;top:28px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:999px;background:rgba(17,17,17,.92);color:#fff;font-size:13px;z-index:5}
 @media (max-width:960px){.canvas-overlay{top:18px;right:18px}}
+@media (max-width:768px){
+  .canvas-overlay{top:12px;right:12px;left:12px;gap:10px;align-items:stretch}
+  .canvas-controls{justify-content:flex-end;flex-wrap:wrap}
+  .mini-map-card{display:none}
+  .linking-hint{top:auto;right:12px;bottom:12px;left:12px;transform:none;justify-content:space-between}
+}
 </style>

@@ -2679,4 +2679,26 @@ onBeforeUnmount(() => {
 .timeline-event-chip strong{font-size:15px}
 .timeline-event-empty,.sidebar-empty{padding:16px}
 @media (max-width:1080px){.world-shell{grid-template-columns:1fr}.sidebar{height:280px;border-right:0;border-bottom:1px solid rgba(15,23,42,.08)}.graph-stage-shell.with-timeline{inset:0 0 228px}.graph-stage-shell.with-timeline.collapsed{inset:0 0 96px}.node-detail-panel{top:16px;right:16px;width:min(320px,calc(100% - 32px));max-height:calc(100% - 32px)}.timeline-dock-head{flex-direction:column}}
+@media (max-width:768px){
+  .world-shell{grid-template-columns:1fr;grid-template-rows:220px minmax(0,1fr)}
+  .sidebar{height:auto;border-right:0;border-bottom:1px solid rgba(15,23,42,.08)}
+  .sidebar-tabs{gap:6px;padding:12px}
+  .sidebar-tab{height:38px;border-radius:14px;font-size:13px}
+  .meta-panel{padding:0 12px 12px}
+  .sidebar-search{padding:0 12px 10px}
+  .sidebar-list{padding:0 8px 10px}
+  .sidebar-item{min-height:42px;margin-bottom:6px;padding:10px 12px;border-radius:14px}
+  .sidebar-footer{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:12px}
+  .create-menu{right:12px;bottom:72px;min-width:140px}
+  .graph-stage-shell.with-timeline{inset:0 0 144px}
+  .graph-stage-shell.with-timeline.collapsed{inset:0 0 72px}
+  .node-detail-panel{top:auto;right:12px;bottom:12px;left:12px;width:auto;max-height:min(42%,320px);padding:14px;border-radius:20px}
+  .node-detail-head strong{font-size:18px}
+  .node-detail-grid{grid-template-columns:1fr}
+  .relation-picker,.editor-popup{width:calc(100vw - 24px)}
+  .editor-popup{max-height:min(760px,calc(100dvh - 24px))}
+  .timeline-dock{gap:12px;min-height:144px;padding:14px 14px 16px}
+  .timeline-dock.collapsed{min-height:72px;padding:12px 14px}
+  .timeline-event-chip{width:180px;min-width:180px;max-width:180px;padding:12px 14px}
+}
 </style>

@@ -306,8 +306,8 @@
   <TDialog
     :visible="worldGraphVisible"
     :header="false"
-    width="calc(100vw - 32px)"
-    top="16px"
+    :width="isMobile ? 'calc(100vw - 12px)' : 'calc(100vw - 32px)'"
+    :top="isMobile ? '6px' : '16px'"
     placement="center"
     :footer="false"
     :confirm-btn="null"
@@ -315,7 +315,13 @@
     :close-on-overlay-click="false"
     @update:visible="handleWorldGraphVisibleChange"
   >
-    <div style="width: calc(100vw - 96px); height: calc(100vh - 96px); overflow: hidden;">
+    <div
+      :style="{
+        width: isMobile ? 'calc(100vw - 28px)' : 'calc(100vw - 96px)',
+        height: isMobile ? 'calc(100dvh - 28px)' : 'calc(100vh - 96px)',
+        overflow: 'hidden',
+      }"
+    >
       <RobotWorldGraphWorkspace
         v-if="currentWorldGraphRobot"
         :current-robot="currentWorldGraphRobot"
@@ -328,14 +334,21 @@
   <TDialog
     :visible="sessionWorldGraphVisible"
     :header="false"
-    width="min(1120px, calc(100vw - 48px))"
+    :width="isMobile ? 'calc(100vw - 12px)' : 'min(1120px, calc(100vw - 48px))'"
+    :top="isMobile ? '6px' : undefined"
     placement="center"
     :footer="false"
     :confirm-btn="null"
     :cancel-btn="null"
     @update:visible="(value) => (sessionWorldGraphVisible = value)"
   >
-    <div style="width: min(1080px, calc(100vw - 88px)); height: min(720px, calc(100vh - 120px)); overflow: hidden;">
+    <div
+      :style="{
+        width: isMobile ? 'calc(100vw - 28px)' : 'min(1080px, calc(100vw - 88px))',
+        height: isMobile ? 'calc(100dvh - 28px)' : 'min(720px, calc(100vh - 120px))',
+        overflow: 'hidden',
+      }"
+    >
       <RobotWorldGraphWorkspace
         v-if="sessionWorldGraphVisible"
         :current-robot="null"
