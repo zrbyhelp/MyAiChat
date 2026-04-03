@@ -15,6 +15,7 @@ import {
   shouldUseRequestSchema,
   storyOutlineNode,
   worldGraphEvolutionNode,
+  worldGraphUpdateNode,
   memoryNode,
   buildInitialState,
 } from './runtime.mjs'
@@ -379,6 +380,24 @@ export async function createApp(options = {}) {
     })
   }))
 
+  app.post('/runs/world-graph-update', asyncRoute(async (req, res) => {
+    const request = parseRunRequest(req.body)
+    if (!request.model_settings.model) {
+      throw createHttpError(400, 'model 不能为空')
+    }
+    if (!String(request.prompt || '').trim()) {
+      throw createHttpError(400, 'prompt 不能为空')
+    }
+
+      const { state } = buildRequestState(request)
+      const payload = await worldGraphUpdateNode(state, modelClient)
+      res.json({
+        threadId: request.thread_id,
+        world_graph_update_ops: payload.world_graph_update_ops || {},
+        usage: payload.usage || emptyUsage(),
+      })
+    }))
+
   app.post('/runs/answer-graph-update', asyncRoute(async (req, res) => {
     const request = parseRunRequest(req.body)
     if (!request.model_settings.model) {
@@ -392,7 +411,7 @@ export async function createApp(options = {}) {
     const payload = await answerGraphUpdateNode(state, modelClient)
     res.json({
       threadId: request.thread_id,
-      answer_graph_update_ops: payload.answer_graph_update_ops || {},
+      answer_graph_update_ops: payload.world_graph_update_ops || payload.answer_graph_update_ops || {},
       usage: payload.usage || emptyUsage(),
     })
   }))
@@ -406,14 +425,14 @@ export async function createApp(options = {}) {
       throw createHttpError(400, 'prompt 不能为空')
     }
 
-    const { state } = buildRequestState(request)
-    const payload = await worldGraphEvolutionNode(state, modelClient)
-    res.json({
-      threadId: request.thread_id,
-      world_graph_evolution_ops: payload.world_graph_evolution_ops || {},
-      usage: payload.usage || emptyUsage(),
-    })
-  }))
+      const { state } = buildRequestState(request)
+      const payload = await worldGraphEvolutionNode(state, modelClient)
+      res.json({
+        threadId: request.thread_id,
+        world_graph_evolution_ops: payload.world_graph_update_ops || payload.world_graph_evolution_ops || {},
+        usage: payload.usage || emptyUsage(),
+      })
+    }))
 
   app.use((error, _req, res, _next) => {
     if (res.headersSent) {

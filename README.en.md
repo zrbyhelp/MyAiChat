@@ -42,7 +42,7 @@ MyAiChat is not a single chat page. It is a full workspace built around realisti
 
 - `chat` can be used to configure agents, models, and related settings, then connect through APIs to personal or company software, or be used directly for online conversation
 - `main` handles model configs, sessions, streaming orchestration, admin APIs, and persistence
-- `agent` handles multi-agent reasoning, structured memory, story outlines, and world-graph writeback
+- `agent` handles reply generation, long/short-term memory updates, story-draft generation, and unified world-graph updates
 - `upload` handles image uploads backed by MinIO
 - `admin` provides the back-office frontend on top of `main`'s `/admin-api`
 - `tools/console-manager` provides a Chinese-friendly local control console
@@ -58,14 +58,16 @@ These capabilities are reflected in the recent commit history and current main c
 - Clerk authentication with user-level data isolation
 - OpenAI-compatible and Ollama model integration
 - SSE streaming with normalized frontend events
-- Agent execution chain: foreground `numeric -> story_outline -> answerer`, background `memory -> world_graph_writeback`
+- Agent execution chain: `story_outline -> vector_retrieval -> answerer -> memory -> world_graph_update`
 - Externalized prompt configuration for the agent service
-- Dynamic structured memory with configurable schema
-- Session-level `story outline` generation and persistence
+- Fixed long-term / short-term memory updates on every turn
+- Session-level structured `story outline` draft generation and persistence
 - Agent world-graph editor with timeline, relation types, node/edge editing, and auto layout
 - Session mirror world-graph viewer during chat
 - Agent template import and export
-- Unified server-side chat persistence, outline handling, and world-graph writeback
+- Unified server-side chat persistence, story draft handling, synchronous memory updates, and unified world-graph updates
+- The main driver has shifted from “structured-memory-driven” to “graph-driven”:
+  the world graph is now the primary fact source for next-turn progression and state continuity, while long/short-term memory acts as compressed summary context
 - Document import, agent generation tasks, vector knowledge retrieval (`Qdrant`), and graph storage (`Neo4j`)
 - Dual storage drivers: `file` / `mysql`
 - Dedicated upload service with MinIO
@@ -94,8 +96,8 @@ flowchart LR
 ```
 
 - `chat` renders the conversation UI and streaming messages.
-- `main` owns the unified API layer, session persistence, SSE forwarding, and background task scheduling.
-- `agent` generates replies, structured memory, story outlines, and graph writeback operations.
+- `main` owns the unified API layer, session persistence, SSE forwarding, retrieval orchestration, and synchronous post-processing.
+- `agent` generates story drafts, final replies, memory updates, and unified world-graph patches.
 - `upload` handles file uploads backed by `MinIO`.
 
 ### Session Agent Architecture
@@ -105,34 +107,37 @@ flowchart LR
   A[chat frontend] -->|send message| B[main:/api/chat/stream]
   B -->|invoke| C[agent:/runs/stream]
 
-  subgraph S[session agent foreground path]
-    C --> D[numeric_agent]
-    D --> E[story_outline]
+  subgraph S[session agent pipeline]
+    C --> D[story_outline]
+    D --> E[vector_retrieval]
     E --> F[answerer]
+    F --> G[memory]
+    G --> H[world_graph_update]
   end
 
   subgraph T[session thread state]
     T1[messages]
     T2[structured_memory]
-    T3[numeric_state]
-    T4[story_outline]
+    T3[story_outline]
+    T4[world_graph]
   end
 
   C <--> T
-  F -->|message_delta / run_completed| B
+  H -->|message_delta / run_completed| B
   B -->|SSE| A
-  B -. after reply .-> G[agent:/runs/memory]
-  G -->|update structured_memory| T
-  B -. after reply .-> H[agent:/runs/world-graph-writeback]
-  H -->|writeback ops| I[(Neo4j / session graph snapshot)]
 ```
 
-- Foreground path: `chat -> main:/api/chat/stream -> agent:/runs/stream -> numeric_agent -> story_outline -> answerer -> main -> chat`
-- `numeric_agent` updates the session numeric state for downstream nodes.
-- `story_outline` generates the internal outline for the current turn and feeds it into answer generation.
-- `answerer` streams the final user-visible response, and `main` forwards it as SSE.
-- After the main reply completes, `main` asynchronously triggers `memory` and `world_graph_writeback`.
-- The session thread state keeps `messages / structured_memory / numeric_state / story_outline` for the next turn.
+- Main path: `chat -> main:/api/chat/stream -> story_outline -> GraphRAG draft assist -> vector retrieval -> answerer -> memory -> world_graph_update -> chat`
+- `story_outline` generates structured `story_draft + retrieval_query` for downstream generation and retrieval.
+- GraphRAG only assists the story draft and does not enter the answer context directly.
+- The answer context uses story setting, long/short-term memory, story draft, vector retrieval output, the latest turn, and the current user input.
+- `memory` synchronously updates long-term and short-term memory every turn.
+- `world_graph_update` completes two jobs in one model call:
+  it writes content that actually happened in the answer into the session graph, and evolves graph content that was not directly written out in the answer.
+- Objects, relations, and events explicitly written in the answer are resolved by the answer itself and are not sent into a second evolution pass.
+- The current session path is now graph-driven rather than structured-memory-driven.
+  Long/short-term memory compresses identity, recent status, and task summaries, while the world graph carries world-state progression, event timelines, and relation changes.
+- The session thread state keeps `messages / structured_memory / story_outline / world_graph` for the next turn.
 
 ## Project Structure
 

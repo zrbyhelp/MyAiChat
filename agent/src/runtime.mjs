@@ -390,8 +390,7 @@ export function buildInitialState(request, history, memorySchema, structuredMemo
     story_outline: normalizeStoryOutlinePayload(request.story_outline),
     world_graph_payload: request.world_graph && typeof request.world_graph === 'object' ? request.world_graph : {},
     vector_context_text: String(request.vector_context_text || request.vectorContextText || '').trim(),
-    answer_graph_update_ops: normalizeWorldGraphWritebackOps({}),
-    world_graph_evolution_ops: normalizeWorldGraphWritebackOps({}),
+    world_graph_update_ops: normalizeWorldGraphWritebackOps({}),
     final_response: String(request.final_response || ''),
     usage: emptyUsage(),
   }
@@ -568,10 +567,8 @@ async function updateMemoryPatch(state, modelClient) {
       `故事设定：\n${resolveSystemPrompt(state) || '无'}`,
       `当前长期记忆：\n${String(state.structured_memory?.long_term_memory || '').trim() || '无'}`,
       `当前短期记忆：\n${String(state.structured_memory?.short_term_memory || '').trim() || '无'}`,
-      `最近一轮历史消息：\n${state.history_text}`,
       `用户最新输入：${state.prompt}`,
       `助手最终回复：${state.final_response || ''}`,
-      `内部故事草稿：\n${formatStoryDraftForPrompt(state.story_outline)}`,
     ].join('\n\n'),
   )
   const patch = normalizeStructuredMemory(parseJsonObject(response.text, {
@@ -595,25 +592,25 @@ export async function memoryNode(state, modelClient) {
   }
 }
 
-export async function answerGraphUpdateNode(state, modelClient) {
+export async function worldGraphUpdateNode(state, modelClient) {
   const promptConfig = getPromptConfig()
   const worldGraphPayload = state.world_graph_payload && typeof state.world_graph_payload === 'object'
     ? state.world_graph_payload
     : {}
   if (!String(worldGraphPayload?.meta?.robotId || '').trim()) {
     return {
-      answer_graph_update_ops: normalizeWorldGraphWritebackOps({}),
+      world_graph_update_ops: normalizeWorldGraphWritebackOps({}),
       usage: emptyUsage(),
     }
   }
 
   const response = await modelClient.invokeText(
-      resolveNodeModelConfig(state, 'world_graph'),
-      composeSystemPrompt(
-        resolveCommonPrompt(state),
-        `主要故事设定：\n${resolveSystemPrompt(state)}`,
-        promptConfig.templates.answer_graph_update.system_instruction,
-      ),
+    resolveNodeModelConfig(state, 'world_graph'),
+    composeSystemPrompt(
+      resolveCommonPrompt(state),
+      `主要故事设定：\n${resolveSystemPrompt(state)}`,
+      promptConfig.templates.world_graph_update.system_instruction,
+    ),
     [
       `故事设定：\n${resolveSystemPrompt(state) || '无'}`,
       `长期记忆：\n${String(state.structured_memory?.long_term_memory || '').trim() || '无'}`,
@@ -625,52 +622,17 @@ export async function answerGraphUpdateNode(state, modelClient) {
     ].join('\n\n'),
   )
   return {
-    answer_graph_update_ops: normalizeWorldGraphWritebackOps(parseJsonObject(response.text, {})),
+    world_graph_update_ops: normalizeWorldGraphWritebackOps(parseJsonObject(response.text, {})),
     usage: response.usage,
   }
 }
 
-function collectPatchedObjectIds(writebackOps) {
-  const ops = normalizeWorldGraphWritebackOps(writebackOps)
-  return [...new Set([
-    ...(Array.isArray(ops.upsert_nodes) ? ops.upsert_nodes.map((item) => String(item?.id || '').trim()) : []),
-    ...(Array.isArray(ops.upsert_events) ? ops.upsert_events.map((item) => String(item?.id || '').trim()) : []),
-  ].filter(Boolean))]
+export async function answerGraphUpdateNode(state, modelClient) {
+  return worldGraphUpdateNode(state, modelClient)
 }
 
 export async function worldGraphEvolutionNode(state, modelClient) {
-  const promptConfig = getPromptConfig()
-  const worldGraphPayload = state.world_graph_payload && typeof state.world_graph_payload === 'object'
-    ? state.world_graph_payload
-    : {}
-  if (!String(worldGraphPayload?.meta?.robotId || '').trim()) {
-    return {
-      world_graph_evolution_ops: normalizeWorldGraphWritebackOps({}),
-      usage: emptyUsage(),
-    }
-  }
-  const excludedIds = collectPatchedObjectIds(state.answer_graph_update_ops)
-  const response = await modelClient.invokeText(
-    resolveNodeModelConfig(state, 'world_graph'),
-    composeSystemPrompt(
-      resolveCommonPrompt(state),
-      `主要故事设定：\n${resolveSystemPrompt(state)}`,
-      promptConfig.templates.world_graph_evolution.system_instruction,
-    ),
-    [
-      `故事设定：\n${resolveSystemPrompt(state) || '无'}`,
-      `长期记忆：\n${String(state.structured_memory?.long_term_memory || '').trim() || '无'}`,
-      `短期记忆：\n${String(state.structured_memory?.short_term_memory || '').trim() || '无'}`,
-      `用户最新输入：${state.prompt}`,
-      `最终正文：\n${state.final_response || ''}`,
-      `本轮正文已直接处理对象 ID：\n${excludedIds.join('\n') || '无'}`,
-      `完整世界图谱 JSON：\n${JSON.stringify(worldGraphPayload)}`,
-    ].join('\n\n'),
-  )
-  return {
-    world_graph_evolution_ops: normalizeWorldGraphWritebackOps(parseJsonObject(response.text, {})),
-    usage: response.usage,
-  }
+  return worldGraphUpdateNode(state, modelClient)
 }
 
 export async function answerNode(state, modelClient, onChunk) {

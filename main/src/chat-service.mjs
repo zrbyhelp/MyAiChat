@@ -1177,6 +1177,25 @@ export function buildWorldGraphBackgroundAgentRequest(agentRequest, session) {
   return { ...hydrateBackgroundAgentRequest(agentRequest, session) }
 }
 
+export function buildMemoryAgentRequest(agentRequest, session) {
+  const hydrated = hydrateBackgroundAgentRequest(agentRequest, session)
+  return {
+    thread_id: String(hydrated.thread_id || hydrated.threadId || '').trim(),
+    session_id: String(hydrated.session_id || hydrated.sessionId || '').trim(),
+    prompt: String(hydrated.prompt || '').trim(),
+    final_response: String(hydrated.final_response || hydrated.finalResponse || '').trim(),
+    robot: hydrated.robot || null,
+    system_prompt: String(hydrated.system_prompt || hydrated.systemPrompt || '').trim(),
+    structured_memory: normalizeStructuredMemory(
+      hydrated.structured_memory || hydrated.structuredMemory,
+    ),
+    model_config: hydrated.model_config || hydrated.modelSettings || null,
+    auxiliary_model_configs: {
+      memory: hydrated?.auxiliary_model_configs?.memory || hydrated?.auxiliaryModelConfigs?.memory || null,
+    },
+  }
+}
+
 async function patchSessionStructuredMemory(user, sessionId, memory, usage) {
   const existingSession = await getSessionRecord(user, sessionId)
   if (!existingSession) {
@@ -1192,6 +1211,20 @@ async function patchSessionStructuredMemory(user, sessionId, memory, usage) {
 
 async function patchSessionWorldGraph(user, sessionId, graph, usage) {
   const existingSession = await getSessionRecord(user, sessionId)
+  if (!existingSession) {
+    return null
+  }
+
+  return saveSessionRecord(user, normalizeSession({
+    ...existingSession,
+    worldGraph: graph
+      ? normalizeWorldGraphSnapshot(graph)
+      : existingSession.worldGraph || null,
+    usage: addUsageTotals(existingSession.usage, usage),
+  }))
+}
+
+async function saveSessionWorldGraphFromBase(user, existingSession, graph, usage) {
   if (!existingSession) {
     return null
   }
@@ -1597,7 +1630,7 @@ async function runAgentAndCollect(payload, user, onEvent) {
 
 async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
   const latestSession = await getSessionRecord(user, payload.sessionId)
-  const requestBody = hydrateBackgroundAgentRequest(agentRequest, latestSession)
+  const requestBody = buildMemoryAgentRequest(agentRequest, latestSession)
   const response = await requestAgentJson('/runs/memory', requestBody, payload, null, '结构化记忆')
   const normalizedMemory = normalizeStructuredMemory(response?.memory)
   const updatedSession = await patchSessionStructuredMemory(user, payload.sessionId, normalizedMemory, response?.usage)
@@ -1614,47 +1647,23 @@ async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
   }
 }
 
-async function runAnswerGraphUpdateJob(agentRequest, payload, user) {
-  const latestSession = await getSessionRecord(user, payload.sessionId)
+async function runWorldGraphUpdateJob(agentRequest, payload, user, existingSession = null) {
+  const latestSession = existingSession || await getSessionRecord(user, payload.sessionId)
   const requestBody = {
     ...buildWorldGraphBackgroundAgentRequest(agentRequest, latestSession),
     robot_name: String(agentRequest?.robot?.name || payload?.robot?.name || payload?.sessionSnapshot?.robot?.name || ''),
     robot_description: String(payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || ''),
   }
-  const response = await requestAgentJson('/runs/answer-graph-update', requestBody, payload, null, '正文落图')
-  const writebackOps = response?.answer_graph_update_ops || response?.answerGraphUpdateOps || {}
+  const response = await requestAgentJson('/runs/world-graph-update', requestBody, payload, null, '世界图谱更新')
+  const writebackOps = response?.world_graph_update_ops || response?.worldGraphUpdateOps || {}
   const latestGraph = normalizeWorldGraphSnapshot(requestBody.world_graph || requestBody.worldGraph || null)
   const applyResult = applyWorldGraphWritebackToSessionGraph(latestGraph, latestGraph, writebackOps)
-  const updatedSession = await patchSessionWorldGraph(user, payload.sessionId, applyResult.graph, response?.usage)
-  return {
-    requestBody,
-    graph: applyResult.graph,
-    usage: normalizeUsage(response?.usage),
-    session: updatedSession,
-    warnings: applyResult.warnings,
-    persistenceMode: applyResult.persistenceMode,
-    writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
-    appliedRelationTypeCount: 0,
-    appliedNodeCount: applyResult.appliedNodeCount,
-    appliedEdgeCount: applyResult.appliedEdgeCount,
-    appliedEffectCount: applyResult.appliedEffectCount,
-    appliedSnapshotCount: applyResult.appliedSnapshotCount,
-  }
-}
-
-async function runWorldGraphEvolutionJob(agentRequest, payload, user, latestGraph) {
-  const latestSession = await getSessionRecord(user, payload.sessionId)
-  const requestBody = {
-    ...buildWorldGraphBackgroundAgentRequest(agentRequest, latestSession),
-    world_graph: latestGraph || latestSession?.worldGraph || agentRequest?.world_graph || null,
-    robot_name: String(agentRequest?.robot?.name || payload?.robot?.name || payload?.sessionSnapshot?.robot?.name || ''),
-    robot_description: String(payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || ''),
-  }
-  const response = await requestAgentJson('/runs/world-graph-evolution', requestBody, payload, null, '世界图谱演化')
-  const writebackOps = response?.world_graph_evolution_ops || response?.worldGraphEvolutionOps || {}
-  const baseGraph = normalizeWorldGraphSnapshot(requestBody.world_graph || requestBody.worldGraph || null)
-  const applyResult = applyWorldGraphWritebackToSessionGraph(baseGraph, baseGraph, writebackOps)
-  const updatedSession = await patchSessionWorldGraph(user, payload.sessionId, applyResult.graph, response?.usage)
+  const updatedSession = await saveSessionWorldGraphFromBase(
+    user,
+    latestSession,
+    applyResult.graph,
+    response?.usage,
+  )
   return {
     requestBody,
     graph: applyResult.graph,
@@ -1973,13 +1982,7 @@ function enqueueSessionBackgroundJobs(result, payload, user) {
 
 async function runSessionPostProcessingSync(result, payload, user) {
   const memoryResult = await runStructuredMemoryBackgroundJob(result.agentRequest, payload, user)
-  const answerGraphResult = await runAnswerGraphUpdateJob(result.agentRequest, payload, user)
-  const worldGraphEvolutionResult = await runWorldGraphEvolutionJob(
-    result.agentRequest,
-    payload,
-    user,
-    answerGraphResult.graph,
-  )
+  const worldGraphUpdateResult = await runWorldGraphUpdateJob(result.agentRequest, payload, user, memoryResult.session)
   if (result.monitorReplyId) {
     appendAgentMonitorStep({
       replyId: result.monitorReplyId,
@@ -1997,44 +2000,58 @@ async function runSessionPostProcessingSync(result, payload, user) {
     })
     appendAgentMonitorStep({
       replyId: result.monitorReplyId,
-      stage: 'answer_graph_update',
-      eventType: 'answer_graph_update',
-      summary: '正文落图完成',
+      stage: 'world_graph_update',
+      eventType: 'world_graph_update',
+      summary: '世界图谱更新完成',
       requestSnapshot: {
         sessionId: payload.sessionId,
-        requestBody: sanitizeAgentRequestForMonitor(answerGraphResult.requestBody),
+        requestBody: sanitizeAgentRequestForMonitor(worldGraphUpdateResult.requestBody),
       },
       responseSnapshot: {
-        ...summarizeWorldGraphWritebackResultForMonitor(answerGraphResult),
-      },
-    })
-    appendAgentMonitorStep({
-      replyId: result.monitorReplyId,
-      stage: 'world_graph_evolution',
-      eventType: 'world_graph_evolution',
-      summary: '世界图谱演化完成',
-      requestSnapshot: {
-        sessionId: payload.sessionId,
-        requestBody: sanitizeAgentRequestForMonitor(worldGraphEvolutionResult.requestBody),
-      },
-      responseSnapshot: {
-        ...summarizeWorldGraphWritebackResultForMonitor(worldGraphEvolutionResult),
+        ...summarizeWorldGraphWritebackResultForMonitor(worldGraphUpdateResult),
       },
     })
   }
   return {
     ...result,
     memory: memoryResult.memory,
-    worldGraph: worldGraphEvolutionResult.graph,
+    worldGraph: worldGraphUpdateResult.graph,
     usage: addUsageTotals(
-      addUsageTotals(
-        addUsageTotals(result.usage, memoryResult.usage),
-        answerGraphResult.usage,
-      ),
-      worldGraphEvolutionResult.usage,
+      addUsageTotals(result.usage, memoryResult.usage),
+      worldGraphUpdateResult.usage,
     ),
-    session: worldGraphEvolutionResult.session || answerGraphResult.session || memoryResult.session || result.session,
-    worldGraphWarnings: [...(answerGraphResult.warnings || []), ...(worldGraphEvolutionResult.warnings || [])],
+    session: worldGraphUpdateResult.session || memoryResult.session || result.session,
+    worldGraphWarnings: [...(worldGraphUpdateResult.warnings || [])],
+  }
+}
+
+async function runGraphPostProcessingSync(result, payload, user, memoryResult) {
+  const worldGraphUpdateResult = await runWorldGraphUpdateJob(result.agentRequest, payload, user, memoryResult.session)
+  if (result.monitorReplyId) {
+    appendAgentMonitorStep({
+      replyId: result.monitorReplyId,
+      stage: 'world_graph_update',
+      eventType: 'world_graph_update',
+      summary: '世界图谱更新完成',
+      requestSnapshot: {
+        sessionId: payload.sessionId,
+        requestBody: sanitizeAgentRequestForMonitor(worldGraphUpdateResult.requestBody),
+      },
+      responseSnapshot: {
+        ...summarizeWorldGraphWritebackResultForMonitor(worldGraphUpdateResult),
+      },
+    })
+  }
+  return {
+    ...result,
+    memory: memoryResult.memory,
+    worldGraph: worldGraphUpdateResult.graph,
+    usage: addUsageTotals(
+      addUsageTotals(result.usage, memoryResult.usage),
+      worldGraphUpdateResult.usage,
+    ),
+    session: worldGraphUpdateResult.session || memoryResult.session || result.session,
+    worldGraphWarnings: [...(worldGraphUpdateResult.warnings || [])],
   }
 }
 
@@ -2157,9 +2174,11 @@ export async function handleChatStream(payload, res, user) {
       forwardAgentEvent(res, event)
     })
     sendSSE(res, { type: 'memory_status', status: 'running', message: '正在整理长短期记忆' })
-    const result = await runSessionPostProcessingSync(baseResult, payload, user)
-    sendSSE(res, { type: 'structured_memory', memory: result.memory })
+    const memoryResult = await runStructuredMemoryBackgroundJob(baseResult.agentRequest, payload, user)
+    sendSSE(res, { type: 'structured_memory', memory: memoryResult.memory })
+    sendSSE(res, { type: 'memory_status', status: 'success', message: '长短期记忆整理完成' })
     sendSSE(res, { type: 'ui_loading', message: '正在写回世界图谱' })
+    const result = await runGraphPostProcessingSync(baseResult, payload, user, memoryResult)
     sendSSE(res, { type: 'session_world_graph', graph: result.worldGraph, warnings: result.worldGraphWarnings || [] })
     sendUsageSSE(res, result.session)
     sendSSE(res, { type: 'done' })
