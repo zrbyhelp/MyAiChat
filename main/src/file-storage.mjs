@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
+  areSessionsEquivalentForPersistence,
   DEFAULT_MODEL_CONFIG,
   DEFAULT_MODEL_CONFIGS,
   DEFAULT_ROBOTS,
@@ -116,6 +117,11 @@ export async function listSessions(user) {
 async function writeSessionsPayload(user, payload) {
   const { files } = await getSessionState(user)
   const nextState = normalizeSessionsPayload(payload)
+  const currentState = sessionStateCache.get(files.userId) || DEFAULT_SESSIONS_PAYLOAD
+  if (JSON.stringify(currentState) === JSON.stringify(nextState)) {
+    sessionStateCache.set(files.userId, nextState)
+    return
+  }
   sessionStateCache.set(files.userId, nextState)
   await writeFile(files.sessionsFile, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8')
 }
@@ -127,6 +133,10 @@ export async function getSessionRecord(user, sessionId) {
 
 export async function saveSessionRecord(user, session) {
   const normalized = normalizeSession(session)
+  const existing = await getSessionRecord(user, normalized.id)
+  if (existing && areSessionsEquivalentForPersistence(existing, normalized)) {
+    return existing
+  }
   const { state } = await getSessionState(user)
   const sessions = state.sessions.filter((item) => item.id !== normalized.id)
   await writeSessionsPayload(user, { sessions: [normalized, ...sessions] })
@@ -165,6 +175,10 @@ export async function upsertSessionRecord(user, input) {
     createdAt: existing?.createdAt || input?.createdAt || now,
     updatedAt: now,
   })
+
+  if (existing && areSessionsEquivalentForPersistence(existing, nextSession)) {
+    return existing
+  }
 
   return saveSessionRecord(user, nextSession)
 }
@@ -249,4 +263,40 @@ export async function writeRobots(user, robots) {
   const normalized = normalizeRobots(robots)
   await writeFile(robotsFile, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8')
   return normalized
+}
+
+export async function listChatUsersForAdmin() {
+  await initializeStorage()
+  const userIds = await readdir(USERS_DIR).catch(() => [])
+  const result = []
+
+  for (const userId of userIds) {
+    const sessionsFile = join(USERS_DIR, userId, 'sessions.json')
+    const raw = await readFile(sessionsFile, 'utf8').catch(() => '')
+    const payload = normalizeSessionsPayload(safeJsonParse(raw, DEFAULT_SESSIONS_PAYLOAD))
+    result.push({
+      userId,
+      userLabel: userId,
+      userEmail: '',
+      sessionCount: Array.isArray(payload.sessions) ? payload.sessions.length : 0,
+      lastActiveAt: (payload.sessions || [])
+        .map((item) => String(item?.updatedAt || ''))
+        .sort((left, right) => (Date.parse(right) || 0) - (Date.parse(left) || 0))[0] || '',
+    })
+  }
+
+  return result.sort((left, right) => (Date.parse(right.lastActiveAt) || 0) - (Date.parse(left.lastActiveAt) || 0))
+}
+
+export async function listChatSessionsForAdmin(userId) {
+  const sessionsFile = join(USERS_DIR, String(userId || '').trim(), 'sessions.json')
+  const raw = await readFile(sessionsFile, 'utf8').catch(() => '')
+  const payload = normalizeSessionsPayload(safeJsonParse(raw, DEFAULT_SESSIONS_PAYLOAD))
+  return (payload.sessions || []).map((item) => ({
+    sessionId: item.id,
+    sessionTitle: item.title,
+    threadId: item.threadId,
+    preview: item.preview,
+    updatedAt: item.updatedAt,
+  }))
 }

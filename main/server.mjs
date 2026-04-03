@@ -22,9 +22,7 @@ initializeStorage()
   .then(() => initializeAdminBackoffice())
   .then(() => initializeRobotGenerationService())
   .then(() => {
-    createServer(app).listen(PORT, () => {
-      console.log(`AI server running at http://127.0.0.1:${PORT}`)
-    })
+    createServer(app).listen(PORT)
   })
   .catch((error) => {
     console.error(error)

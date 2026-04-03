@@ -117,8 +117,19 @@ const MONITOR_ACTION_LABELS = {
     GetLogCountNotifySetting: "查询日志条数通知设置",
     SaveLogCountNotifySetting: "保存日志条数通知设置",
     QueryLayNotice: "查询站内通知",
-    ReadLayNotice: "已读站内通知"
+    ReadLayNotice: "已读站内通知",
+    GetAgentMonitorStatus: "查询Agent监控状态",
+    StartAgentMonitor: "开始Agent监控",
+    StopAgentMonitor: "停止Agent监控",
+    ClearAgentMonitor: "清空Agent监控数据",
+    QueryAgentMonitorUsers: "查询Agent监控用户",
+    QueryAgentMonitorSessions: "查询Agent监控会话",
+    QueryAgentMonitorReplies: "查询Agent监控回复分组",
+    QueryAgentMonitorReplyDetail: "查询Agent监控回复详情",
+    QueryAgentMonitorStepDetail: "查询Agent监控步骤详情"
 };
+const loadAgentMonitorModule = async () => import("../../src/agent-monitor.mjs");
+const loadStorageModule = async () => import("../../src/storage.mjs");
 const parseUserIdFromAccessToken = (authorization) => {
     if (!authorization)
         return null;
@@ -358,52 +369,17 @@ const mutateState = async (mutator) => {
     });
     await writeQueue;
 };
-const appendLoginLog = async (payload) => {
-    await mutateState(draft => {
-        const maxId = draft.loginLogs.reduce((m, item) => Math.max(m, Number(item?.id) || 0), 0);
-        draft.loginLogs.unshift({
-            id: maxId + 1,
-            username: payload.username || "unknown",
-            ip: payload.ip || "unknown",
-            address: payload.address || "Unknown Region",
-            system: payload.system || "Unknown",
-            browser: payload.browser || "Unknown",
-            status: payload.status,
-            behavior: payload.behavior || "账号登录",
-            loginTime: payload.loginTime || Date.now()
-        });
-    });
-};
+const appendLoginLog = async (_payload) => { };
 exports.appendLoginLog = appendLoginLog;
-const appendOperationLog = async (payload) => {
-    await mutateState(draft => {
-        const maxId = draft.operationLogs.reduce((m, item) => Math.max(m, Number(item?.id) || 0), 0);
-        draft.operationLogs.unshift({
-            id: maxId + 1,
-            username: payload.username || "unknown",
-            module: payload.module || "未知模块",
-            summary: payload.summary || "未知操作",
-            method: payload.method || "POST",
-            url: payload.url || "",
-            ip: payload.ip || "unknown",
-            address: payload.address || "Unknown Region",
-            system: payload.system || "Unknown",
-            browser: payload.browser || "Unknown",
-            status: payload.status,
-            requestBody: payload.requestBody ?? null,
-            responseBody: payload.responseBody ?? null,
-            operatingTime: payload.operatingTime || Date.now()
-        });
-    });
-};
+const appendOperationLog = async (_payload) => { };
 exports.appendOperationLog = appendOperationLog;
 const appendSystemExceptionLog = async (payload) => {
     await mutateState(draft => {
         const maxId = draft.systemLogs.reduce((m, item) => Math.max(m, Number(item?.id) || 0), 0);
         draft.systemLogs.unshift({
             id: maxId + 1,
-            level: 0,
-            kind: "runtime",
+            level: payload.level ?? 0,
+            kind: payload.kind || "runtime",
             source: payload.source || "系统",
             message: payload.message || "系统异常",
             requestTime: payload.requestTime || Date.now(),
@@ -412,61 +388,144 @@ const appendSystemExceptionLog = async (payload) => {
     });
 };
 exports.appendSystemExceptionLog = appendSystemExceptionLog;
+const isAgentMonitorSystemLog = (item) => {
+    return String(item?.kind || "") === "agent_monitor"
+        || String(item?.detail?.kind || "") === "agent_monitor";
+};
+const getAgentMonitorDetail = (item) => {
+    if (!isAgentMonitorSystemLog(item))
+        return null;
+    return item?.detail && typeof item.detail === "object" ? item.detail : null;
+};
+const listAgentMonitorLogEntries = (state) => {
+    return (state.systemLogs || [])
+        .map(item => ({
+        requestTime: Number(item?.requestTime) || 0,
+        detail: getAgentMonitorDetail(item)
+    }))
+        .filter(item => item.detail?.replyId)
+        .sort((a, b) => itemTime(a) - itemTime(b));
+};
+const itemTime = (item) => Number(item?.requestTime) || 0;
+const buildAgentMonitorReplyRecords = (state) => {
+    const replyMap = new Map();
+    for (const entry of listAgentMonitorLogEntries(state)) {
+        const detail = entry.detail;
+        const replyId = String(detail?.replyId || "").trim();
+        if (!replyId)
+            continue;
+        if (!replyMap.has(replyId)) {
+            replyMap.set(replyId, {
+                replyId,
+                userId: "",
+                userLabel: "",
+                userEmail: "",
+                sessionId: "",
+                sessionTitle: "",
+                threadId: "",
+                summary: "",
+                promptPreview: "",
+                assistantMessagePreview: "",
+                status: "running",
+                createdAt: "",
+                updatedAt: "",
+                requestSnapshot: null,
+                responseSnapshot: null,
+                steps: []
+            });
+        }
+        const reply = replyMap.get(replyId);
+        reply.updatedAt = new Date(itemTime(entry) || Date.now()).toISOString();
+        if (detail.entityType === "reply") {
+            if (detail.action === "started") {
+                reply.userId = String(detail.userId || reply.userId || "").trim();
+                reply.userLabel = String(detail.userLabel || reply.userLabel || "").trim();
+                reply.userEmail = String(detail.userEmail || reply.userEmail || "").trim();
+                reply.sessionId = String(detail.sessionId || reply.sessionId || "").trim();
+                reply.sessionTitle = String(detail.sessionTitle || reply.sessionTitle || "").trim();
+                reply.threadId = String(detail.threadId || reply.threadId || "").trim();
+                reply.summary = String(detail.summary || reply.summary || "").trim();
+                reply.promptPreview = String(detail.promptPreview || reply.promptPreview || "").trim();
+                reply.createdAt = String(detail.createdAt || reply.createdAt || "").trim() || reply.updatedAt;
+                if (detail.requestSnapshot !== undefined) {
+                    reply.requestSnapshot = detail.requestSnapshot;
+                }
+            }
+            if (detail.action === "completed") {
+                reply.status = String(detail.status || "completed").trim() || "completed";
+                reply.threadId = String(detail.threadId || reply.threadId || "").trim();
+                reply.sessionTitle = String(detail.sessionTitle || reply.sessionTitle || "").trim();
+                reply.assistantMessagePreview = String(detail.assistantMessagePreview || reply.assistantMessagePreview || "").trim();
+                if (detail.responseSnapshot !== undefined) {
+                    reply.responseSnapshot = detail.responseSnapshot;
+                }
+            }
+            if (detail.action === "failed") {
+                reply.status = "failed";
+                reply.summary = String(detail.summary || reply.summary || "").trim();
+                if (detail.responseSnapshot !== undefined) {
+                    reply.responseSnapshot = detail.responseSnapshot;
+                }
+            }
+            continue;
+        }
+        if (detail.entityType !== "step")
+            continue;
+        reply.steps.push({
+            stepId: String(detail.stepId || "").trim(),
+            replyId,
+            mergeKey: String(detail.mergeKey || "").trim(),
+            stage: String(detail.stage || detail.eventType || "unknown").trim() || "unknown",
+            eventType: String(detail.eventType || detail.stage || "unknown").trim() || "unknown",
+            status: String(detail.status || "success").trim() || "success",
+            summary: String(detail.summary || "执行步骤").trim(),
+            createdAt: String(detail.createdAt || "").trim() || new Date(itemTime(entry) || Date.now()).toISOString(),
+            requestSnapshot: detail.requestSnapshot,
+            responseSnapshot: detail.responseSnapshot
+        });
+    }
+    return Array.from(replyMap.values())
+        .map(reply => {
+        reply.steps.sort((a, b) => Date.parse(String(a.createdAt || "")) - Date.parse(String(b.createdAt || "")));
+        reply.steps = reply.steps.map((step, index) => ({ ...step, sequence: index + 1 }));
+        return {
+            ...reply,
+            stepCount: reply.steps.length,
+            updatedAt: reply.updatedAt || reply.createdAt || "",
+            status: reply.status || "running"
+        };
+    })
+        .sort((a, b) => Date.parse(String(b.createdAt || "")) - Date.parse(String(a.createdAt || "")));
+};
+const buildAgentMonitorStats = (replyList) => {
+    const userIds = new Set();
+    const sessionKeys = new Set();
+    let stepCount = 0;
+    for (const reply of replyList) {
+        if (reply.userId)
+            userIds.add(reply.userId);
+        if (reply.userId || reply.sessionId) {
+            sessionKeys.add(`${reply.userId}::${reply.sessionId}`);
+        }
+        stepCount += Number(reply.stepCount) || 0;
+    }
+    return {
+        userCount: userIds.size,
+        sessionCount: sessionKeys.size,
+        replyCount: replyList.length,
+        stepCount
+    };
+};
+const clearAgentMonitorSystemLogs = async () => {
+    await mutateState(draft => {
+        draft.systemLogs = (draft.systemLogs || []).filter(item => !isAgentMonitorSystemLog(item));
+    });
+};
 const createMonitorOperationLogger = (req, res, action) => ({
     success: async (data, message = "操作成功") => {
-        const actionLabel = MONITOR_ACTION_LABELS[action] || action;
-        const authHeader = (req.headers?.authorization ?? "").toString();
-        const userId = parseUserIdFromAccessToken(authHeader);
-        let username = (req.body?.username ?? req.query?.username ?? "unknown").toString();
-        if (userId) {
-            const user = await user_1.default.findByPk(userId);
-            if (user)
-                username = String(user.username || username);
-        }
-        const client = (0, onlineSession_1.parseClientInfo)(req);
-        await (0, exports.appendOperationLog)({
-            username,
-            module: "系统监控",
-            summary: actionLabel,
-            ip: client.ip,
-            address: client.address,
-            system: client.system,
-            browser: client.browser,
-            status: 1,
-            operatingTime: Date.now(),
-            method: (req.method || "POST").toUpperCase(),
-            url: req.path,
-            requestBody: sanitizeLogValue(req.body),
-            responseBody: sanitizeLogValue({ code: 0, message, data })
-        });
         return res.success(data, message);
     },
     error: async (message = "操作失败", statusCode = 400) => {
-        const actionLabel = MONITOR_ACTION_LABELS[action] || action;
-        const authHeader = (req.headers?.authorization ?? "").toString();
-        const userId = parseUserIdFromAccessToken(authHeader);
-        let username = (req.body?.username ?? req.query?.username ?? "unknown").toString();
-        if (userId) {
-            const user = await user_1.default.findByPk(userId);
-            if (user)
-                username = String(user.username || username);
-        }
-        const client = (0, onlineSession_1.parseClientInfo)(req);
-        await (0, exports.appendOperationLog)({
-            username,
-            module: "系统监控",
-            summary: actionLabel,
-            ip: client.ip,
-            address: client.address,
-            system: client.system,
-            browser: client.browser,
-            status: 0,
-            operatingTime: Date.now(),
-            method: (req.method || "POST").toUpperCase(),
-            url: req.path,
-            requestBody: sanitizeLogValue(req.body),
-            responseBody: sanitizeLogValue({ code: 200, bizCode: statusCode, statusCode, message })
-        });
         return res.error(message, statusCode);
     }
 });
@@ -812,6 +871,152 @@ router.post("/system-logs-detail", async (req, res) => {
     }
     catch (error) {
         return op.error(`查询系统日志详情失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/status", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "GetAgentMonitorStatus");
+    try {
+        const agentMonitor = await loadAgentMonitorModule();
+        return op.success(await agentMonitor.getAgentMonitorStatusWithStats(), "操作成功");
+    }
+    catch (error) {
+        return op.error(`查询Agent监控状态失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/start", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "StartAgentMonitor");
+    try {
+        const targetUserId = String(req.body?.targetUserId || "").trim();
+        const targetSessionId = String(req.body?.targetSessionId || "").trim();
+        if (!targetUserId)
+            return op.error("请先选择聊天用户", 400);
+        if (!targetSessionId)
+            return op.error("请先选择聊天会话", 400);
+        const agentMonitor = await loadAgentMonitorModule();
+        await agentMonitor.clearAgentMonitorData();
+        return op.success(await agentMonitor.startAgentMonitor({
+            targetUserId,
+            targetUserLabel: String(req.body?.targetUserLabel || "").trim(),
+            targetSessionId,
+            targetSessionTitle: String(req.body?.targetSessionTitle || "").trim()
+        }), "开始监控成功");
+    }
+    catch (error) {
+        return op.error(`开始Agent监控失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/stop", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "StopAgentMonitor");
+    try {
+        const agentMonitor = await loadAgentMonitorModule();
+        return op.success(await agentMonitor.stopAgentMonitor(), "停止监控成功");
+    }
+    catch (error) {
+        return op.error(`停止Agent监控失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/clear", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "ClearAgentMonitor");
+    try {
+        const agentMonitor = await loadAgentMonitorModule();
+        return op.success(await agentMonitor.clearAgentMonitorData(), "清空成功");
+    }
+    catch (error) {
+        return op.error(`清空Agent监控数据失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/users", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "QueryAgentMonitorUsers");
+    try {
+        const agentMonitor = await loadAgentMonitorModule();
+        return op.success(buildTableResult(await agentMonitor.listAgentMonitorUsers()), "操作成功");
+    }
+    catch (error) {
+        return op.error(`查询Agent监控用户失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/chat-users", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "QueryAgentMonitorUsers");
+    try {
+        const storage = await loadStorageModule();
+        return op.success(buildTableResult(await storage.listChatUsersForAdmin()), "操作成功");
+    }
+    catch (error) {
+        return op.error(`查询聊天用户失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/chat-sessions", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "QueryAgentMonitorSessions");
+    try {
+        const userId = String(req.body?.userId || "").trim();
+        if (!userId)
+            return op.error("缺少聊天用户标识", 400);
+        const storage = await loadStorageModule();
+        return op.success(buildTableResult(await storage.listChatSessionsForAdmin(userId)), "操作成功");
+    }
+    catch (error) {
+        return op.error(`查询聊天会话失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/sessions", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "QueryAgentMonitorSessions");
+    try {
+        const userId = String(req.body?.userId || "").trim();
+        if (!userId)
+            return op.error("缺少聊天用户标识", 400);
+        const agentMonitor = await loadAgentMonitorModule();
+        return op.success(buildTableResult(await agentMonitor.listAgentMonitorSessions(userId)), "操作成功");
+    }
+    catch (error) {
+        return op.error(`查询Agent监控会话失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/replies", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "QueryAgentMonitorReplies");
+    try {
+        const userId = String(req.body?.userId || "").trim();
+        const sessionId = String(req.body?.sessionId || "").trim();
+        if (!userId)
+            return op.error("缺少聊天用户标识", 400);
+        if (!sessionId)
+            return op.error("缺少会话标识", 400);
+        const agentMonitor = await loadAgentMonitorModule();
+        return op.success(buildTableResult(await agentMonitor.listAgentMonitorReplies(userId, sessionId)), "操作成功");
+    }
+    catch (error) {
+        return op.error(`查询Agent监控回复分组失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/reply-detail", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "QueryAgentMonitorReplyDetail");
+    try {
+        const replyId = String(req.body?.replyId || "").trim();
+        if (!replyId)
+            return op.error("缺少回复分组标识", 400);
+        const agentMonitor = await loadAgentMonitorModule();
+        const detail = await agentMonitor.getAgentMonitorReplyDetail(replyId);
+        if (!detail)
+            return op.error("回复分组不存在", 404);
+        return op.success(detail, "操作成功");
+    }
+    catch (error) {
+        return op.error(`查询Agent监控回复详情失败: ${error instanceof Error ? error.message : String(error)}`, 500);
+    }
+});
+router.post("/agent-monitor/step-detail", async (req, res) => {
+    const op = createMonitorOperationLogger(req, res, "QueryAgentMonitorStepDetail");
+    try {
+        const stepId = String(req.body?.stepId || "").trim();
+        if (!stepId)
+            return op.error("缺少步骤标识", 400);
+        const agentMonitor = await loadAgentMonitorModule();
+        const detail = await agentMonitor.getAgentMonitorStepDetail(stepId);
+        if (!detail)
+            return op.error("步骤不存在", 404);
+        return op.success(detail, "操作成功");
+    }
+    catch (error) {
+        return op.error(`查询Agent监控步骤详情失败: ${error instanceof Error ? error.message : String(error)}`, 500);
     }
 });
 exports.default = router;

@@ -73,6 +73,12 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
   let loadingRefreshTimer: ReturnType<typeof setTimeout> | null = null
   let finalSessionSynced = false
 
+  function refreshLoadingSlots() {
+    nextTick(() => {
+      options.applyChatMessages(options.chatMessages.value)
+    })
+  }
+
   function scheduleLoadingRefreshCleanup() {
     if (loadingRefreshTimer) {
       clearTimeout(loadingRefreshTimer)
@@ -228,11 +234,14 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
         return { type: 'markdown', strategy: 'merge', data: payload.text }
       }
       if (payload.type === 'ui_loading' && payload.message) {
+        const nextMessage = payload.message || '正在生成交互 UI'
+        const loadingChanged = options.currentAssistantLoadingText.value !== nextMessage
+        const memoryChanged = options.currentMemoryStatusText.value !== ''
         options.currentMemoryStatusText.value = ''
-        options.currentAssistantLoadingText.value = payload.message || '正在生成交互 UI'
-        nextTick(() => {
-          options.applyChatMessages(options.chatMessages.value)
-        })
+        options.currentAssistantLoadingText.value = nextMessage
+        if (loadingChanged || memoryChanged) {
+          refreshLoadingSlots()
+        }
         return null
       }
       if (payload.type === 'suggestion' && payload.items?.length) {
@@ -255,14 +264,19 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
         return null
       }
       if (payload.type === 'memory_status' && payload.message) {
+        const nextMessage = payload.message
+        const loadingChanged = options.currentAssistantLoadingText.value !== ''
+        const memoryChanged = options.currentMemoryStatusText.value !== nextMessage
         options.currentAssistantLoadingText.value = ''
         options.pendingAssistantMemoryStatus.value = {
           status: payload.status || 'running',
-          text: payload.message,
+          text: nextMessage,
         }
-        options.currentMemoryStatusText.value = payload.message
+        options.currentMemoryStatusText.value = nextMessage
+        if (loadingChanged || memoryChanged) {
+          refreshLoadingSlots()
+        }
         nextTick(() => {
-          options.applyChatMessages(options.chatMessages.value)
           options.flushPendingAssistantMemoryStatus()
         })
         return null

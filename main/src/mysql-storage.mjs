@@ -1,6 +1,7 @@
 import { Op } from 'sequelize'
 
 import {
+  areSessionsEquivalentForPersistence,
   DEFAULT_MODEL_CONFIGS,
   DEFAULT_ROBOTS,
   DEFAULT_SESSION_MEMORY,
@@ -180,6 +181,70 @@ export async function listSessions(user) {
   return mapSessionRows(user, rows)
 }
 
+export async function listChatUsersForAdmin() {
+  await initializeDatabase()
+  const { Session, User } = getModels()
+  const rows = await Session.findAll({
+    include: [
+      {
+        model: User,
+        as: 'user',
+        required: false,
+      },
+    ],
+    order: [['updatedAt', 'DESC']],
+  })
+
+  const grouped = new Map()
+  for (const row of rows) {
+    const userId = String(row.userId || '').trim()
+    if (!userId) {
+      continue
+    }
+    if (!grouped.has(userId)) {
+      grouped.set(userId, {
+        userId,
+        userLabel: String(row.user?.displayName || row.user?.email || userId).trim() || userId,
+        userEmail: String(row.user?.email || '').trim(),
+        sessionCount: 0,
+        lastActiveAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt || ''),
+      })
+    }
+    const current = grouped.get(userId)
+    current.sessionCount += 1
+    const currentMs = Date.parse(String(current.lastActiveAt || '')) || 0
+    const nextMs = row.updatedAt instanceof Date ? row.updatedAt.getTime() : Date.parse(String(row.updatedAt || '')) || 0
+    if (nextMs >= currentMs) {
+      current.lastActiveAt = row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt || '')
+    }
+  }
+
+  return Array.from(grouped.values()).sort((left, right) =>
+    (Date.parse(String(right.lastActiveAt || '')) || 0) - (Date.parse(String(left.lastActiveAt || '')) || 0),
+  )
+}
+
+export async function listChatSessionsForAdmin(userId) {
+  await initializeDatabase()
+  const targetUserId = String(userId || '').trim()
+  if (!targetUserId) {
+    return []
+  }
+  const { Session } = getModels()
+  const rows = await Session.findAll({
+    where: { userId: targetUserId },
+    order: [['updatedAt', 'DESC']],
+  })
+
+  return rows.map((row) => ({
+    sessionId: unscopeId({ id: targetUserId }, row.id),
+    sessionTitle: String(row.title || '').trim() || '未命名会话',
+    threadId: String(row.threadId || '').trim(),
+    preview: String(row.preview || '').trim(),
+    updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt || ''),
+  }))
+}
+
 export async function getSessionRecord(user, sessionId) {
   await ensureDefaults(user)
   const userId = resolveUserId(user)
@@ -205,6 +270,10 @@ export async function getSessionRecord(user, sessionId) {
 export async function saveSessionRecord(user, session) {
   await ensureDefaults(user)
   const normalized = normalizeSession(session)
+  const existing = await getSessionRecord(user, normalized.id)
+  if (existing && areSessionsEquivalentForPersistence(existing, normalized)) {
+    return existing
+  }
   const userId = resolveUserId(user)
   const { sequelize, Session, SessionMessage } = getModels()
   const scopedSessionId = scopeId(user, normalized.id)
@@ -313,6 +382,10 @@ export async function upsertSessionRecord(user, input) {
     createdAt: existing?.createdAt || input?.createdAt || now,
     updatedAt: now,
   })
+
+  if (existing && areSessionsEquivalentForPersistence(existing, nextSession)) {
+    return existing
+  }
 
   return saveSessionRecord(user, nextSession)
 }

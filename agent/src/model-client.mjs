@@ -648,11 +648,6 @@ export function createModelClient(options = {}) {
                   parsed: recovered.data,
                   recovered: true,
                 })
-                console.warn('[agent:structured:world-graph-patch:fallback-to-raw]', {
-                  parsedSummary: patchSummary,
-                  recoveredSummary,
-                  debug,
-                })
                 return {
                   data: recovered.data,
                   usage: extractUsage(raw),
@@ -667,10 +662,6 @@ export function createModelClient(options = {}) {
                 schemaKind,
                 raw,
                 parsed: validated,
-              })
-              console.warn('[agent:structured:world-graph-patch:empty]', {
-                ...patchSummary,
-                debug,
               })
               return {
                 data: validated,

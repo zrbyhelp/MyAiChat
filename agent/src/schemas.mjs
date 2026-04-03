@@ -614,6 +614,8 @@ export function parseRunRequest(input) {
       numeric_computation: null,
       world_graph: null,
     }),
+    numeric_stage_completed: z.boolean().default(false),
+    story_outline_stage_completed: z.boolean().default(false),
     numeric_state: z.record(z.any()).default({}),
     story_outline: z.string().default(''),
     world_graph: z.record(z.any()).default({}),
@@ -637,6 +639,14 @@ export function parseRunRequest(input) {
       : normalizeInteger(pickValue(input, ['structured_memory_history_limit', 'structuredMemoryHistoryLimit']), 12),
     auxiliary_model_configs: normalizeAuxiliaryModelConfigs(
       pickValue(input, ['auxiliary_model_configs', 'auxiliaryModelConfigs']),
+    ),
+    numeric_stage_completed: normalizeBoolean(
+      pickValue(input, ['numeric_stage_completed', 'numericStageCompleted']),
+      false,
+    ),
+    story_outline_stage_completed: normalizeBoolean(
+      pickValue(input, ['story_outline_stage_completed', 'storyOutlineStageCompleted']),
+      false,
     ),
     numeric_state: asObject(pickValue(input, ['numeric_state', 'numericState'], {})),
     story_outline: normalizeString(pickValue(input, ['story_outline', 'storyOutline'])),

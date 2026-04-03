@@ -211,7 +211,10 @@ function mergeUsage(...items) {
 }
 
 function robotGenerationLog(label, payload, level = 'info') {
-  const logger = typeof console[level] === 'function' ? console[level] : console.info
+  if (level !== 'error') {
+    return
+  }
+  const logger = typeof console[level] === 'function' ? console[level] : console.error
   logger(label, payload)
 }
 

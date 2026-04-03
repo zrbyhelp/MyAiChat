@@ -76,4 +76,6 @@ exports.menuSeedData = [
     { ...base, id: 620, parentId: 0, menuType: 0, title: "表单管理", name: "SurveyManage", path: "/survey", rank: 16, icon: "ri:file-list-3-line" },
     { ...base, id: 621, parentId: 620, menuType: 0, title: "问卷调查列表", name: "SurveyList", path: "/survey/list", component: "survey/list/index", icon: "ri:list-check-3" },
     { ...base, id: 623, parentId: 620, menuType: 0, title: "自定义表单工作流", name: "SurveyWorkflow", path: "/survey/workflow", component: "survey/workflow/index", icon: "ri:git-branch-line" },
+    { ...base, id: 630, parentId: 0, menuType: 0, title: "Agent监控", name: "AgentMonitorRoot", path: "/agent-monitor", rank: 17, icon: "ri:radar-line", redirect: "/agent-monitor/index" },
+    { ...base, id: 631, parentId: 630, menuType: 0, title: "Agent监控台", name: "AgentMonitor", path: "/agent-monitor/index", component: "monitor/agent/index", icon: "ri:pulse-line", showParent: true },
 ];

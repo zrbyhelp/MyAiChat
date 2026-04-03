@@ -15,10 +15,9 @@ function strToBool(value) {
 }
 
 function queueDebugLog(label, payload) {
-  if (!DEBUG_LOGS_ENABLED) {
-    return
-  }
-  console.info(label, payload)
+  void label
+  void payload
+  void DEBUG_LOGS_ENABLED
 }
 
 function resolveSessionKey(value) {

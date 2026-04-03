@@ -404,6 +404,35 @@ export function normalizeSession(input, index = 0) {
   }
 }
 
+function buildSessionPersistenceComparable(session) {
+  const normalized = normalizeSession(session)
+  return {
+    id: normalized.id,
+    title: normalized.title,
+    preview: normalized.preview,
+    robot: normalized.robot,
+    modelConfigId: normalized.modelConfigId,
+    modelLabel: normalized.modelLabel,
+    threadId: normalized.threadId,
+    storyOutline: normalized.storyOutline,
+    messages: normalized.messages,
+    memory: normalized.memory,
+    memorySchema: normalized.memorySchema,
+    structuredMemory: normalized.structuredMemory,
+    numericState: normalized.numericState,
+    worldGraph: normalized.worldGraph,
+    usage: normalized.usage,
+    createdAt: normalized.createdAt,
+  }
+}
+
+export function areSessionsEquivalentForPersistence(left, right) {
+  if (!left || !right) {
+    return false
+  }
+  return JSON.stringify(buildSessionPersistenceComparable(left)) === JSON.stringify(buildSessionPersistenceComparable(right))
+}
+
 export function normalizeSessionsPayload(input) {
   const sessions = Array.isArray(input?.sessions) ? input.sessions.map((item, index) => normalizeSession(item, index)) : []
 

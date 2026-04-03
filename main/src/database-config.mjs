@@ -10,6 +10,6 @@ export function getDatabaseConfig() {
     database: process.env.DB_NAME || 'myaichat',
     username: process.env.DB_USER || 'myaichat',
     password: process.env.DB_PASSWORD || 'myaichat',
-    logging: process.env.DB_LOGGING === 'true' ? console.log : false,
+    logging: false,
   }
 }

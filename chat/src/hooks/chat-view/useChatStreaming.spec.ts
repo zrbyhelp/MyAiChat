@@ -159,6 +159,31 @@ describe('useChatStreaming', () => {
     expect(applyChatMessages).toHaveBeenCalledWith(chatMessages.value)
   })
 
+  it('does not refresh chat messages again when the same ui loading text repeats', async () => {
+    const { chatServiceConfig, chatMessages, applyChatMessages } = createStreamingTestContext()
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'ui_loading',
+        message: '正在分析世界图谱',
+      },
+    } as never)
+
+    await Promise.resolve()
+    expect(applyChatMessages).toHaveBeenCalledTimes(1)
+    expect(applyChatMessages).toHaveBeenCalledWith(chatMessages.value)
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'ui_loading',
+        message: '正在分析世界图谱',
+      },
+    } as never)
+
+    await Promise.resolve()
+    expect(applyChatMessages).toHaveBeenCalledTimes(1)
+  })
+
   it('replaces the previous stage when loading switches from ui loading to memory status', async () => {
     const { chatServiceConfig, currentAssistantLoadingText, currentMemoryStatusText } =
       createStreamingTestContext()
@@ -187,6 +212,32 @@ describe('useChatStreaming', () => {
 
     expect(currentAssistantLoadingText.value).toBe('')
     expect(currentMemoryStatusText.value).toBe('正在保存会话到数据库')
+  })
+
+  it('does not refresh chat messages again when the same memory status repeats', async () => {
+    const { chatServiceConfig, applyChatMessages } = createStreamingTestContext()
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'memory_status',
+        status: 'running',
+        message: '正在保存会话到数据库',
+      },
+    } as never)
+
+    await Promise.resolve()
+    expect(applyChatMessages).toHaveBeenCalledTimes(1)
+
+    chatServiceConfig.value.onMessage?.({
+      data: {
+        type: 'memory_status',
+        status: 'running',
+        message: '正在保存会话到数据库',
+      },
+    } as never)
+
+    await Promise.resolve()
+    expect(applyChatMessages).toHaveBeenCalledTimes(1)
   })
 
   it('clears loading text when the first response text chunk arrives', async () => {

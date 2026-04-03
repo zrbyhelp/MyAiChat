@@ -11,7 +11,8 @@ let onUnauthorizedImpl: VoidHandler = () => {}
 let isBridgeConfigured = false
 
 function authDebug(message: string, extra?: Record<string, unknown>) {
-  console.debug('[auth]', message, extra || {})
+  void message
+  void extra
 }
 
 async function sleep(ms: number) {

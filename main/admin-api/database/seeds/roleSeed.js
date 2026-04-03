@@ -32,7 +32,8 @@ const adminMenuIds = [
     500, 501, 502, 503,
     600, 601, 602,
     610, 611, 612, 613,
-    620, 621, 622
+    620, 621, 622,
+    630, 631
 ];
 const commonMenuIds = [
     100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
@@ -49,14 +50,12 @@ const initRoleSeedData = async () => {
     const missingRoles = roleSeedData.filter(item => !roleIds.has(item.id));
     if (missingRoles.length > 0) {
         await role_1.default.bulkCreate(missingRoles);
-        console.log(`角色初始化完成，补齐 ${missingRoles.length} 条数据`);
     }
     const existingRoleMenus = await roleMenu_1.default.findAll({ attributes: ["roleId", "menuId"] });
     const exists = new Set(existingRoleMenus.map(item => `${item.roleId}-${item.menuId}`));
     const missingRoleMenus = roleMenuSeedData.filter(item => !exists.has(`${item.roleId}-${item.menuId}`));
     if (missingRoleMenus.length > 0) {
         await roleMenu_1.default.bulkCreate(missingRoleMenus);
-        console.log(`角色菜单权限初始化完成，补齐 ${missingRoleMenus.length} 条数据`);
     }
 };
 exports.initRoleSeedData = initRoleSeedData;

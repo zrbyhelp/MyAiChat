@@ -54,7 +54,6 @@ app.get("/health", (req, res) => {
 });
 const syncDatabase = async () => {
     try {
-        console.log(`数据库同步模式: alter=${config_1.default.database.syncAlter}`);
         await database_1.default.sync({ alter: config_1.default.database.syncAlter });
         await (0, seedRunner_1.runSeedOnce)("menu_seed_v15", menuSeed_1.initMenuSeedData);
         await (0, seedRunner_1.runSeedOnce)("role_seed_v7", roleSeed_1.initRoleSeedData);
@@ -67,7 +66,6 @@ const syncDatabase = async () => {
         await (0, seedRunner_1.runSeedOnce)("workflow_instance_approver_columns_patch_v1", schemaPatch_1.patchWorkflowInstanceApproverColumns);
         await (0, seedRunner_1.runSeedOnce)("user_profile_columns_patch_v1", schemaPatch_1.patchUserProfileColumns);
         await (0, seedRunner_1.runSeedOnce)("carousel_legacy_json_to_db_v1", carouselSeed_1.migrateLegacyCarouselData);
-        console.log("数据库模型同步成功");
     }
     catch (error) {
         console.error("数据库模型同步失败", error);
@@ -86,9 +84,7 @@ const syncDatabase = async () => {
 };
 const startServer = async () => {
     await syncDatabase();
-    app.listen(config_1.default.port, () => {
-        console.log(`admin-api running at http://127.0.0.1:${config_1.default.port}`);
-    });
+    app.listen(config_1.default.port);
 };
 function safeSendError(res, message, statusCode) {
     const maybeError = res?.error;
@@ -119,16 +115,7 @@ const errorHandler = (err, req, res, next) => {
         : isRequestAborted
             ? "请求已中断，请重试"
             : (err?.message || "服务器内部错误");
-    if (isEntityTooLarge || isRequestAborted) {
-        console.warn("请求异常:", {
-            type: err?.type,
-            code: err?.code,
-            length: err?.length,
-            limit: err?.limit,
-            message
-        });
-    }
-    else {
+    if (!isEntityTooLarge && !isRequestAborted) {
         console.error("错误:", err);
     }
     safeSendError(res, message, statusCode);

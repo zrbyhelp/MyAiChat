@@ -12,7 +12,7 @@ const sequelize = new sequelize_1.Sequelize({
     username: config_1.default.database.user,
     password: config_1.default.database.password,
     database: config_1.default.database.database,
-    logging: process.env.DB_SQL_LOG === "true" ? console.log : false,
+    logging: false,
     define: {
         timestamps: true,
         underscored: true,
@@ -22,7 +22,6 @@ const sequelize = new sequelize_1.Sequelize({
 const testConnection = async () => {
     try {
         await sequelize.authenticate();
-        console.log("数据库连接成功");
     }
     catch (error) {
         console.error("数据库连接失败:", error);

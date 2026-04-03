@@ -870,7 +870,8 @@ const sessionBackgroundStatusLabel = computed(() =>
 const sessionBackgroundStatusClass = computed(() => `is-${sessionBackgroundStatus.value.status}`)
 
 function initDebug(message: string, extra?: Record<string, unknown>) {
-  console.debug('[chat-init]', message, extra || {})
+  void message
+  void extra
 }
 const { hasInitializedAgent, ensureAgentInitialized } = useChatInitializer({
   routeName: () => String(route.name || ''),

@@ -3,6 +3,7 @@ import * as mysqlStorage from './mysql-storage.mjs'
 import { getStorageDriver } from './database-config.mjs'
 
 export {
+  areSessionsEquivalentForPersistence,
   buildSessionSummary,
   createSessionTitle,
   DEFAULT_SESSION_MEMORY,
@@ -79,4 +80,20 @@ export async function readRobots(user) {
 
 export async function writeRobots(user, robots) {
   return getStorageImplementation().writeRobots(user, robots)
+}
+
+export async function listChatUsersForAdmin() {
+  const implementation = getStorageImplementation()
+  if (typeof implementation.listChatUsersForAdmin === 'function') {
+    return implementation.listChatUsersForAdmin()
+  }
+  return []
+}
+
+export async function listChatSessionsForAdmin(userId) {
+  const implementation = getStorageImplementation()
+  if (typeof implementation.listChatSessionsForAdmin === 'function') {
+    return implementation.listChatSessionsForAdmin(userId)
+  }
+  return []
 }

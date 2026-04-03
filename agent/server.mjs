@@ -13,6 +13,4 @@ const { createApp } = await import("./src/app.mjs");
 const PORT = Number(process.env.PORT || process.env.AGENT_PORT || process.env.AGENT_NODE_PORT || 8000);
 const app = await createApp();
 
-createServer(app).listen(PORT, () => {
-  console.log(`AI agent running at http://127.0.0.1:${PORT}`);
-});
+createServer(app).listen(PORT);

@@ -24,10 +24,9 @@ export function utcNow() {
 }
 
 export function debugLog(label, payload) {
-  if (!debugLogsEnabled()) {
-    return
-  }
-  console.log(label, JSON.stringify(payload))
+  void label
+  void payload
+  void debugLogsEnabled
 }
 
 export function normalizePositiveInt(value, fallback) {
@@ -402,6 +401,8 @@ export function buildInitialState(request, history, memorySchema, structuredMemo
     structured_memory_history_limit: structuredMemoryHistoryLimit,
     model_config: request.model_settings,
     auxiliary_model_configs: request.auxiliary_model_configs || {},
+    numeric_stage_completed: Boolean(request.numeric_stage_completed),
+    story_outline_stage_completed: Boolean(request.story_outline_stage_completed),
     numeric_computation_enabled: Boolean(request.robot?.numeric_computation_enabled),
     numeric_computation_prompt: request.robot?.numeric_computation_prompt || promptConfig?.defaults?.numeric_computation_prompt || '',
     numeric_computation_items: numericComputationItems,
@@ -459,6 +460,13 @@ export async function numericAgentNode(state, modelClient) {
   const numericSchema = numericItemsToSchema(numericItems)
   const currentNumericState = normalizeNumericStateValue(numericSchema, {}, state.numeric_state || {})
 
+  if (state.numeric_stage_completed) {
+    return {
+      numeric_state: currentNumericState,
+      usage: emptyUsage(),
+    }
+  }
+
   if (!state.numeric_computation_enabled || !Object.keys(numericSchema).length) {
     return {
       numeric_state: currentNumericState,
@@ -511,6 +519,12 @@ export async function numericAgentNode(state, modelClient) {
 }
 
 export async function storyOutlineNode(state, modelClient) {
+  if (state.story_outline_stage_completed && resolveStoryOutline(state)) {
+    return {
+      story_outline: resolveStoryOutline(state),
+      usage: emptyUsage(),
+    }
+  }
   const promptConfig = getPromptConfig()
   const response = await modelClient.invokeText(
     resolveNodeModelConfig(state, 'outline'),

@@ -12,9 +12,11 @@ import {
   normalizeStructuredMemory,
   saveMemoryToThread,
   shouldUseRequestSchema,
+  storyOutlineNode,
   worldGraphWritebackNode,
   memoryNode,
   buildInitialState,
+  numericAgentNode,
 } from './runtime.mjs'
 import {
   parseDocumentSummaryRequest,
@@ -291,7 +293,7 @@ export async function createApp(options = {}) {
       const structuredMemory = normalizeStructuredMemory(memorySchema, rawStructuredMemory)
       if (thread) {
         request.numeric_state = thread.numeric_state
-        request.story_outline = thread.story_outline || request.story_outline
+        request.story_outline = request.story_outline || thread.story_outline
       }
 
       const state = buildInitialState(request, history, memorySchema, structuredMemory)
@@ -335,6 +337,42 @@ export async function createApp(options = {}) {
     } finally {
       res.end()
     }
+  }))
+
+  app.post('/runs/story-outline', asyncRoute(async (req, res) => {
+    const request = parseRunRequest(req.body)
+    if (!request.model_settings.model) {
+      throw createHttpError(400, 'model 不能为空')
+    }
+    if (!String(request.prompt || '').trim()) {
+      throw createHttpError(400, 'prompt 不能为空')
+    }
+
+    const { state } = buildRequestState(request)
+    const payload = await storyOutlineNode(state, modelClient)
+    res.json({
+      threadId: request.thread_id,
+      story_outline: payload.story_outline || '',
+      usage: payload.usage || emptyUsage(),
+    })
+  }))
+
+  app.post('/runs/numeric', asyncRoute(async (req, res) => {
+    const request = parseRunRequest(req.body)
+    if (!request.model_settings.model) {
+      throw createHttpError(400, 'model 不能为空')
+    }
+    if (!String(request.prompt || '').trim()) {
+      throw createHttpError(400, 'prompt 不能为空')
+    }
+
+    const { state } = buildRequestState(request)
+    const payload = await numericAgentNode(state, modelClient)
+    res.json({
+      threadId: request.thread_id,
+      numeric_state: payload.numeric_state || {},
+      usage: payload.usage || emptyUsage(),
+    })
   }))
 
   app.post('/runs/memory', asyncRoute(async (req, res) => {

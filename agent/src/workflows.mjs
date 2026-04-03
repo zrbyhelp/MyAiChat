@@ -9,6 +9,7 @@ import {
   buildMemorySchemaPrompt,
   buildRobotGenerationContext,
   buildWorldGraphEvolutionPrompt,
+  emptyUsage,
   ensureGeneratedRobotPayload,
   formatStageError,
   numericAgentNode,
@@ -45,6 +46,7 @@ export function createStreamWorkflow({ modelClient }) {
           const nextContext = {
             ...context,
             numeric_state: payload.numeric_state,
+            numeric_stage_completed: true,
             usage: addUsage(context.usage, payload.usage),
           }
           await context.event_sink?.({ type: 'numeric_state_updated', state: nextContext.numeric_state || {} })
@@ -56,10 +58,16 @@ export function createStreamWorkflow({ modelClient }) {
       .addNode('outline', async ({ context }) => {
         try {
           await context.event_sink?.({ type: 'story_outline_started' })
-          const payload = await storyOutlineNode(context, modelClient)
+          const payload = String(context.story_outline || '').trim()
+            ? {
+              story_outline: String(context.story_outline || '').trim(),
+              usage: emptyUsage(),
+            }
+            : await storyOutlineNode(context, modelClient)
           const nextContext = {
             ...context,
             story_outline: payload.story_outline,
+            story_outline_stage_completed: true,
             usage: addUsage(context.usage, payload.usage),
           }
           await context.event_sink?.({
@@ -185,21 +193,7 @@ export async function runWorldGraphEvolution({ modelClient, modelSettings, reque
     && patchSummary.deleteEdgeCount === 0
     && patchSummary.upsertEventCount === 0
     && patchSummary.appendEventEffectCount === 0
-  if (isEmptyPatch) {
-    console.warn('[agent:world-graph-patch:empty:request-context]', {
-      sourceName: String(request?.source_name || ''),
-      guidanceLength: String(request?.guidance || '').trim().length,
-      segmentIndex: Number(request?.segment_index || 0) + 1,
-      segmentTotal: Math.max(Number(request?.segment_total || 1), 1),
-      segmentSummaryLength: String(request?.segment_summary || '').trim().length,
-      currentGraphNodeCount: Array.isArray(request?.current_world_graph?.nodes) ? request.current_world_graph.nodes.length : 0,
-      currentGraphEdgeCount: Array.isArray(request?.current_world_graph?.edges) ? request.current_world_graph.edges.length : 0,
-      currentGraphRelationTypeCount: Array.isArray(request?.current_world_graph?.relationTypes) ? request.current_world_graph.relationTypes.length : 0,
-      usage: response.usage,
-      patchSummary,
-      debug: response.debug || null,
-    })
-  }
+  void isEmptyPatch
   return {
     world_graph_patch: normalizedPatch,
     usage: response.usage,

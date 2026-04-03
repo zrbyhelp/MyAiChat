@@ -24,6 +24,5 @@ const initDeptSeedData = async () => {
     if (missing.length === 0)
         return;
     await dept_1.default.bulkCreate(missing);
-    console.log(`部门初始化完成，补齐 ${missing.length} 条数据`);
 };
 exports.initDeptSeedData = initDeptSeedData;

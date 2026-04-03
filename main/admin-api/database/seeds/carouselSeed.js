@@ -148,6 +148,5 @@ const migrateLegacyCarouselData = async () => {
             insertedResourceCount += 1;
         }
     }
-    console.log(`carousel legacy migration done, categories inserted: ${insertedCategoryCount}, resources inserted: ${insertedResourceCount}`);
 };
 exports.migrateLegacyCarouselData = migrateLegacyCarouselData;

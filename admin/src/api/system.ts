@@ -26,6 +26,22 @@ export type LogSizeNotifySetting = {
   userIds: number[];
 };
 
+export type AgentMonitorStatus = {
+  enabled: boolean;
+  startedAt: string;
+  stoppedAt: string;
+  targetUserId: string;
+  targetUserLabel: string;
+  targetSessionId: string;
+  targetSessionTitle: string;
+  stats: {
+    userCount: number;
+    sessionCount: number;
+    replyCount: number;
+    stepCount: number;
+  };
+};
+
 export const getUserList = (data?: object) => {
   return http.request<ResultTable>("post", "/api/user", { data });
 };
@@ -212,6 +228,50 @@ export const getLayNoticeList = (data?: object) => {
 
 export const readLayNotice = (data?: object) => {
   return http.request<Result>("post", "/api/monitor/lay-notice/read", { data });
+};
+
+export const getAgentMonitorStatus = (data?: object) => {
+  return http.request<Result>("post", "/api/monitor/agent-monitor/status", { data });
+};
+
+export const startAgentMonitor = (data?: object) => {
+  return http.request<Result>("post", "/api/monitor/agent-monitor/start", { data });
+};
+
+export const stopAgentMonitor = (data?: object) => {
+  return http.request<Result>("post", "/api/monitor/agent-monitor/stop", { data });
+};
+
+export const clearAgentMonitor = (data?: object) => {
+  return http.request<Result>("post", "/api/monitor/agent-monitor/clear", { data });
+};
+
+export const getAgentMonitorUsers = (data?: object) => {
+  return http.request<ResultTable>("post", "/api/monitor/agent-monitor/users", { data });
+};
+
+export const getAgentMonitorChatUsers = (data?: object) => {
+  return http.request<ResultTable>("post", "/api/monitor/agent-monitor/chat-users", { data });
+};
+
+export const getAgentMonitorChatSessions = (data?: object) => {
+  return http.request<ResultTable>("post", "/api/monitor/agent-monitor/chat-sessions", { data });
+};
+
+export const getAgentMonitorSessions = (data?: object) => {
+  return http.request<ResultTable>("post", "/api/monitor/agent-monitor/sessions", { data });
+};
+
+export const getAgentMonitorReplies = (data?: object) => {
+  return http.request<ResultTable>("post", "/api/monitor/agent-monitor/replies", { data });
+};
+
+export const getAgentMonitorReplyDetail = (data?: object) => {
+  return http.request<Result>("post", "/api/monitor/agent-monitor/reply-detail", { data });
+};
+
+export const getAgentMonitorStepDetail = (data?: object) => {
+  return http.request<Result>("post", "/api/monitor/agent-monitor/step-detail", { data });
 };
 
 export const getRoleMenu = (data?: object) => {

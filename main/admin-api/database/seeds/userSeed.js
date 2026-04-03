@@ -44,14 +44,12 @@ const initUserSeedData = async () => {
     const missingUsers = userSeedData.filter(item => !userIds.has(item.id));
     if (missingUsers.length > 0) {
         await user_1.default.bulkCreate(missingUsers);
-        console.log(`用户初始化完成，补齐 ${missingUsers.length} 条数据`);
     }
     const existingUserRoles = await userRole_1.default.findAll({ attributes: ["userId", "roleId"] });
     const exists = new Set(existingUserRoles.map(item => `${item.userId}-${item.roleId}`));
     const missingUserRoles = userRoleSeedData.filter(item => !exists.has(`${item.userId}-${item.roleId}`));
     if (missingUserRoles.length > 0) {
         await userRole_1.default.bulkCreate(missingUserRoles);
-        console.log(`用户角色初始化完成，补齐 ${missingUserRoles.length} 条数据`);
     }
 };
 exports.initUserSeedData = initUserSeedData;

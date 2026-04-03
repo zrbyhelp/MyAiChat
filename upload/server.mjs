@@ -166,9 +166,7 @@ app.use((error, req, res, _next) => {
 
 async function bootstrap() {
   await ensureBucket(minioClient, minioConfig.bucket, minioConfig.publicRead)
-  app.listen(UPLOAD_PORT, () => {
-    console.log(`Upload service running at http://127.0.0.1:${UPLOAD_PORT}`)
-  })
+  app.listen(UPLOAD_PORT)
 }
 
 bootstrap().catch((error) => {

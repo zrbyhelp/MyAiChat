@@ -499,6 +499,263 @@ test('runs stream completes and persists thread state', async () => {
   }
 })
 
+test('runs numeric endpoint returns generated numeric state', async () => {
+  const client = new CapturingModelClient()
+  const { dir, store } = await createTempStore()
+  try {
+    const app = await createApp({ modelClient: client, store })
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/runs/numeric`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          thread_id: 'thread-numeric-test',
+          session_id: 'session-numeric-test',
+          prompt: '更新数值',
+          user: { id: 'u1' },
+          model_config: {
+            provider: 'openai',
+            base_url: 'http://example.com',
+            api_key: 'test-key',
+            model: 'answer-model',
+            temperature: 0.7,
+          },
+          robot: {
+            numeric_computation_enabled: true,
+            numeric_computation_prompt: '保持 hp=10',
+            numeric_computation_items: [
+              { name: 'hp', current_value: 8, description: '生命值' },
+            ],
+          },
+          auxiliary_model_configs: {
+            numeric_computation: {
+              provider: 'openai',
+              base_url: 'http://example.com',
+              api_key: 'test-key',
+              model: 'numeric-model',
+              temperature: 0.7,
+            },
+          },
+          memory_schema: { categories: [] },
+          structured_memory: { updated_at: '', categories: [] },
+          history: [],
+          numeric_state: {},
+        }),
+      })
+      const body = await response.json()
+      assert.equal(response.status, 200)
+      assert.deepEqual(body.numeric_state, { hp: 10 })
+      assert.equal(body.usage.prompt_tokens, 11)
+    })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('runs stream reuses prefetched numeric state and story outline', async () => {
+  const client = new CapturingModelClient()
+  const { dir, store } = await createTempStore()
+  try {
+    const app = await createApp({ modelClient: client, store })
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/runs/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          thread_id: 'thread-prefetched-stream',
+          session_id: 'session-prefetched-stream',
+          prompt: '测试',
+          user: { id: 'u1' },
+          model_config: {
+            provider: 'openai',
+            base_url: 'http://example.com',
+            api_key: 'test-key',
+            model: 'answer-model',
+            temperature: 0.7,
+          },
+          robot: {
+            common_prompt: '通用前缀',
+            system_prompt: '角色设定',
+            numeric_computation_enabled: true,
+            numeric_computation_prompt: '保持 hp=10',
+            numeric_computation_items: [
+              { name: 'hp', current_value: 8, description: '生命值' },
+            ],
+          },
+          auxiliary_model_configs: {
+            numeric_computation: {
+              provider: 'openai',
+              base_url: 'http://example.com',
+              api_key: 'test-key',
+              model: 'numeric-model',
+              temperature: 0.7,
+            },
+            outline: {
+              provider: 'openai',
+              base_url: 'http://example.com',
+              api_key: 'test-key',
+              model: 'outline-capture-model',
+              temperature: 0.7,
+            },
+          },
+          memory_schema: { categories: [] },
+          structured_memory: { updated_at: '', categories: [] },
+          history: [{ role: 'user', content: 'old' }],
+          numeric_stage_completed: true,
+          story_outline_stage_completed: true,
+          numeric_state: { hp: 10 },
+          story_outline: '已预取的故事梗概',
+        }),
+      })
+      const text = await response.text()
+      assert.equal(response.status, 200)
+      assert.match(text, /numeric_state_updated/)
+      assert.match(text, /story_outline_completed/)
+      assert.equal(
+        client.calls.filter((item) => item.kind === 'text' && item.config?.model === 'numeric-model').length,
+        0,
+      )
+      assert.equal(
+        client.calls.filter((item) => item.kind === 'text' && item.config?.model === 'outline-capture-model').length,
+        0,
+      )
+    })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('story outline endpoint returns generated outline payload', async () => {
+  const client = new CapturingModelClient()
+  const { dir, store } = await createTempStore()
+  try {
+    const app = await createApp({ modelClient: client, store })
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/runs/story-outline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          thread_id: 'thread-outline-test',
+          session_id: 'session-outline-test',
+          prompt: '继续推进剧情',
+          user: { id: 'u1' },
+          model_config: {
+            provider: 'openai',
+            base_url: 'http://example.com',
+            api_key: 'test-key',
+            model: 'answer-model',
+            temperature: 0.7,
+          },
+          robot: {
+            common_prompt: '通用前缀',
+            system_prompt: '角色设定',
+          },
+          auxiliary_model_configs: {
+            outline: {
+              provider: 'openai',
+              base_url: 'http://example.com',
+              api_key: 'test-key',
+              model: 'outline-capture-model',
+              temperature: 0.7,
+            },
+          },
+          memory_schema: { categories: [] },
+          structured_memory: { updated_at: '', categories: [] },
+          history: [{ role: 'user', content: 'old' }],
+          numeric_state: {},
+          world_graph: { meta: { robotId: 'robot-1' }, nodes: [], edges: [], relationTypes: [] },
+        }),
+      })
+      const body = await response.json()
+      assert.equal(response.status, 200)
+      assert.equal(body.story_outline, '先描述误会升级，再安排角色正面回应。')
+      assert.deepEqual(body.usage, { prompt_tokens: 5, completion_tokens: 3 })
+    })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('runs stream reuses request story outline instead of thread outline or outline model', async () => {
+  const client = new CapturingModelClient()
+  const { dir, store } = await createTempStore()
+  try {
+    await store.save({
+      thread_id: 'thread-prebuilt-outline',
+      messages: [{ role: 'user', content: 'old' }],
+      memory_schema: { categories: [] },
+      structured_memory: { updated_at: '', categories: [] },
+      numeric_state: { hp: 8 },
+      story_outline: '线程旧梗概',
+    })
+    const app = await createApp({ modelClient: client, store })
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/runs/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          thread_id: 'thread-prebuilt-outline',
+          session_id: 'session-prebuilt-outline',
+          prompt: '测试',
+          user: { id: 'u1' },
+          model_config: {
+            provider: 'openai',
+            base_url: 'http://example.com',
+            api_key: 'test-key',
+            model: 'answer-model',
+            temperature: 0.7,
+          },
+          robot: {
+            common_prompt: '通用前缀',
+            system_prompt: '角色设定',
+            numeric_computation_enabled: true,
+            numeric_computation_prompt: '保持 hp=10',
+            numeric_computation_items: [
+              { name: 'hp', current_value: 8, description: '生命值' },
+            ],
+          },
+          auxiliary_model_configs: {
+            outline: {
+              provider: 'openai',
+              base_url: 'http://example.com',
+              api_key: 'test-key',
+              model: 'outline-capture-model',
+              temperature: 0.7,
+            },
+            numeric_computation: {
+              provider: 'openai',
+              base_url: 'http://example.com',
+              api_key: 'test-key',
+              model: 'numeric-model',
+              temperature: 0.7,
+            },
+          },
+          memory_schema: { categories: [] },
+          structured_memory: { updated_at: '', categories: [] },
+          history: [],
+          numeric_state: {},
+          story_outline: '预生成新梗概',
+        }),
+      })
+      const text = await response.text()
+      assert.equal(response.status, 200)
+      assert.match(text, /story_outline_started/)
+      assert.match(text, /story_outline_completed/)
+      assert.match(text, /预生成新梗概/)
+      assert.doesNotMatch(text, /线程旧梗概/)
+      assert.match(text, /"prompt_tokens":30/)
+      assert.match(text, /"completion_tokens":16/)
+    })
+
+    const stored = await store.load('thread-prebuilt-outline')
+    assert.equal(stored.story_outline, '预生成新梗概')
+    const outlineCall = client.calls.find((item) => item.kind === 'text' && item.config?.model === 'outline-capture-model')
+    assert.equal(outlineCall, undefined)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('model client does not pass strict when using jsonMode structured output fallback', async () => {
   const seenConfigs = []
   const modelClient = createModelClient({

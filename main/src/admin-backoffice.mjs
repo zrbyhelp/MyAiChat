@@ -123,7 +123,6 @@ async function resetLegacyAdminSchemaIfNeeded(sequelize) {
 
   const tableNames = getAdminTableNames()
   const quotedTableNames = tableNames.map((tableName) => `\`${tableName}\``).join(', ')
-  console.log('检测到旧版后台前缀表结构，重建 admin_* 表')
   await sequelize.query('SET FOREIGN_KEY_CHECKS = 0')
   try {
     await sequelize.query(`DROP TABLE IF EXISTS ${quotedTableNames}`)
@@ -193,7 +192,6 @@ export async function initializeAdminBackoffice() {
   } = loadAdminModules()
 
   try {
-    console.log(`后台数据库同步模式: alter=${config.database.syncAlter}`)
     await resetLegacyAdminSchemaIfNeeded(sequelize)
     await sequelize.sync({ alter: config.database.syncAlter })
     await runSeedOnce('drop_legacy_permission_tables_v1', dropLegacyPermissionTables)
@@ -206,12 +204,11 @@ export async function initializeAdminBackoffice() {
     await runSeedOnce('resource_system_resource_storage_columns_patch_v1', patchResourceSystemResourceStorageColumns)
     await runSeedOnce('carousel_resource_ref_columns_patch_v1', patchCarouselResourceRefColumns)
     await runSeedOnce('workflow_instance_approver_columns_patch_v1', patchWorkflowInstanceApproverColumns)
-    await runSeedOnce('menu_seed_v14', initMenuSeedData)
-    await runSeedOnce('role_seed_v7', initRoleSeedData)
+    await runSeedOnce('menu_seed_v16', initMenuSeedData)
+    await runSeedOnce('role_seed_v8', initRoleSeedData)
     await runSeedOnce('dept_seed_v1', initDeptSeedData)
     await runSeedOnce('user_seed_v1', initUserSeedData)
     await runSeedOnce('carousel_legacy_json_to_db_v1', migrateLegacyCarouselData)
-    console.log('后台数据库模型同步成功')
   } catch (error) {
     console.error('后台数据库模型同步失败', error)
     await appendSystemExceptionLog({

@@ -31,13 +31,12 @@ const updatableFields = [
     "showParent"
 ];
 const initMenuSeedData = async () => {
-    await menu_1.default.destroy({ where: { id: { [sequelize_1.Op.in]: [306, 307, 309, 622] } } });
+    await menu_1.default.destroy({ where: { id: { [sequelize_1.Op.in]: [306, 307, 309, 405, 622] } } });
     const existing = await menu_1.default.findAll();
     const existingMap = new Map(existing.map(item => [Number(item.id), item]));
     const missing = menuData_1.menuSeedData.filter(item => !existingMap.has(item.id));
     if (missing.length > 0) {
         await menu_1.default.bulkCreate(missing);
-        console.log(`menu seed inserted ${missing.length} rows`);
     }
     let updatedCount = 0;
     for (const seed of menuData_1.menuSeedData) {
@@ -60,7 +59,6 @@ const initMenuSeedData = async () => {
         }
     }
     if (updatedCount > 0) {
-        console.log(`menu seed updated ${updatedCount} rows`);
     }
 };
 exports.initMenuSeedData = initMenuSeedData;
