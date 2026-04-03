@@ -101,8 +101,8 @@ services:
 
   agent:
     build:
-      context: .
-      dockerfile: agent/Dockerfile
+      context: ./agent
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       PORT: 8000

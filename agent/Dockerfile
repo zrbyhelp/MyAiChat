@@ -2,9 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY agent/package*.json ./
+COPY package*.json ./
 RUN npm install
 
-COPY agent ./
+COPY . ./
 
 CMD ["node", "server.mjs"]
