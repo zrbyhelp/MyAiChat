@@ -1742,22 +1742,60 @@ async function runWorldGraphUpdateJob(agentRequest, payload, user, existingSessi
   const latestGraph = normalizeWorldGraphSnapshot(requestBody.world_graph || requestBody.worldGraph || null)
 
   try {
-    const response = await requestAgentJson(
-      '/runs/world-graph-update',
-      requestBody,
-      payload,
-      null,
-      '世界图谱更新',
-      { retries: 2, retryDelayMs: 1200 },
-    )
+    let response = null
+    try {
+      response = await requestAgentJson(
+        '/runs/world-graph-update',
+        requestBody,
+        payload,
+        null,
+        '世界图谱更新',
+        { retries: 2, retryDelayMs: 1200 },
+      )
+    } catch (error) {
+      backgroundLog('[world-graph-update:agent_request_failed]', {
+        sessionId: payload.sessionId,
+        threadId: agentRequest.thread_id || agentRequest.threadId,
+        robotId: String(requestBody?.world_graph?.meta?.robotId || requestBody?.worldGraph?.meta?.robotId || ''),
+        message: error instanceof Error ? error.message : '世界图谱请求失败',
+      }, 'error')
+      throw error
+    }
+
     const writebackOps = response?.world_graph_update_ops || response?.worldGraphUpdateOps || {}
-    const applyResult = applyWorldGraphWritebackToSessionGraph(latestGraph, latestGraph, writebackOps)
-    const updatedSession = await saveSessionWorldGraphFromBase(
-      user,
-      latestSession,
-      applyResult.graph,
-      response?.usage,
-    )
+    let applyResult = null
+    try {
+      applyResult = applyWorldGraphWritebackToSessionGraph(latestGraph, latestGraph, writebackOps)
+    } catch (error) {
+      backgroundLog('[world-graph-update:patch_apply_failed]', {
+        sessionId: payload.sessionId,
+        threadId: agentRequest.thread_id || agentRequest.threadId,
+        robotId: String(requestBody?.world_graph?.meta?.robotId || requestBody?.worldGraph?.meta?.robotId || ''),
+        writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
+        message: error instanceof Error ? error.message : '世界图谱 patch 应用失败',
+      }, 'error')
+      throw error
+    }
+
+    let updatedSession = null
+    try {
+      updatedSession = await saveSessionWorldGraphFromBase(
+        user,
+        latestSession,
+        applyResult.graph,
+        response?.usage,
+      )
+    } catch (error) {
+      backgroundLog('[world-graph-update:session_save_failed]', {
+        sessionId: payload.sessionId,
+        threadId: agentRequest.thread_id || agentRequest.threadId,
+        robotId: String(requestBody?.world_graph?.meta?.robotId || requestBody?.worldGraph?.meta?.robotId || ''),
+        writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
+        message: error instanceof Error ? error.message : '世界图谱 session 保存失败',
+      }, 'error')
+      throw error
+    }
+
     return {
       requestBody,
       graph: applyResult.graph,
@@ -1773,6 +1811,12 @@ async function runWorldGraphUpdateJob(agentRequest, payload, user, existingSessi
       appliedSnapshotCount: applyResult.appliedSnapshotCount,
     }
   } catch (error) {
+    backgroundLog('[world-graph-update:skipped]', {
+      sessionId: payload.sessionId,
+      threadId: agentRequest.thread_id || agentRequest.threadId,
+      robotId: String(requestBody?.world_graph?.meta?.robotId || requestBody?.worldGraph?.meta?.robotId || ''),
+      message: error instanceof Error ? error.message : '世界图谱写回已跳过',
+    }, 'error')
     return {
       requestBody,
       graph: latestGraph,
