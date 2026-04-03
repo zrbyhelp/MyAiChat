@@ -154,6 +154,25 @@ function describeFetchError(error, endpoint, actionLabel) {
   return `${actionLabel}失败：${error.message}`
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRetriableAgentRequestError(error) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const message = String(error.message || '')
+  return (
+    message === 'fetch failed'
+    || /ECONNRESET|ECONNREFUSED|ETIMEDOUT|socket|UND_ERR_SOCKET|terminated|abort|aborted|timed out|network/i.test(message)
+  )
+}
+
+function isRetriableHttpStatus(status) {
+  return [408, 425, 429, 500, 502, 503, 504].includes(Number(status))
+}
+
 export function extractAgentServiceErrorMessage(rawText) {
   try {
     const parsed = JSON.parse(String(rawText || ''))
@@ -548,37 +567,59 @@ async function resolveVectorKnowledgeContext(user, payload, session, robot, moni
 
 async function prefetchStoryOutline(baseRequest, payload, session, monitorReplyId = '') {
   const outlineRequest = buildStoryOutlineAgentRequest(baseRequest)
-  const outlineResponse = await requestAgentJson(
-    '/runs/story-outline',
-    outlineRequest,
-    payload,
-    session,
-    '故事梗概生成',
-  )
-  const storyOutline = normalizeStoryOutline(outlineResponse?.story_outline || outlineResponse?.storyOutline || {})
-  if (!hasStoryOutlineContent(storyOutline)) {
-    throw new Error('故事梗概为空')
-  }
+  try {
+    const outlineResponse = await requestAgentJson(
+      '/runs/story-outline',
+      outlineRequest,
+      payload,
+      session,
+      '故事梗概生成',
+    )
+    const storyOutline = normalizeStoryOutline(outlineResponse?.story_outline || outlineResponse?.storyOutline || {})
+    if (!hasStoryOutlineContent(storyOutline)) {
+      throw new Error('故事梗概为空')
+    }
 
-  if (monitorReplyId) {
-    appendAgentMonitorStep({
-      replyId: monitorReplyId,
-      mergeKey: 'story_outline',
-      stage: 'story_outline',
-      eventType: 'story_outline',
-      status: 'success',
-      summary: '故事梗概生成完成',
-      requestSnapshot: sanitizeAgentRequestForMonitor(outlineRequest),
-      responseSnapshot: {
-        story_outline: formatStoryDraftForMonitor(storyOutline),
-        usage: outlineResponse?.usage || null,
-      },
-    })
-  }
+    if (monitorReplyId) {
+      appendAgentMonitorStep({
+        replyId: monitorReplyId,
+        mergeKey: 'story_outline',
+        stage: 'story_outline',
+        eventType: 'story_outline',
+        status: 'success',
+        summary: '故事梗概生成完成',
+        requestSnapshot: sanitizeAgentRequestForMonitor(outlineRequest),
+        responseSnapshot: {
+          story_outline: formatStoryDraftForMonitor(storyOutline),
+          usage: outlineResponse?.usage || null,
+        },
+      })
+    }
 
-  return {
-    storyOutline,
-    usage: normalizeUsage(outlineResponse?.usage),
+    return {
+      storyOutline,
+      usage: normalizeUsage(outlineResponse?.usage),
+    }
+  } catch (error) {
+    if (monitorReplyId) {
+      appendAgentMonitorStep({
+        replyId: monitorReplyId,
+        mergeKey: 'story_outline',
+        stage: 'story_outline',
+        eventType: 'story_outline',
+        status: 'failed',
+        summary: error instanceof Error ? error.message : '故事梗概生成失败',
+        requestSnapshot: sanitizeAgentRequestForMonitor(outlineRequest),
+      })
+    }
+    backgroundLog('[story-outline:fallback-empty]', {
+      sessionId: payload.sessionId,
+      message: error instanceof Error ? error.message : '故事梗概生成失败',
+    }, 'warn')
+    return {
+      storyOutline: normalizeStoryOutline({}),
+      usage: normalizeUsage(null),
+    }
   }
 }
 
@@ -1099,20 +1140,35 @@ async function requestAgentRun(payload, user) {
   const agentRequest = await buildAgentRequest(payload, user, session, monitorReplyId)
 
   try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(agentRequest),
-    })
+    for (let attempt = 0; attempt <= 2; attempt += 1) {
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(agentRequest),
+        })
 
-    if (!response.ok) {
-      const rawText = await response.text()
-      throw new Error(extractAgentServiceErrorMessage(rawText) || rawText || 'Agent 请求失败')
+        if (!response.ok) {
+          const rawText = await response.text()
+          const message = extractAgentServiceErrorMessage(rawText) || rawText || 'Agent 请求失败'
+          if (attempt < 2 && isRetriableHttpStatus(response.status)) {
+            await wait(800 * (attempt + 1))
+            continue
+          }
+          throw new Error(message)
+        }
+
+        return { response, session, agentRequest, monitorReplyId }
+      } catch (error) {
+        if (attempt < 2 && isRetriableAgentRequestError(error)) {
+          await wait(800 * (attempt + 1))
+          continue
+        }
+        throw error
+      }
     }
-
-    return { response, session, agentRequest, monitorReplyId }
   } catch (error) {
     if (monitorReplyId) {
       failAgentMonitorReply(monitorReplyId, error, {
@@ -1125,26 +1181,39 @@ async function requestAgentRun(payload, user) {
   }
 }
 
-async function requestAgentJson(endpointPath, requestBody, payload, session, actionLabel) {
+async function requestAgentJson(endpointPath, requestBody, payload, session, actionLabel, options = {}) {
   const endpoint = `${getAgentServiceUrl()}${endpointPath}`
+  const retries = Math.max(0, Number(options.retries ?? 2))
+  const retryDelayMs = Math.max(0, Number(options.retryDelayMs ?? 800))
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    })
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      })
 
-    if (!response.ok) {
-      const rawText = await response.text()
-      throw new Error(extractAgentServiceErrorMessage(rawText) || rawText || `${actionLabel}失败`)
+      if (!response.ok) {
+        const rawText = await response.text()
+        const message = extractAgentServiceErrorMessage(rawText) || rawText || `${actionLabel}失败`
+        if (attempt < retries && isRetriableHttpStatus(response.status)) {
+          await wait(retryDelayMs * (attempt + 1 || 1))
+          continue
+        }
+        throw new Error(message)
+      }
+
+      return await response.json()
+    } catch (error) {
+      if (attempt < retries && isRetriableAgentRequestError(error)) {
+        await wait(retryDelayMs * (attempt + 1 || 1))
+        continue
+      }
+      throw new Error(formatChatErrorMessage(payload, session, new Error(describeFetchError(error, endpoint, actionLabel))))
     }
-
-    return await response.json()
-  } catch (error) {
-    throw new Error(formatChatErrorMessage(payload, session, new Error(describeFetchError(error, endpoint, actionLabel))))
   }
 }
 
@@ -1631,19 +1700,35 @@ async function runAgentAndCollect(payload, user, onEvent) {
 async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
   const latestSession = await getSessionRecord(user, payload.sessionId)
   const requestBody = buildMemoryAgentRequest(agentRequest, latestSession)
-  const response = await requestAgentJson('/runs/memory', requestBody, payload, null, '结构化记忆')
-  const normalizedMemory = normalizeStructuredMemory(response?.memory)
-  const updatedSession = await patchSessionStructuredMemory(user, payload.sessionId, normalizedMemory, response?.usage)
+  try {
+    const response = await requestAgentJson('/runs/memory', requestBody, payload, null, '结构化记忆')
+    const normalizedMemory = normalizeStructuredMemory(response?.memory)
+    const updatedSession = await patchSessionStructuredMemory(user, payload.sessionId, normalizedMemory, response?.usage)
 
-  return {
-    requestBody,
-    responseSnapshot: {
-      memory: summarizeMemoryForMonitor(normalizedMemory),
+    return {
+      requestBody,
+      responseSnapshot: {
+        memory: summarizeMemoryForMonitor(normalizedMemory),
+        usage: normalizeUsage(response?.usage),
+      },
+      memory: normalizedMemory,
       usage: normalizeUsage(response?.usage),
-    },
-    memory: normalizedMemory,
-    usage: normalizeUsage(response?.usage),
-    session: updatedSession,
+      session: updatedSession,
+      warnings: [],
+    }
+  } catch (error) {
+    const fallbackMemory = normalizeStructuredMemory(latestSession?.structuredMemory)
+    return {
+      requestBody,
+      responseSnapshot: {
+        memory: summarizeMemoryForMonitor(fallbackMemory),
+        usage: normalizeUsage(null),
+      },
+      memory: fallbackMemory,
+      usage: normalizeUsage(null),
+      session: latestSession,
+      warnings: [error instanceof Error ? `结构化记忆更新已跳过：${error.message}` : '结构化记忆更新已跳过'],
+    }
   }
 }
 
@@ -1654,29 +1739,54 @@ async function runWorldGraphUpdateJob(agentRequest, payload, user, existingSessi
     robot_name: String(agentRequest?.robot?.name || payload?.robot?.name || payload?.sessionSnapshot?.robot?.name || ''),
     robot_description: String(payload?.robot?.description || payload?.sessionSnapshot?.robot?.description || ''),
   }
-  const response = await requestAgentJson('/runs/world-graph-update', requestBody, payload, null, '世界图谱更新')
-  const writebackOps = response?.world_graph_update_ops || response?.worldGraphUpdateOps || {}
   const latestGraph = normalizeWorldGraphSnapshot(requestBody.world_graph || requestBody.worldGraph || null)
-  const applyResult = applyWorldGraphWritebackToSessionGraph(latestGraph, latestGraph, writebackOps)
-  const updatedSession = await saveSessionWorldGraphFromBase(
-    user,
-    latestSession,
-    applyResult.graph,
-    response?.usage,
-  )
-  return {
-    requestBody,
-    graph: applyResult.graph,
-    usage: normalizeUsage(response?.usage),
-    session: updatedSession,
-    warnings: applyResult.warnings,
-    persistenceMode: applyResult.persistenceMode,
-    writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
-    appliedRelationTypeCount: 0,
-    appliedNodeCount: applyResult.appliedNodeCount,
-    appliedEdgeCount: applyResult.appliedEdgeCount,
-    appliedEffectCount: applyResult.appliedEffectCount,
-    appliedSnapshotCount: applyResult.appliedSnapshotCount,
+
+  try {
+    const response = await requestAgentJson(
+      '/runs/world-graph-update',
+      requestBody,
+      payload,
+      null,
+      '世界图谱更新',
+      { retries: 2, retryDelayMs: 1200 },
+    )
+    const writebackOps = response?.world_graph_update_ops || response?.worldGraphUpdateOps || {}
+    const applyResult = applyWorldGraphWritebackToSessionGraph(latestGraph, latestGraph, writebackOps)
+    const updatedSession = await saveSessionWorldGraphFromBase(
+      user,
+      latestSession,
+      applyResult.graph,
+      response?.usage,
+    )
+    return {
+      requestBody,
+      graph: applyResult.graph,
+      usage: normalizeUsage(response?.usage),
+      session: updatedSession,
+      warnings: applyResult.warnings,
+      persistenceMode: applyResult.persistenceMode,
+      writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
+      appliedRelationTypeCount: 0,
+      appliedNodeCount: applyResult.appliedNodeCount,
+      appliedEdgeCount: applyResult.appliedEdgeCount,
+      appliedEffectCount: applyResult.appliedEffectCount,
+      appliedSnapshotCount: applyResult.appliedSnapshotCount,
+    }
+  } catch (error) {
+    return {
+      requestBody,
+      graph: latestGraph,
+      usage: normalizeUsage(null),
+      session: latestSession,
+      warnings: [error instanceof Error ? `世界图谱写回已跳过：${error.message}` : '世界图谱写回已跳过'],
+      persistenceMode: 'session-snapshot',
+      writebackSummary: summarizeWorldGraphWritebackOps({}),
+      appliedRelationTypeCount: 0,
+      appliedNodeCount: 0,
+      appliedEdgeCount: 0,
+      appliedEffectCount: 0,
+      appliedSnapshotCount: 0,
+    }
   }
 }
 
