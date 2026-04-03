@@ -9,6 +9,16 @@
   >
     <template #header> 模型配置 </template>
     <div class="mobile-overlay-body">
+      <TForm label-align="top" class="session-model-settings">
+        <TFormItem label="向量数据检索模型">
+          <TSelect
+            :model-value="knowledgeRetrievalModelConfigId"
+            :options="knowledgeRetrievalModelOptions"
+            placeholder="未单独配置，默认跟随正文模型"
+            @update:model-value="(value: string | number | undefined) => $emit('update:knowledgeRetrievalModelConfigId', String(value || ''))"
+          />
+        </TFormItem>
+      </TForm>
       <div class="config-layout" :class="{ mobile: isMobile }">
         <div class="config-list">
           <div v-if="modelConfigs.length" class="config-list-body">
@@ -207,6 +217,16 @@
     @update:visible="(value) => $emit('update:configVisible', value)"
   >
     <div class="mobile-overlay-body">
+      <TForm label-align="top" class="session-model-settings">
+        <TFormItem label="向量数据检索模型">
+          <TSelect
+            :model-value="knowledgeRetrievalModelConfigId"
+            :options="knowledgeRetrievalModelOptions"
+            placeholder="未单独配置，默认跟随正文模型"
+            @update:model-value="(value: string | number | undefined) => $emit('update:knowledgeRetrievalModelConfigId', String(value || ''))"
+          />
+        </TFormItem>
+      </TForm>
       <div class="desktop-config-grid-shell">
         <div class="desktop-config-toolbar">
           <div class="config-list-header">
@@ -475,6 +495,14 @@ const props = defineProps({
     type: Object as PropType<Record<string, ModelOption[]>>,
     required: true,
   },
+  knowledgeRetrievalModelConfigId: {
+    type: String,
+    required: true,
+  },
+  knowledgeRetrievalModelOptions: {
+    type: Array as PropType<OptionItem[]>,
+    required: true,
+  },
   mobileModelTemperatureValue: {
     type: Number,
     default: undefined,
@@ -511,6 +539,7 @@ const emit = defineEmits<{
   (e: 'update:desktopModelEditorVisible', value: boolean): void
   (e: 'update:mobileModelTagsInput', value: string): void
   (e: 'update:desktopModelTagsInput', value: string): void
+  (e: 'update:knowledgeRetrievalModelConfigId', value: string): void
   (e: 'update:mobileModelTemperatureValue', value: number | undefined): void
   (e: 'update:desktopModelTemperatureValue', value: number | undefined): void
   (e: 'set-active-model-and-close', modelId: string): void

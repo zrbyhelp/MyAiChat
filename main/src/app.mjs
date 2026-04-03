@@ -1,6 +1,7 @@
 import express from 'express'
 import multer from 'multer'
 import { randomUUID } from 'node:crypto'
+import { unlink } from 'node:fs/promises'
 import { extname } from 'node:path'
 
 import { attachAdminBackoffice } from './admin-backoffice.mjs'
@@ -32,6 +33,8 @@ import {
   cancelRobotGenerationImportTask,
   createRobotGenerationImportTask,
   getRobotImportTempDir,
+  importRobotKnowledgeDocument,
+  listRobotKnowledgeDocumentsForRobot,
   readRobotGenerationTask,
 } from './robot-generation-service.mjs'
 import {
@@ -111,6 +114,7 @@ function parseOptionalNumberField(value) {
 export function createApp() {
   const app = express()
   const supportedImportExtensions = new Set(['.txt', '.pdf', '.epub'])
+  const supportedKnowledgeExtensions = new Set(['.txt', '.md'])
   const robotImportUpload = multer({
     storage: multer.diskStorage({
       destination: (_req, _file, callback) => {
@@ -128,6 +132,28 @@ export function createApp() {
       const extension = extname(String(file?.originalname || '')).toLowerCase()
       if (!supportedImportExtensions.has(extension)) {
         callback(new Error('仅支持 txt、pdf、epub 文档导入'))
+        return
+      }
+      callback(null, true)
+    },
+  })
+  const robotKnowledgeUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, callback) => {
+        callback(null, getRobotImportTempDir())
+      },
+      filename: (_req, file, callback) => {
+        const extension = extname(String(file?.originalname || '')).toLowerCase()
+        callback(null, `${Date.now()}-${randomUUID()}${extension}`)
+      },
+    }),
+    limits: {
+      fileSize: Math.max(1, Number(process.env.ROBOT_IMPORT_MAX_FILE_SIZE_MB || 100)) * 1024 * 1024,
+    },
+    fileFilter: (_req, file, callback) => {
+      const extension = extname(String(file?.originalname || '')).toLowerCase()
+      if (!supportedKnowledgeExtensions.has(extension)) {
+        callback(new Error('仅支持 txt、md 文档导入'))
         return
       }
       callback(null, true)
@@ -325,6 +351,55 @@ export function createApp() {
       res.json({ robots })
     } catch (error) {
       next(error)
+    }
+  })
+
+  app.get('/api/robots/:id/knowledge-documents', async (req, res, next) => {
+    try {
+      res.json({
+        documents: await listRobotKnowledgeDocumentsForRobot(req.authUser, req.params.id),
+      })
+    } catch (error) {
+      if (error instanceof Error && error.message === '智能体不存在') {
+        res.status(404).json({ message: error.message })
+        return
+      }
+      next(error)
+    }
+  })
+
+  app.post('/api/robots/:id/knowledge-documents', robotKnowledgeUpload.single('file'), async (req, res, next) => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ message: '请上传 txt 或 md 文档' })
+        return
+      }
+
+      const embeddingModelConfigId = String(req.body?.embeddingModelConfigId || '').trim()
+      if (!embeddingModelConfigId) {
+        res.status(400).json({ message: '请选择向量 Embedding 模型' })
+        return
+      }
+
+      const document = await importRobotKnowledgeDocument(req.authUser, {
+        robotId: req.params.id,
+        tempFilePath: req.file.path,
+        sourceName: req.file.originalname,
+        sourceSize: req.file.size,
+        embeddingModelConfigId,
+      })
+
+      res.status(201).json({ document })
+    } catch (error) {
+      if (error instanceof Error && error.message === '智能体不存在') {
+        res.status(404).json({ message: error.message })
+        return
+      }
+      next(error)
+    } finally {
+      if (req.file?.path) {
+        await unlink(req.file.path).catch(() => {})
+      }
     }
   })
 

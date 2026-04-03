@@ -254,6 +254,34 @@ export interface RobotGenerationTaskResponse {
   task: RobotGenerationTask
 }
 
+export interface RobotKnowledgeDocument {
+  id: string
+  robotId: string
+  status: 'processing' | 'ready' | 'failed'
+  sourceName: string
+  sourceType: string
+  sourceSize: number
+  guidance: string
+  summary: string
+  retrievalSummary: string
+  chunkCount: number
+  characterCount: number
+  qdrantCollection: string
+  embeddingModelConfigId: string
+  embeddingModel: string
+  meta: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RobotKnowledgeDocumentsResponse {
+  documents: RobotKnowledgeDocument[]
+}
+
+export interface RobotKnowledgeDocumentResponse {
+  document: RobotKnowledgeDocument
+}
+
 export interface ModelsResponse {
   models: ModelOption[]
 }

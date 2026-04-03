@@ -257,6 +257,11 @@
     :document-generation-file-name="documentGenerationFile?.name || ''"
     :document-generation-model-config-id="documentGenerationModelConfigId"
     :document-generation-embedding-model-config-id="documentGenerationEmbeddingModelConfigId"
+    :knowledge-documents="knowledgeDocuments"
+    :knowledge-documents-loading="knowledgeDocumentsLoading"
+    :knowledge-document-uploading="knowledgeDocumentUploading"
+    :knowledge-document-file-name="knowledgeDocumentFile?.name || ''"
+    :knowledge-document-embedding-model-config-id="knowledgeDocumentEmbeddingModelConfigId"
     :document-generation-target-segment-chars="documentGenerationTargetSegmentChars"
     :document-generation-max-entities-per-segment="documentGenerationMaxEntitiesPerSegment"
     :document-generation-max-relations-per-segment="documentGenerationMaxRelationsPerSegment"
@@ -271,6 +276,7 @@
     @update:document-generation-guidance="handleDocumentGenerationGuidanceChange"
     @update:document-generation-model-config-id="handleDocumentGenerationModelConfigChange"
     @update:document-generation-embedding-model-config-id="handleDocumentGenerationEmbeddingModelConfigChange"
+    @update:knowledge-document-embedding-model-config-id="(value) => (knowledgeDocumentEmbeddingModelConfigId = value)"
     @update:document-generation-target-segment-chars="(value) => (documentGenerationTargetSegmentChars = value)"
     @update:document-generation-max-entities-per-segment="(value) => (documentGenerationMaxEntitiesPerSegment = value)"
     @update:document-generation-max-relations-per-segment="(value) => (documentGenerationMaxRelationsPerSegment = value)"
@@ -284,6 +290,8 @@
     @open-document-generation-dialog="openDocumentGenerationDialog"
     @add-agent-template="addAgentTemplate"
     @import-agent-template="importRobotTemplate"
+    @set-knowledge-document-file="setKnowledgeDocumentFile"
+    @upload-knowledge-document="uploadKnowledgeDocument"
     @set-document-generation-file="setDocumentGenerationFile"
     @submit-document-generation="submitDocumentGeneration"
     @cancel-document-generation="cancelCurrentDocumentGeneration"
@@ -355,6 +363,8 @@
     :desktop-model-draft="desktopModelDraft"
     :provider-options="providerOptions"
     :model-options-map="modelOptionsMap"
+    :knowledge-retrieval-model-config-id="sessionRobot.knowledgeRetrievalModelConfigId"
+    :knowledge-retrieval-model-options="auxModelOptions"
     :mobile-model-temperature-value="mobileModelTemperatureValue"
     :desktop-model-temperature-value="desktopModelTemperatureValue"
     :mobile-model-tags-input="mobileModelTagsInput"
@@ -366,6 +376,7 @@
     :desktop-draft-stream-enabled="desktopDraftStreamEnabled"
     @update:mobile-model-tags-input="(value) => (mobileModelTagsInput = value)"
     @update:desktop-model-tags-input="(value) => (desktopModelTagsInput = value)"
+    @update:knowledge-retrieval-model-config-id="handleKnowledgeRetrievalModelConfigChange"
     @update:mobile-model-temperature-value="(value) => (mobileModelTemperatureValue = value)"
     @update:desktop-model-temperature-value="(value) => (desktopModelTemperatureValue = value)"
     @set-active-model-and-close="setActiveModelAndClose"
@@ -571,6 +582,11 @@ const {
   agentManageVisible,
   mobileAgentEditorVisible,
   savingMobileAgent,
+  knowledgeDocuments,
+  knowledgeDocumentsLoading,
+  knowledgeDocumentUploading,
+  knowledgeDocumentFile,
+  knowledgeDocumentEmbeddingModelConfigId,
   documentGenerationVisible,
   documentGenerationSubmitting,
   robotTemplates,
@@ -598,6 +614,8 @@ const {
   validateNumericComputationItems,
   importRobotTemplate,
   loadRobotTemplates,
+  setKnowledgeDocumentFile,
+  uploadKnowledgeDocument,
   openAgentManageDialog,
   openDocumentGenerationDialog,
   closeDocumentGenerationDialog,
@@ -950,6 +968,13 @@ function handleDocumentGenerationModelConfigChange(value: string) {
 
 function handleDocumentGenerationEmbeddingModelConfigChange(value: string) {
   documentGenerationEmbeddingModelConfigId.value = value
+}
+
+async function handleKnowledgeRetrievalModelConfigChange(value: string) {
+  const normalizedValue = String(value || '')
+  sessionRobot.knowledgeRetrievalModelConfigId = normalizedValue
+  sessionRobotDraft.knowledgeRetrievalModelConfigId = normalizedValue
+  await syncCurrentSessionMeta()
 }
 
 async function saveMobileAgentAndOpenWorldGraph() {

@@ -11,7 +11,7 @@ import {
   getRobotGenerationTask,
   initializeRobotGenerationStore,
   listGraphRagArtifacts,
-  listRobotKnowledgeDocuments,
+  listRobotKnowledgeDocuments as listStoredRobotKnowledgeDocuments,
   updateRobotGenerationTask,
   updateRobotKnowledgeDocument,
 } from './robot-generation-store.mjs'
@@ -667,6 +667,13 @@ function sampleCompressedText(text, maxChars = 12000, sampleCount = 6) {
 }
 
 function buildAnalysisSegments(text, options = {}) {
+  const semanticBlocks = Array.isArray(options.semanticBlocks)
+    ? options.semanticBlocks.filter((item) => item && typeof item === 'object' && String(item.text || '').trim())
+    : []
+  if (semanticBlocks.length) {
+    return buildSemanticAnalysisSegments(semanticBlocks, options)
+  }
+
   const normalized = compactText(text)
   if (!normalized) {
     return []
@@ -699,6 +706,62 @@ function buildAnalysisSegments(text, options = {}) {
     })
   }
 
+  return segments
+}
+
+function buildSemanticAnalysisSegments(blocks, options = {}) {
+  const approxTargetRawChars = Math.max(
+    10000,
+    Number(options.targetSegmentChars || process.env.ROBOT_IMPORT_TARGET_SEGMENT_CHARS || 180000) || 180000,
+  )
+  const maxSegments = Math.max(6, Number(process.env.ROBOT_IMPORT_MAX_SEGMENTS || 48) || 48)
+  const segments = []
+  let currentBlocks = []
+  let currentLength = 0
+
+  function flushSegment() {
+    if (!currentBlocks.length) {
+      return
+    }
+    const rawText = currentBlocks.map((item) => compactText(item.text || '')).filter(Boolean).join('\n\n').trim()
+    if (!rawText) {
+      currentBlocks = []
+      currentLength = 0
+      return
+    }
+
+    const titlePath = currentBlocks
+      .map((item) => Array.isArray(item.titlePath) ? item.titlePath.filter(Boolean) : [])
+      .find((item) => item.length) || []
+    const blockKinds = [...new Set(currentBlocks.map((item) => normalizeString(item.kind)).filter(Boolean))]
+    segments.push({
+      index: segments.length,
+      rawText,
+      excerpt: sampleCompressedText(rawText),
+      characterCount: rawText.length,
+      titlePath,
+      blockKinds,
+    })
+    currentBlocks = []
+    currentLength = 0
+  }
+
+  for (const block of blocks) {
+    const blockText = compactText(block.text || '')
+    if (!blockText) {
+      continue
+    }
+    const blockLength = blockText.length
+    const nextWouldOverflow = currentBlocks.length && currentLength + blockLength > approxTargetRawChars
+    const reachedMaxSegments = segments.length >= maxSegments - 1
+    if (nextWouldOverflow && !reachedMaxSegments) {
+      flushSegment()
+    }
+    currentBlocks.push(block)
+    currentLength += blockLength
+  }
+
+  flushSegment()
   return segments
 }
 
@@ -809,6 +872,8 @@ async function summarizeAnalysisSegments(user, taskId, modelConfig, sourceName, 
       summary: compactText(response?.summary || ''),
       excerpt: segment.excerpt,
       characterCount: segment.characterCount,
+      titlePath: Array.isArray(segment.titlePath) ? segment.titlePath : [],
+      blockKinds: Array.isArray(segment.blockKinds) ? segment.blockKinds : [],
     })
 
     await setTaskProgress(user, taskId, {
@@ -1632,6 +1697,69 @@ async function saveGeneratedRobot(user, robot, worldGraph) {
   return createEmptyWorldGraphSnapshot(robot.id, robot.name)
 }
 
+function buildKnowledgeSummaryFromSegment(segment) {
+  const sectionPath = Array.isArray(segment?.titlePath) ? segment.titlePath.filter(Boolean) : []
+  const blockKinds = Array.isArray(segment?.blockKinds) ? segment.blockKinds.filter(Boolean) : []
+  const excerpt = compactText(segment?.excerpt || segment?.rawText || '')
+  const parts = []
+  if (sectionPath.length) {
+    parts.push(`章节：${sectionPath.join(' / ')}`)
+  }
+  if (blockKinds.length) {
+    parts.push(`内容类型：${blockKinds.join('、')}`)
+  }
+  if (excerpt) {
+    parts.push(sampleCompressedText(excerpt, 4000, 3))
+  }
+  return compactText(parts.join('\n'))
+}
+
+function buildKnowledgeDocumentOverview(text, segments, semanticMeta = {}) {
+  const sectionPaths = [...new Set(
+    (Array.isArray(segments) ? segments : [])
+      .map((item) => Array.isArray(item?.titlePath) ? item.titlePath.filter(Boolean).join(' / ') : '')
+      .filter(Boolean),
+  )]
+  const stats = []
+  if (Number(semanticMeta.headingCount || 0) > 0) {
+    stats.push(`标题 ${Number(semanticMeta.headingCount || 0)} 个`)
+  }
+  if (Number(semanticMeta.listCount || 0) > 0) {
+    stats.push(`列表 ${Number(semanticMeta.listCount || 0)} 处`)
+  }
+  if (Number(semanticMeta.codeBlockCount || 0) > 0) {
+    stats.push(`代码块 ${Number(semanticMeta.codeBlockCount || 0)} 个`)
+  }
+  if (Number(semanticMeta.tableCount || 0) > 0) {
+    stats.push(`表格 ${Number(semanticMeta.tableCount || 0)} 个`)
+  }
+
+  const summary = compactText([
+    sectionPaths.length ? `章节目录：${sectionPaths.slice(0, 12).join('；')}` : '',
+    stats.length ? `结构统计：${stats.join('，')}` : '',
+    sampleCompressedText(text, 5000, 4),
+  ].filter(Boolean).join('\n\n'))
+
+  return {
+    summary,
+    retrievalSummary: compactText([
+      sectionPaths.length ? `章节目录：${sectionPaths.slice(0, 8).join('；')}` : '',
+      sampleCompressedText(text, 2500, 3),
+    ].filter(Boolean).join('\n\n')),
+  }
+}
+
+function buildKnowledgeIndexSummaries(segments) {
+  return (Array.isArray(segments) ? segments : []).map((segment) => ({
+    index: Number(segment?.index ?? 0) || 0,
+    summary: buildKnowledgeSummaryFromSegment(segment),
+    excerpt: String(segment?.excerpt || ''),
+    characterCount: Number(segment?.characterCount || 0),
+    titlePath: Array.isArray(segment?.titlePath) ? segment.titlePath : [],
+    blockKinds: Array.isArray(segment?.blockKinds) ? segment.blockKinds : [],
+  }))
+}
+
 async function indexKnowledgeSummaries(user, document, summaries, embeddingConfig) {
   const collectionName = resolveKnowledgeCollectionName(embeddingConfig.provider, embeddingConfig.model)
   const inputs = summaries.map((item) => item.summary || item.excerpt).filter(Boolean)
@@ -1655,6 +1783,8 @@ async function indexKnowledgeSummaries(user, document, summaries, embeddingConfi
         summary: String(summaries[index]?.summary || ''),
         excerpt: String(summaries[index]?.excerpt || ''),
         characterCount: Number(summaries[index]?.characterCount || 0),
+        titlePath: Array.isArray(summaries[index]?.titlePath) ? summaries[index].titlePath : [],
+        blockKinds: Array.isArray(summaries[index]?.blockKinds) ? summaries[index].blockKinds : [],
         createdAt: new Date().toISOString(),
       },
     })),
@@ -2332,6 +2462,121 @@ export async function createRobotGenerationImportTask(user, input) {
   return task
 }
 
+async function findExistingRobot(user, robotId) {
+  const normalizedRobotId = String(robotId || '').trim()
+  if (!normalizedRobotId) {
+    throw new Error('智能体不存在')
+  }
+  const robots = await readRobots(user)
+  const target = robots.find((item) => String(item?.id || '').trim() === normalizedRobotId)
+  if (!target) {
+    throw new Error('智能体不存在')
+  }
+  return target
+}
+
+export async function listRobotKnowledgeDocumentsForRobot(user, robotId) {
+  await findExistingRobot(user, robotId)
+  return listStoredRobotKnowledgeDocuments(user, String(robotId || '').trim())
+}
+
+export async function importRobotKnowledgeDocument(user, input) {
+  const robot = await findExistingRobot(user, input?.robotId)
+  const sourceName = String(input?.sourceName || '').trim()
+  const sourceSize = Math.max(0, Number(input?.sourceSize || 0) || 0)
+  const embeddingModelConfigId = String(input?.embeddingModelConfigId || '').trim()
+  if (!sourceName) {
+    throw new Error('文件名不能为空')
+  }
+  if (!embeddingModelConfigId) {
+    throw new Error('请选择向量 Embedding 模型')
+  }
+
+  const embeddingBaseConfig = await resolveRequiredModelConfig(
+    user,
+    embeddingModelConfigId,
+    '请选择向量 Embedding 模型',
+    '向量 Embedding 模型不存在或不可用',
+  )
+  const embeddingConfig = resolveEmbeddingConfig(embeddingBaseConfig)
+  const documentId = buildDocumentId()
+  const { sourceType, text, semanticBlocks, semanticMeta } = await extractDocumentText(input.tempFilePath, sourceName)
+  if (!text) {
+    throw new Error('文档解析完成，但没有提取到可用文本')
+  }
+
+  const segments = buildAnalysisSegments(text, {
+    targetSegmentChars: Math.max(
+      10000,
+      Number(process.env.ROBOT_KNOWLEDGE_IMPORT_TARGET_SEGMENT_CHARS || 60000) || 60000,
+    ),
+    semanticBlocks,
+  })
+  if (!segments.length) {
+    throw new Error('文档内容过短，无法写入知识库')
+  }
+
+  const summaries = buildKnowledgeIndexSummaries(segments)
+  const overview = buildKnowledgeDocumentOverview(text, segments, semanticMeta)
+  await createRobotKnowledgeDocument(user, {
+    id: documentId,
+    robotId: robot.id,
+    status: 'processing',
+    sourceName,
+    sourceType,
+    sourceSize,
+    guidance: '',
+    summary: overview.summary,
+    retrievalSummary: overview.retrievalSummary,
+    chunkCount: summaries.length,
+    characterCount: text.length,
+    embeddingModelConfigId: embeddingBaseConfig.id,
+    embeddingModel: embeddingConfig.model,
+    meta: {
+      semanticMeta,
+      indexedAt: new Date().toISOString(),
+      segmentCharacterCounts: summaries.map((item) => item.characterCount),
+    },
+  })
+
+  try {
+    const collectionName = await indexKnowledgeSummaries(user, {
+      id: documentId,
+      robotId: robot.id,
+      sourceName,
+      sourceType,
+    }, summaries, embeddingConfig)
+
+    await updateRobotKnowledgeDocument(user, documentId, {
+      status: 'ready',
+      qdrantCollection: collectionName,
+      summary: overview.summary,
+      retrievalSummary: overview.retrievalSummary,
+      meta: {
+        semanticMeta,
+        knowledgeIndexed: true,
+        segmentCharacterCounts: summaries.map((item) => item.characterCount),
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '知识库索引失败'
+    await updateRobotKnowledgeDocument(user, documentId, {
+      status: 'failed',
+      meta: {
+        semanticMeta,
+        knowledgeIndexed: false,
+        error: message,
+      },
+    })
+    throw error
+  }
+
+  return updateRobotKnowledgeDocument(user, documentId, {
+    summary: overview.summary,
+    retrievalSummary: overview.retrievalSummary,
+  })
+}
+
 export async function readRobotGenerationTask(user, taskId) {
   const task = await getRobotGenerationTask(user, taskId)
   if (!task) {
@@ -2401,7 +2646,7 @@ export async function retrieveRobotKnowledgeByGraphRag(user, options) {
     }
   }
 
-  const documents = (await listRobotKnowledgeDocuments(user, robotId)).filter((item) => item.status === 'ready')
+  const documents = (await listStoredRobotKnowledgeDocuments(user, robotId)).filter((item) => item.status === 'ready')
   if (!documents.length) {
     return {
       summary: '',
@@ -2516,7 +2761,7 @@ export async function retrieveRobotKnowledgeBySummary(user, options) {
     return { summary: '', items: [], usage: null }
   }
 
-  const documents = (await listRobotKnowledgeDocuments(user, robotId)).filter(
+  const documents = (await listStoredRobotKnowledgeDocuments(user, robotId)).filter(
     (item) => item.status === 'ready' && item.qdrantCollection && item.embeddingModel,
   )
   if (!documents.length) {

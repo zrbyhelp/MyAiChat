@@ -12,6 +12,9 @@ function detectSourceType(filename) {
   if (extension === '.epub') {
     return 'epub'
   }
+  if (extension === '.md' || extension === '.markdown') {
+    return 'md'
+  }
   return 'txt'
 }
 
@@ -41,9 +44,276 @@ function stripHtml(value) {
     .replace(/&#39;/gi, "'")
 }
 
+function normalizeMarkdownLine(value) {
+  return String(value || '')
+    .replace(/\t/g, '  ')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \f\v]+$/g, '')
+}
+
+function compactMarkdownInline(value) {
+  return String(value || '')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '图片：$1 $2')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1（$2）')
+    .replace(/`([^`]+)`/g, ' $1 ')
+    .replace(/[*_~#]+/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildMarkdownBlockText(kind, titlePath, content, extra = {}) {
+  const sectionLabel = titlePath.length ? `章节：${titlePath.join(' / ')}` : '章节：文档开头'
+  const normalizedContent = String(content || '').trim()
+  if (!normalizedContent) {
+    return ''
+  }
+
+  if (kind === 'heading') {
+    const depth = Math.max(1, Number(extra.depth || 1) || 1)
+    return `${sectionLabel}\n标题层级：H${depth}\n标题：${normalizedContent}`
+  }
+  if (kind === 'list') {
+    return `${sectionLabel}\n内容类型：列表\n${normalizedContent}`
+  }
+  if (kind === 'quote') {
+    return `${sectionLabel}\n内容类型：引用\n${normalizedContent}`
+  }
+  if (kind === 'code') {
+    const language = String(extra.language || '').trim()
+    return `${sectionLabel}\n内容类型：代码块${language ? `（${language}）` : ''}\n${normalizedContent}`
+  }
+  if (kind === 'table') {
+    return `${sectionLabel}\n内容类型：表格\n${normalizedContent}`
+  }
+  return `${sectionLabel}\n内容类型：段落\n${normalizedContent}`
+}
+
+function createMarkdownBlock(blocks, kind, titlePath, content, extra = {}) {
+  const text = buildMarkdownBlockText(kind, titlePath, content, extra)
+  if (!text) {
+    return
+  }
+  blocks.push({
+    kind,
+    titlePath: [...titlePath],
+    text,
+    characterCount: text.length,
+  })
+}
+
+function parseMarkdownTable(tableLines) {
+  const rows = (Array.isArray(tableLines) ? tableLines : [])
+    .map((line) => normalizeMarkdownLine(line).trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^\|/, '').replace(/\|$/, ''))
+    .map((line) => line.split('|').map((cell) => compactMarkdownInline(cell)))
+    .filter((cells) => cells.some(Boolean))
+
+  if (!rows.length) {
+    return ''
+  }
+
+  const filteredRows = rows.filter((cells, index) => {
+    if (index !== 1) {
+      return true
+    }
+    return !cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, '')))
+  })
+
+  return filteredRows
+    .map((cells, index) => `第 ${index + 1} 行：${cells.filter(Boolean).join(' | ')}`)
+    .join('\n')
+}
+
+function parseMarkdownSemanticBlocks(markdown) {
+  const lines = String(markdown || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+
+  const blocks = []
+  const titlePath = []
+  let paragraphLines = []
+  let listLines = []
+  let quoteLines = []
+  let tableLines = []
+  let codeLines = []
+  let codeFence = ''
+  let codeLanguage = ''
+
+  const flushParagraph = () => {
+    if (!paragraphLines.length) {
+      return
+    }
+    createMarkdownBlock(
+      blocks,
+      'paragraph',
+      titlePath,
+      compactMarkdownInline(paragraphLines.join(' ')),
+    )
+    paragraphLines = []
+  }
+
+  const flushList = () => {
+    if (!listLines.length) {
+      return
+    }
+    const content = listLines
+      .map((line) => normalizeMarkdownLine(line))
+      .map((line) => line.replace(/^\s*(?:[-*+]|\d+\.)\s+/, '').trim())
+      .map((line, index) => `${index + 1}. ${compactMarkdownInline(line)}`)
+      .filter((line) => !/^\d+\.\s*$/.test(line))
+      .join('\n')
+    createMarkdownBlock(blocks, 'list', titlePath, content)
+    listLines = []
+  }
+
+  const flushQuote = () => {
+    if (!quoteLines.length) {
+      return
+    }
+    const content = quoteLines
+      .map((line) => normalizeMarkdownLine(line).replace(/^\s*>\s?/, ''))
+      .map((line) => compactMarkdownInline(line))
+      .filter(Boolean)
+      .join('\n')
+    createMarkdownBlock(blocks, 'quote', titlePath, content)
+    quoteLines = []
+  }
+
+  const flushTable = () => {
+    if (!tableLines.length) {
+      return
+    }
+    createMarkdownBlock(blocks, 'table', titlePath, parseMarkdownTable(tableLines))
+    tableLines = []
+  }
+
+  const flushCode = () => {
+    if (!codeLines.length) {
+      codeFence = ''
+      codeLanguage = ''
+      return
+    }
+    const content = codeLines
+      .map((line) => normalizeMarkdownLine(line))
+      .join('\n')
+      .trim()
+    createMarkdownBlock(blocks, 'code', titlePath, content, { language: codeLanguage })
+    codeLines = []
+    codeFence = ''
+    codeLanguage = ''
+  }
+
+  const flushAllTextualBlocks = () => {
+    flushParagraph()
+    flushList()
+    flushQuote()
+    flushTable()
+  }
+
+  for (const rawLine of lines) {
+    const line = normalizeMarkdownLine(rawLine)
+    const trimmed = line.trim()
+
+    if (codeFence) {
+      if (trimmed.startsWith(codeFence)) {
+        flushCode()
+      } else {
+        codeLines.push(line)
+      }
+      continue
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/)
+    if (headingMatch) {
+      flushAllTextualBlocks()
+      const depth = headingMatch[1].length
+      const headingText = compactMarkdownInline(headingMatch[2])
+      titlePath.splice(depth - 1)
+      titlePath[depth - 1] = headingText
+      createMarkdownBlock(blocks, 'heading', titlePath, headingText, { depth })
+      continue
+    }
+
+    const fenceMatch = trimmed.match(/^(```+|~~~+)\s*([^`]*)$/)
+    if (fenceMatch) {
+      flushAllTextualBlocks()
+      codeFence = fenceMatch[1]
+      codeLanguage = compactMarkdownInline(fenceMatch[2])
+      codeLines = []
+      continue
+    }
+
+    if (!trimmed) {
+      flushAllTextualBlocks()
+      continue
+    }
+
+    if (/^\s*>/.test(line)) {
+      flushParagraph()
+      flushList()
+      flushTable()
+      quoteLines.push(line)
+      continue
+    }
+
+    if (/^\s*(?:[-*+]|\d+\.)\s+/.test(line)) {
+      flushParagraph()
+      flushQuote()
+      flushTable()
+      listLines.push(line)
+      continue
+    }
+
+    if (trimmed.includes('|')) {
+      flushParagraph()
+      flushList()
+      flushQuote()
+      tableLines.push(line)
+      continue
+    }
+
+    flushList()
+    flushQuote()
+    flushTable()
+    paragraphLines.push(line)
+  }
+
+  flushAllTextualBlocks()
+  flushCode()
+
+  return blocks
+}
+
 async function parseTxtDocument(filePath) {
   const buffer = await readFile(filePath)
   return normalizeWhitespace(buffer.toString('utf8'))
+}
+
+async function parseMarkdownDocument(filePath) {
+  const buffer = await readFile(filePath)
+  const rawMarkdown = buffer.toString('utf8')
+  const semanticBlocks = parseMarkdownSemanticBlocks(rawMarkdown)
+  const text = normalizeWhitespace(
+    semanticBlocks.length
+      ? semanticBlocks.map((item) => item.text).join('\n\n')
+      : compactMarkdownInline(rawMarkdown),
+  )
+
+  return {
+    text,
+    semanticBlocks,
+    semanticMeta: {
+      blockCount: semanticBlocks.length,
+      headingCount: semanticBlocks.filter((item) => item.kind === 'heading').length,
+      listCount: semanticBlocks.filter((item) => item.kind === 'list').length,
+      quoteCount: semanticBlocks.filter((item) => item.kind === 'quote').length,
+      codeBlockCount: semanticBlocks.filter((item) => item.kind === 'code').length,
+      tableCount: semanticBlocks.filter((item) => item.kind === 'table').length,
+    },
+  }
 }
 
 async function parsePdfDocument(filePath) {
@@ -90,15 +360,19 @@ async function parseEpubDocument(filePath) {
 
 export async function extractDocumentText(filePath, filename) {
   const sourceType = detectSourceType(filename)
-  const text = sourceType === 'pdf'
-    ? await parsePdfDocument(filePath)
+  const parsed = sourceType === 'pdf'
+    ? { text: await parsePdfDocument(filePath) }
     : sourceType === 'epub'
-      ? await parseEpubDocument(filePath)
-      : await parseTxtDocument(filePath)
+      ? { text: await parseEpubDocument(filePath) }
+      : sourceType === 'md'
+        ? await parseMarkdownDocument(filePath)
+        : { text: await parseTxtDocument(filePath) }
 
   return {
     sourceType,
-    text: normalizeWhitespace(text),
+    text: normalizeWhitespace(parsed?.text || ''),
+    semanticBlocks: Array.isArray(parsed?.semanticBlocks) ? parsed.semanticBlocks : [],
+    semanticMeta: parsed?.semanticMeta && typeof parsed.semanticMeta === 'object' ? parsed.semanticMeta : {},
   }
 }
 

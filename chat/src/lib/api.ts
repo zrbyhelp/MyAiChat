@@ -17,6 +17,8 @@ import type {
   RobotWorldGraphMeta,
   RobotWorldRelationType,
   RobotGenerationTaskResponse,
+  RobotKnowledgeDocumentResponse,
+  RobotKnowledgeDocumentsResponse,
   RobotGenerationExtractionDetail,
   RobotsResponse,
   TestConnectionResponse,
@@ -141,6 +143,33 @@ export function saveRobots(robots: AIRobotCard[]) {
     },
     body: JSON.stringify({ robots }),
   })
+}
+
+export function listRobotKnowledgeDocuments(robotId: string) {
+  return requestJson<RobotKnowledgeDocumentsResponse>(`/api/robots/${encodeURIComponent(robotId)}/knowledge-documents`)
+}
+
+export async function uploadRobotKnowledgeDocument(
+  robotId: string,
+  file: File,
+  embeddingModelConfigId = '',
+) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (embeddingModelConfigId) {
+    formData.append('embeddingModelConfigId', embeddingModelConfigId)
+  }
+
+  const response = await requestWithAuth(`/api/robots/${encodeURIComponent(robotId)}/knowledge-documents`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+
+  return response.json() as Promise<RobotKnowledgeDocumentResponse>
 }
 
 export async function createRobotGenerationTask(

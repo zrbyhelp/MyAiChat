@@ -101,6 +101,13 @@
     hidden
     @change="handleDocumentGenerationFileChange"
   />
+  <input
+    ref="knowledgeDocumentInputRef"
+    type="file"
+    accept=".txt,.md,text/plain,text/markdown"
+    hidden
+    @change="handleKnowledgeDocumentFileChange"
+  />
 
   <TDialog
     :visible="documentGenerationVisible"
@@ -366,6 +373,7 @@
         <TStepItem title="基础信息" />
         <TStepItem title="故事设定" />
         <TStepItem title="记忆设置" />
+        <TStepItem title="向量数据" />
       </TSteps>
       <div class="session-robot-form-card agent-editor-content">
         <TForm v-if="agentEditorStep === 1" label-align="top">
@@ -489,7 +497,7 @@
             </div>
           </TFormItem>
         </TForm>
-        <TForm v-else label-align="top">
+        <TForm v-else-if="agentEditorStep === 3" label-align="top">
           <div class="form-grid-2">
             <TFormItem label="记忆间隔">
               <TInputNumber
@@ -556,6 +564,76 @@
             <MemorySchemaEditor :schema="mobileAgentDraft.memorySchema" />
           </div>
         </TForm>
+        <TForm v-else label-align="top">
+          <div class="agent-knowledge-card">
+            <div class="agent-knowledge-card-head">
+              <div class="agent-knowledge-card-copy">
+                <strong>向量数据</strong>
+                <span v-if="savedServerRobotForDraft">
+                  支持 `txt / md`，上传时需要选择向量模型，结果会追加到当前智能体知识库。
+                </span>
+                <span v-else>当前智能体尚未保存到服务器，保存后才能添加和查看向量数据。</span>
+              </div>
+              <TButton
+                variant="outline"
+                size="small"
+                :disabled="!savedServerRobotForDraft || knowledgeDocumentUploading"
+                @click="triggerKnowledgeDocumentFileSelect"
+              >
+                选择文件
+              </TButton>
+            </div>
+            <div class="agent-knowledge-upload-row">
+              <TButton
+                variant="outline"
+                :disabled="!savedServerRobotForDraft || knowledgeDocumentUploading"
+                @click="triggerKnowledgeDocumentFileSelect"
+              >
+                选择知识文件
+              </TButton>
+              <span class="agent-knowledge-file-name">
+                {{ knowledgeDocumentFileName || '未选择文件' }}
+              </span>
+            </div>
+            <TFormItem label="向量 Embedding 模型">
+              <TSelect
+                :model-value="knowledgeDocumentEmbeddingModelConfigId"
+                :options="knowledgeDocumentModelOptions"
+                placeholder="请选择向量 Embedding 模型"
+                :disabled="!savedServerRobotForDraft || knowledgeDocumentUploading"
+                @update:model-value="handleKnowledgeDocumentEmbeddingModelConfigInput"
+              />
+            </TFormItem>
+            <TButton
+              theme="primary"
+              variant="outline"
+              :disabled="!knowledgeDocumentUploadReady"
+              :loading="knowledgeDocumentUploading"
+              @click="$emit('upload-knowledge-document')"
+            >
+              写入当前智能体知识库
+            </TButton>
+            <div class="agent-knowledge-list">
+              <div class="agent-knowledge-list-head">
+                <strong>当前向量数据</strong>
+                <span>{{ knowledgeDocuments.length }} 条</span>
+              </div>
+              <div v-if="knowledgeDocumentsLoading" class="agent-knowledge-empty">正在加载向量数据...</div>
+              <div v-else-if="!savedServerRobotForDraft" class="agent-knowledge-empty">保存到服务器后可查看向量数据列表。</div>
+              <div v-else-if="!knowledgeDocuments.length" class="agent-knowledge-empty">当前还没有向量数据。</div>
+              <div v-else class="agent-knowledge-list-body">
+                <div v-for="item in knowledgeDocuments" :key="item.id" class="agent-knowledge-item">
+                  <div class="agent-knowledge-item-head">
+                    <strong>{{ item.sourceName || '未命名文件' }}</strong>
+                    <span class="agent-knowledge-status">{{ formatKnowledgeDocumentStatus(item.status) }}</span>
+                  </div>
+                  <div class="agent-knowledge-meta">{{ formatKnowledgeDocumentMeta(item) }}</div>
+                  <div class="agent-knowledge-meta">{{ formatKnowledgeDocumentUpdatedAt(item.updatedAt) }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </TForm>
       </div>
       <div class="mobile-overlay-actions drawer-actions">
         <template v-if="agentEditorStep === 1">
@@ -572,6 +650,18 @@
               <TButton theme="primary" :loading="savingMobileAgent" @click="$emit('skip-agent-structure-setup')">
                 跳过结构体设置
               </TButton>
+              <TButton variant="outline" @click="$emit('next-agent-editor-step')">下一步</TButton>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="agentEditorStep === 3">
+          <div class="agent-editor-actions agent-editor-actions-split">
+            <div class="agent-editor-actions-left">
+              <TButton theme="default" variant="base" @click="$emit('previous-agent-editor-step')"
+                >上一步</TButton
+              >
+            </div>
+            <div class="agent-editor-actions-right">
               <TButton variant="outline" @click="$emit('next-agent-editor-step')">下一步</TButton>
             </div>
           </div>
@@ -685,6 +775,7 @@
         <TStepItem title="基础信息" />
         <TStepItem title="故事设定" />
         <TStepItem title="记忆设置" />
+        <TStepItem title="向量数据" />
       </TSteps>
       <div class="session-robot-form-card agent-editor-card agent-editor-content">
         <TForm v-if="agentEditorStep === 1" label-align="top">
@@ -808,7 +899,7 @@
             </div>
           </TFormItem>
         </TForm>
-        <TForm v-else label-align="top">
+        <TForm v-else-if="agentEditorStep === 3" label-align="top">
           <div class="form-grid-2">
             <TFormItem label="记忆间隔">
               <TInputNumber
@@ -875,6 +966,76 @@
             <MemorySchemaEditor :schema="mobileAgentDraft.memorySchema" />
           </div>
         </TForm>
+        <TForm v-else label-align="top">
+          <div class="agent-knowledge-card">
+            <div class="agent-knowledge-card-head">
+              <div class="agent-knowledge-card-copy">
+                <strong>向量数据</strong>
+                <span v-if="savedServerRobotForDraft">
+                  支持 `txt / md`，上传时需要选择向量模型，结果会追加到当前智能体知识库。
+                </span>
+                <span v-else>当前智能体尚未保存到服务器，保存后才能添加和查看向量数据。</span>
+              </div>
+              <TButton
+                variant="outline"
+                size="small"
+                :disabled="!savedServerRobotForDraft || knowledgeDocumentUploading"
+                @click="triggerKnowledgeDocumentFileSelect"
+              >
+                选择文件
+              </TButton>
+            </div>
+            <div class="agent-knowledge-upload-row">
+              <TButton
+                variant="outline"
+                :disabled="!savedServerRobotForDraft || knowledgeDocumentUploading"
+                @click="triggerKnowledgeDocumentFileSelect"
+              >
+                选择知识文件
+              </TButton>
+              <span class="agent-knowledge-file-name">
+                {{ knowledgeDocumentFileName || '未选择文件' }}
+              </span>
+            </div>
+            <TFormItem label="向量 Embedding 模型">
+              <TSelect
+                :model-value="knowledgeDocumentEmbeddingModelConfigId"
+                :options="knowledgeDocumentModelOptions"
+                placeholder="请选择向量 Embedding 模型"
+                :disabled="!savedServerRobotForDraft || knowledgeDocumentUploading"
+                @update:model-value="handleKnowledgeDocumentEmbeddingModelConfigInput"
+              />
+            </TFormItem>
+            <TButton
+              theme="primary"
+              variant="outline"
+              :disabled="!knowledgeDocumentUploadReady"
+              :loading="knowledgeDocumentUploading"
+              @click="$emit('upload-knowledge-document')"
+            >
+              写入当前智能体知识库
+            </TButton>
+            <div class="agent-knowledge-list">
+              <div class="agent-knowledge-list-head">
+                <strong>当前向量数据</strong>
+                <span>{{ knowledgeDocuments.length }} 条</span>
+              </div>
+              <div v-if="knowledgeDocumentsLoading" class="agent-knowledge-empty">正在加载向量数据...</div>
+              <div v-else-if="!savedServerRobotForDraft" class="agent-knowledge-empty">保存到服务器后可查看向量数据列表。</div>
+              <div v-else-if="!knowledgeDocuments.length" class="agent-knowledge-empty">当前还没有向量数据。</div>
+              <div v-else class="agent-knowledge-list-body">
+                <div v-for="item in knowledgeDocuments" :key="item.id" class="agent-knowledge-item">
+                  <div class="agent-knowledge-item-head">
+                    <strong>{{ item.sourceName || '未命名文件' }}</strong>
+                    <span class="agent-knowledge-status">{{ formatKnowledgeDocumentStatus(item.status) }}</span>
+                  </div>
+                  <div class="agent-knowledge-meta">{{ formatKnowledgeDocumentMeta(item) }}</div>
+                  <div class="agent-knowledge-meta">{{ formatKnowledgeDocumentUpdatedAt(item.updatedAt) }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </TForm>
       </div>
       <div class="mobile-overlay-actions drawer-actions">
         <template v-if="agentEditorStep === 1">
@@ -891,6 +1052,18 @@
               <TButton theme="primary" :loading="savingMobileAgent" @click="$emit('skip-agent-structure-setup')">
                 跳过结构体设置
               </TButton>
+              <TButton variant="outline" @click="$emit('next-agent-editor-step')">下一步</TButton>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="agentEditorStep === 3">
+          <div class="agent-editor-actions agent-editor-actions-split">
+            <div class="agent-editor-actions-left">
+              <TButton theme="default" variant="base" @click="$emit('previous-agent-editor-step')"
+                >上一步</TButton
+              >
+            </div>
+            <div class="agent-editor-actions-right">
               <TButton variant="outline" @click="$emit('next-agent-editor-step')">下一步</TButton>
             </div>
           </div>
@@ -943,7 +1116,12 @@ import {
 
 import MemorySchemaEditor from '@/components/chat/MemorySchemaEditor.vue'
 import { uploadImageFile } from '@/lib/api'
-import type { AIRobotCard, NumericComputationItem, RobotGenerationTask } from '@/types/ai'
+import type {
+  AIRobotCard,
+  NumericComputationItem,
+  RobotGenerationTask,
+  RobotKnowledgeDocument,
+} from '@/types/ai'
 import type {
   RequestMethodResponse,
   SuccessContext,
@@ -987,7 +1165,7 @@ const props = defineProps({
     required: true,
   },
   agentEditorStep: {
-    type: Number as PropType<1 | 2 | 3>,
+    type: Number as PropType<1 | 2 | 3 | 4>,
     required: true,
   },
   mobileAgentDraft: {
@@ -1023,6 +1201,26 @@ const props = defineProps({
     required: true,
   },
   documentGenerationEmbeddingModelConfigId: {
+    type: String,
+    required: true,
+  },
+  knowledgeDocuments: {
+    type: Array as PropType<RobotKnowledgeDocument[]>,
+    required: true,
+  },
+  knowledgeDocumentsLoading: {
+    type: Boolean,
+    required: true,
+  },
+  knowledgeDocumentUploading: {
+    type: Boolean,
+    required: true,
+  },
+  knowledgeDocumentFileName: {
+    type: String,
+    required: true,
+  },
+  knowledgeDocumentEmbeddingModelConfigId: {
     type: String,
     required: true,
   },
@@ -1083,6 +1281,11 @@ const {
   documentGenerationFileName,
   documentGenerationModelConfigId,
   documentGenerationEmbeddingModelConfigId,
+  knowledgeDocuments,
+  knowledgeDocumentsLoading,
+  knowledgeDocumentUploading,
+  knowledgeDocumentFileName,
+  knowledgeDocumentEmbeddingModelConfigId,
   documentGenerationTargetSegmentChars,
   documentGenerationMaxEntitiesPerSegment,
   documentGenerationMaxRelationsPerSegment,
@@ -1097,6 +1300,7 @@ const {
 const avatarUploadRef = ref<UploadInstanceFunctions | null>(null)
 const agentTemplateImportInputRef = ref<HTMLInputElement | null>(null)
 const documentGenerationInputRef = ref<HTMLInputElement | null>(null)
+const knowledgeDocumentInputRef = ref<HTMLInputElement | null>(null)
 const pendingAvatarUploadFiles = ref<UploadFile[]>([])
 const localPreviewUrls = new Set<string>()
 const savingAvatarOnSubmit = ref(false)
@@ -1130,6 +1334,9 @@ const hasPendingAvatarFile = computed(() =>
 const documentGenerationModelOptions = computed(() =>
   auxModelOptions.value.filter((item) => String(item?.value || '').trim()),
 )
+const knowledgeDocumentModelOptions = computed(() =>
+  auxModelOptions.value.filter((item) => String(item?.value || '').trim()),
+)
 const documentGenerationReady = computed(() =>
   Boolean(
     documentGenerationFileName.value
@@ -1161,6 +1368,13 @@ const worldGraphEntryHint = computed(() => {
 const worldGraphEntryActionLabel = computed(() => {
   return savedServerRobotForDraft.value ? '进入编辑' : '保存并进入'
 })
+const knowledgeDocumentUploadReady = computed(() =>
+  Boolean(
+    savedServerRobotForDraft.value
+    && knowledgeDocumentFileName.value
+    && knowledgeDocumentEmbeddingModelConfigId.value.trim(),
+  ),
+)
 
 const avatarUploadTips = computed(() =>
   '支持 jpg/png/webp/gif/svg/avif，最大 10MB；点击“确定”时上传头像',
@@ -1269,6 +1483,19 @@ function handleDocumentGenerationFileChange(event: Event) {
   }
 }
 
+function triggerKnowledgeDocumentFileSelect() {
+  knowledgeDocumentInputRef.value?.click()
+}
+
+function handleKnowledgeDocumentFileChange(event: Event) {
+  const target = event.target as HTMLInputElement | null
+  const file = target?.files?.[0] || null
+  emit('set-knowledge-document-file', file)
+  if (target) {
+    target.value = ''
+  }
+}
+
 function handleDocumentGenerationVisibleChange(value: boolean) {
   emit('update:documentGenerationVisible', value)
 }
@@ -1283,6 +1510,43 @@ function handleDocumentGenerationModelConfigInput(value: string) {
 
 function handleDocumentGenerationEmbeddingModelConfigInput(value: string) {
   emit('update:documentGenerationEmbeddingModelConfigId', String(value || ''))
+}
+
+function handleKnowledgeDocumentEmbeddingModelConfigInput(value: string) {
+  emit('update:knowledgeDocumentEmbeddingModelConfigId', String(value || ''))
+}
+
+function formatKnowledgeDocumentStatus(status: string) {
+  if (status === 'ready') {
+    return '已完成'
+  }
+  if (status === 'failed') {
+    return '失败'
+  }
+  return '处理中'
+}
+
+function formatKnowledgeDocumentUpdatedAt(value: string) {
+  if (!value) {
+    return '未知时间'
+  }
+  try {
+    return new Date(value).toLocaleString()
+  } catch {
+    return value
+  }
+}
+
+function formatKnowledgeDocumentMeta(document: RobotKnowledgeDocument) {
+  const parts = [
+    `类型 ${String(document.sourceType || '').toUpperCase() || '未知'}`,
+    `分片 ${Number(document.chunkCount || 0).toLocaleString()}`,
+    `字符 ${Number(document.characterCount || 0).toLocaleString()}`,
+  ]
+  if (document.embeddingModel) {
+    parts.push(`向量模型 ${document.embeddingModel}`)
+  }
+  return parts.join(' · ')
 }
 
 async function handleOpenWorldGraphFromEditor() {
@@ -1393,6 +1657,7 @@ const emit = defineEmits<{
   (e: 'update:documentGenerationGuidance', value: string): void
   (e: 'update:documentGenerationModelConfigId', value: string): void
   (e: 'update:documentGenerationEmbeddingModelConfigId', value: string): void
+  (e: 'update:knowledgeDocumentEmbeddingModelConfigId', value: string): void
   (e: 'update:documentGenerationTargetSegmentChars', value: number): void
   (e: 'update:documentGenerationMaxEntitiesPerSegment', value: number): void
   (e: 'update:documentGenerationMaxRelationsPerSegment', value: number): void
@@ -1412,6 +1677,8 @@ const emit = defineEmits<{
   (e: 'open-document-generation-dialog'): void
   (e: 'add-agent-template'): void
   (e: 'import-agent-template', file: File): void
+  (e: 'set-knowledge-document-file', file: File | null): void
+  (e: 'upload-knowledge-document'): void
   (e: 'set-document-generation-file', file: File | null): void
   (e: 'submit-document-generation'): void
   (e: 'cancel-document-generation'): void
@@ -1652,6 +1919,111 @@ const emit = defineEmits<{
   line-height: 1.5;
 }
 
+.agent-knowledge-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  background: #fafaf9;
+}
+
+.agent-knowledge-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-knowledge-card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-knowledge-card-copy strong {
+  color: #111827;
+  font-size: 15px;
+}
+
+.agent-knowledge-card-copy span {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.agent-knowledge-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agent-knowledge-file-name {
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.agent-knowledge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-knowledge-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #111827;
+  font-size: 13px;
+}
+
+.agent-knowledge-list-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agent-knowledge-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+}
+
+.agent-knowledge-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-knowledge-item-head strong {
+  color: #0f172a;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.agent-knowledge-status {
+  color: #475569;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.agent-knowledge-meta,
+.agent-knowledge-empty {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 @media (max-width: 768px) {
   .story-world-graph-entry {
     grid-template-columns: 1fr;
@@ -1660,6 +2032,13 @@ const emit = defineEmits<{
 
   .story-world-graph-preview {
     height: 104px;
+  }
+
+  .agent-knowledge-card-head,
+  .agent-knowledge-upload-row,
+  .agent-knowledge-item-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

@@ -8,10 +8,12 @@ const {
   cancelRobotGenerationTask,
   createRobotGenerationTask,
   getRobotGenerationTask,
+  listRobotKnowledgeDocuments,
   getRobots,
   getRobotWorldGraph,
   replaceRobotWorldGraph,
   saveRobots,
+  uploadRobotKnowledgeDocument,
   listLocalRobots,
   putLocalRobot,
   deleteLocalRobot,
@@ -22,9 +24,11 @@ const {
   cancelRobotGenerationTask: vi.fn(),
   createRobotGenerationTask: vi.fn(),
   getRobotGenerationTask: vi.fn(),
+  listRobotKnowledgeDocuments: vi.fn(),
   getRobotWorldGraph: vi.fn(),
   replaceRobotWorldGraph: vi.fn(),
   saveRobots: vi.fn(),
+  uploadRobotKnowledgeDocument: vi.fn(),
   listLocalRobots: vi.fn(),
   putLocalRobot: vi.fn(),
   deleteLocalRobot: vi.fn(),
@@ -36,10 +40,12 @@ vi.mock('@/lib/api', () => ({
   cancelRobotGenerationTask,
   createRobotGenerationTask,
   getRobotGenerationTask,
+  listRobotKnowledgeDocuments,
   getRobots,
   getRobotWorldGraph,
   replaceRobotWorldGraph,
   saveRobots,
+  uploadRobotKnowledgeDocument,
 }))
 
 vi.mock('@/lib/local-db', () => ({
@@ -123,6 +129,20 @@ describe('useChatRobotManager', () => {
   beforeEach(() => {
     localRobots = []
     serverRobots = [createRobot()]
+    success.mockReset()
+    error.mockReset()
+    cancelRobotGenerationTask.mockReset()
+    createRobotGenerationTask.mockReset()
+    getRobotGenerationTask.mockReset()
+    listRobotKnowledgeDocuments.mockReset()
+    uploadRobotKnowledgeDocument.mockReset()
+    getRobots.mockClear()
+    getRobotWorldGraph.mockClear()
+    replaceRobotWorldGraph.mockClear()
+    saveRobots.mockClear()
+    listLocalRobots.mockClear()
+    putLocalRobot.mockClear()
+    deleteLocalRobot.mockClear()
     getRobots.mockImplementation(async () => ({ robots: serverRobots }))
     getRobotWorldGraph.mockResolvedValue({
       meta: {
@@ -150,6 +170,28 @@ describe('useChatRobotManager', () => {
       edges: [],
     })
     replaceRobotWorldGraph.mockResolvedValue(undefined)
+    listRobotKnowledgeDocuments.mockResolvedValue({ documents: [] })
+    uploadRobotKnowledgeDocument.mockResolvedValue({
+      document: {
+        id: 'doc-1',
+        robotId: 'robot-1',
+        status: 'ready',
+        sourceName: '知识.md',
+        sourceType: 'md',
+        sourceSize: 128,
+        guidance: '',
+        summary: '摘要',
+        retrievalSummary: '检索摘要',
+        chunkCount: 2,
+        characterCount: 120,
+        qdrantCollection: 'robot_knowledge_openai_embedding',
+        embeddingModelConfigId: 'embedding-1',
+        embeddingModel: 'text-embedding-3-small',
+        meta: {},
+        createdAt: '2026-04-01T00:00:00.000Z',
+        updatedAt: '2026-04-01T00:00:01.000Z',
+      },
+    })
     saveRobots.mockImplementation(async (robots: AIRobotCard[]) => {
       serverRobots = robots
       return { robots }
@@ -159,18 +201,6 @@ describe('useChatRobotManager', () => {
       localRobots = [...localRobots.filter((item) => item.id !== robot.id), robot]
     })
     deleteLocalRobot.mockResolvedValue(undefined)
-    success.mockReset()
-    error.mockReset()
-    cancelRobotGenerationTask.mockReset()
-    createRobotGenerationTask.mockReset()
-    getRobotGenerationTask.mockReset()
-    getRobots.mockClear()
-    getRobotWorldGraph.mockClear()
-    replaceRobotWorldGraph.mockClear()
-    saveRobots.mockClear()
-    listLocalRobots.mockClear()
-    putLocalRobot.mockClear()
-    deleteLocalRobot.mockClear()
     __resetDocumentGenerationManagerForTests()
     createObjectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:agent-template')
     revokeObjectUrlSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
@@ -280,5 +310,59 @@ describe('useChatRobotManager', () => {
 
     expect(createRobotGenerationTask).not.toHaveBeenCalled()
     expect(error).toHaveBeenCalledWith('请选择向量 Embedding 模型')
+  })
+
+  it('loads knowledge documents when opening a persisted robot editor', async () => {
+    const manager = createManager()
+    await manager.loadRobotTemplates()
+
+    manager.openMobileAgentEditDialog('robot-1')
+    await Promise.resolve()
+
+    expect(listRobotKnowledgeDocuments).toHaveBeenCalledWith('robot-1')
+  })
+
+  it('uploads a knowledge document and refreshes the list', async () => {
+    const manager = createManager()
+    await manager.loadRobotTemplates()
+
+    manager.openMobileAgentEditDialog('robot-1')
+    await Promise.resolve()
+    listRobotKnowledgeDocuments.mockResolvedValueOnce({
+      documents: [
+        {
+          id: 'doc-1',
+          robotId: 'robot-1',
+          status: 'ready',
+          sourceName: '知识.md',
+          sourceType: 'md',
+          sourceSize: 128,
+          guidance: '',
+          summary: '摘要',
+          retrievalSummary: '检索摘要',
+          chunkCount: 2,
+          characterCount: 120,
+          qdrantCollection: 'robot_knowledge_openai_embedding',
+          embeddingModelConfigId: 'embedding-1',
+          embeddingModel: 'text-embedding-3-small',
+          meta: {},
+          createdAt: '2026-04-01T00:00:00.000Z',
+          updatedAt: '2026-04-01T00:00:01.000Z',
+        },
+      ],
+    })
+
+    manager.setKnowledgeDocumentFile(new File(['# test'], '知识.md', { type: 'text/markdown' }))
+    manager.knowledgeDocumentEmbeddingModelConfigId.value = 'embedding-1'
+
+    await manager.uploadKnowledgeDocument()
+
+    expect(uploadRobotKnowledgeDocument).toHaveBeenCalledWith(
+      'robot-1',
+      expect.any(File),
+      'embedding-1',
+    )
+    expect(listRobotKnowledgeDocuments).toHaveBeenCalledWith('robot-1')
+    expect(success).toHaveBeenCalledWith('向量数据已写入知识库')
   })
 })

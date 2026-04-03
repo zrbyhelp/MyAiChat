@@ -3,9 +3,11 @@ import { computed, reactive, ref } from 'vue'
 
 import {
   getRobotWorldGraph,
+  listRobotKnowledgeDocuments,
   getRobots,
   replaceRobotWorldGraph,
   saveRobots,
+  uploadRobotKnowledgeDocument,
 } from '@/lib/api'
 import { UnauthorizedError } from '@/lib/auth'
 import { useDocumentGenerationManager } from '@/hooks/chat-view/useDocumentGenerationManager'
@@ -15,6 +17,7 @@ import type {
   AIRobotCard,
   MemorySchemaState,
   NumericComputationItem,
+  RobotKnowledgeDocument,
   RobotWorldGraph,
 } from '@/types/ai'
 
@@ -42,8 +45,13 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
   const editingAgentId = ref('')
   const mobileAgentEditorMode = ref<'create' | 'edit'>('create')
   const editingMobileAgentId = ref('')
-  const agentEditorStep = ref<1 | 2 | 3>(1)
+  const agentEditorStep = ref<1 | 2 | 3 | 4>(1)
   const mobileAgentDraft = reactive<AIRobotCard>(createRobotTemplate())
+  const knowledgeDocuments = ref<RobotKnowledgeDocument[]>([])
+  const knowledgeDocumentsLoading = ref(false)
+  const knowledgeDocumentUploading = ref(false)
+  const knowledgeDocumentFile = ref<File | null>(null)
+  const knowledgeDocumentEmbeddingModelConfigId = ref('')
 
   const selectedNewChatRobot = computed(
     () => robotTemplates.value.find((item) => item.id === selectedNewChatRobotId.value) ?? null,
@@ -52,6 +60,14 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
 
   function createRobotId() {
     return `robot-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  function resetKnowledgeDocumentState() {
+    knowledgeDocuments.value = []
+    knowledgeDocumentsLoading.value = false
+    knowledgeDocumentUploading.value = false
+    knowledgeDocumentFile.value = null
+    knowledgeDocumentEmbeddingModelConfigId.value = ''
   }
 
   function createRobotTemplate(): AIRobotCard {
@@ -224,6 +240,70 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     robotTemplates.value = [...serverResponse.robots, ...localRobots]
   }
 
+  async function loadKnowledgeDocuments(robotId = mobileAgentDraft.id) {
+    const normalizedRobotId = String(robotId || '').trim()
+    const target = robotTemplates.value.find((item) => item.id === normalizedRobotId)
+    if (!normalizedRobotId || !target?.persistToServer) {
+      knowledgeDocuments.value = []
+      return
+    }
+
+    knowledgeDocumentsLoading.value = true
+    try {
+      const response = await listRobotKnowledgeDocuments(normalizedRobotId)
+      knowledgeDocuments.value = response.documents
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return
+      }
+      MessagePlugin.error(error instanceof Error ? error.message : '加载向量数据列表失败')
+    } finally {
+      knowledgeDocumentsLoading.value = false
+    }
+  }
+
+  function setKnowledgeDocumentFile(file: File | null) {
+    knowledgeDocumentFile.value = file
+  }
+
+  async function uploadKnowledgeDocument() {
+    const target = robotTemplates.value.find(
+      (item) => item.id === String(mobileAgentDraft.id || '').trim() && Boolean(item.persistToServer),
+    )
+    if (!target?.id) {
+      MessagePlugin.error('请先保存到服务器，再添加向量数据')
+      return
+    }
+    if (!(knowledgeDocumentFile.value instanceof File)) {
+      MessagePlugin.error('请选择要导入的知识文件')
+      return
+    }
+    if (!knowledgeDocumentEmbeddingModelConfigId.value.trim()) {
+      MessagePlugin.error('请选择向量 Embedding 模型')
+      return
+    }
+
+    knowledgeDocumentUploading.value = true
+    try {
+      await uploadRobotKnowledgeDocument(
+        target.id,
+        knowledgeDocumentFile.value,
+        knowledgeDocumentEmbeddingModelConfigId.value,
+      )
+      knowledgeDocumentFile.value = null
+      await loadKnowledgeDocuments(target.id)
+      MessagePlugin.success('向量数据已写入知识库')
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return
+      }
+      await loadKnowledgeDocuments(target.id)
+      MessagePlugin.error(error instanceof Error ? error.message : '添加向量数据失败')
+    } finally {
+      knowledgeDocumentUploading.value = false
+    }
+  }
+
   async function persistRobotTemplates(nextTemplates: AIRobotCard[], successMessage: string) {
     robotTemplates.value = nextTemplates.length ? nextTemplates : [createRobotTemplate()]
     if (!robotTemplates.value.some((item) => item.id === selectedNewChatRobotId.value)) {
@@ -254,7 +334,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     openMobileAgentCreateDialog()
   }
 
-  function goToAgentEditorStep(step: 1 | 2 | 3) {
+  function goToAgentEditorStep(step: 1 | 2 | 3 | 4) {
     agentEditorStep.value = step
   }
 
@@ -263,6 +343,7 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     editingMobileAgentId.value = ''
     editingAgentId.value = ''
     syncMobileAgentDraft(createRobotTemplate())
+    resetKnowledgeDocumentState()
     goToAgentEditorStep(1)
     mobileAgentEditorVisible.value = true
   }
@@ -276,19 +357,21 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     editingMobileAgentId.value = agentId
     editingAgentId.value = agentId
     syncMobileAgentDraft(target)
+    knowledgeDocumentFile.value = null
     goToAgentEditorStep(1)
     mobileAgentEditorVisible.value = true
+    void loadKnowledgeDocuments(agentId)
   }
 
   function nextAgentEditorStep() {
-    if (agentEditorStep.value < 3) {
-      agentEditorStep.value = (agentEditorStep.value + 1) as 1 | 2 | 3
+    if (agentEditorStep.value < 4) {
+      agentEditorStep.value = (agentEditorStep.value + 1) as 1 | 2 | 3 | 4
     }
   }
 
   function previousAgentEditorStep() {
     if (agentEditorStep.value > 1) {
-      agentEditorStep.value = (agentEditorStep.value - 1) as 1 | 2 | 3
+      agentEditorStep.value = (agentEditorStep.value - 1) as 1 | 2 | 3 | 4
     }
   }
 
@@ -636,6 +719,11 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     agentManageVisible,
     mobileAgentEditorVisible,
     savingMobileAgent,
+    knowledgeDocuments,
+    knowledgeDocumentsLoading,
+    knowledgeDocumentUploading,
+    knowledgeDocumentFile,
+    knowledgeDocumentEmbeddingModelConfigId,
     documentGenerationVisible,
     documentGenerationSubmitting,
     robotTemplates,
@@ -669,6 +757,9 @@ export function useChatRobotManager(options: UseChatRobotManagerOptions) {
     exportRobotTemplate,
     importRobotTemplate,
     loadRobotTemplates,
+    loadKnowledgeDocuments,
+    setKnowledgeDocumentFile,
+    uploadKnowledgeDocument,
     openAgentManageDialog,
     openDocumentGenerationDialog,
     closeDocumentGenerationDialog,
