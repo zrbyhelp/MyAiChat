@@ -156,6 +156,7 @@ flowchart LR
 - `npm` for `main`, `agent`, and `upload`
 - Docker / Docker Compose for integrated local runs
 - A valid Clerk application
+- If you want `linux.do` login, configure it in Clerk as an external identity provider
 - `Qdrant` and `Neo4j` if you enable knowledge retrieval and world graph features
 
 ## Local Startup
@@ -310,9 +311,17 @@ npm run console:init-config
 
 - `PORT`: `main` service port
 - `CHAT_PORT` / `ADMIN_PORT` / `UPLOAD_PORT`: Docker-exposed ports
-- `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` / `VITE_CLERK_PUBLISHABLE_KEY`: auth
+- `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` / `VITE_CLERK_PUBLISHABLE_KEY`: auth, including `linux.do` login through Clerk
 - `VITE_ADMIN_API_BASE_URL` / `ADMIN_API_BASE_URL`: admin frontend and backend URLs
 - `JWT_SECRET` / `JWT_ALGO`: admin API auth
+
+### Clerk with `linux.do`
+
+1. Enable `linux.do` as an external identity provider in the Clerk Dashboard and fill in its Client ID and Client Secret.
+2. Add `http://localhost:5173` and your production frontend domain to Clerk allowed origins, sign-in callbacks, and sign-out callbacks.
+3. Keep the current frontend login button unchanged. Users still open the Clerk modal, and Clerk renders the `linux.do` entry there.
+4. After login, `chat` continues to call `main` and `upload` with Clerk tokens. No project-local OAuth endpoint is added.
+5. If `linux.do` does not appear in the Clerk modal, first verify the provider is enabled, callback domains match, and the frontend is using the correct Clerk publishable key.
 
 ### `main/.env`
 

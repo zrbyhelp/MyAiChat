@@ -149,6 +149,7 @@ flowchart LR
 - `main/agent/upload` 包管理：`npm`
 - Docker / Docker Compose（推荐用于联调）
 - 可用的 Clerk 应用
+- 若启用 `linux.do` 第三方登录，需要在 Clerk 中把它配置为外部身份提供方
 - 若启用知识检索与世界图谱，需准备 `Qdrant` 与 `Neo4j`
 
 ## 本地启动
@@ -303,9 +304,17 @@ npm run console:init-config
 
 - `PORT`：`main` 服务端口
 - `CHAT_PORT` / `ADMIN_PORT` / `UPLOAD_PORT`：Docker 暴露端口
-- `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` / `VITE_CLERK_PUBLISHABLE_KEY`：鉴权配置
+- `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` / `VITE_CLERK_PUBLISHABLE_KEY`：鉴权配置，`linux.do` 第三方登录仍通过这组 Clerk 配置生效
 - `VITE_ADMIN_API_BASE_URL` / `ADMIN_API_BASE_URL`：后台前端与后台接口地址
 - `JWT_SECRET` / `JWT_ALGO`：后台接口鉴权
+
+### Clerk 接入 `linux.do`
+
+1. 在 Clerk Dashboard 中启用 `linux.do` 外部身份提供方，并填写对应的 Client ID / Client Secret。
+2. 将本地 `http://localhost:5173` 和生产前端域名加入 Clerk 的允许域名、登录回调地址与登出回调地址。
+3. 保持当前前端“登录”按钮不变，用户仍通过 Clerk 弹窗完成登录，`linux.do` 入口由 Clerk 展示。
+4. 登录成功后，`chat` 继续使用 Clerk token 访问 `main` 与 `upload`，无需新增项目内 OAuth 接口。
+5. 若 Clerk 弹窗中未出现 `linux.do`，优先检查 provider 是否启用、回调域名是否匹配、前端是否使用了正确的 Clerk Publishable Key。
 
 ### `main/.env`
 

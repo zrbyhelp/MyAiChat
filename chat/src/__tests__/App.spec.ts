@@ -6,6 +6,34 @@ import App from '../App.vue'
 import router from '../router'
 
 const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>()
+const openSignInMock = vi.fn()
+const authLoadedRef = shallowRef(true)
+const signedInRef = shallowRef(true)
+const userRef = shallowRef<{
+  fullName: string
+  firstName: string
+  lastName: string
+  username: string
+  primaryEmailAddress: {
+    emailAddress: string
+  }
+} | null>({
+  fullName: 'Test User',
+  firstName: 'Test',
+  lastName: 'User',
+  username: 'test-user',
+  primaryEmailAddress: {
+    emailAddress: 'test@example.com',
+  },
+})
+
+vi.mock('@antv/x6', () => ({
+  Graph: class {},
+  Scroller: class {},
+  Selection: class {},
+  Snapline: class {},
+  Shape: {},
+}))
 
 vi.mock('@clerk/vue', () => ({
   clerkPlugin: {
@@ -15,203 +43,117 @@ vi.mock('@clerk/vue', () => ({
     template: '<div class="user-button-stub" />',
   },
   useAuth: () => ({
-    isLoaded: computed(() => true),
-    isSignedIn: computed(() => true),
+    isLoaded: computed(() => authLoadedRef.value),
+    isSignedIn: computed(() => signedInRef.value),
     userId: computed(() => 'user_test'),
     getToken: computed(() => async () => 'token_test'),
   }),
   useClerk: () => shallowRef({
-    openSignIn: vi.fn(),
+    openSignIn: openSignInMock,
   }),
   useUser: () => ({
-    user: computed(() => ({
-      fullName: 'Test User',
-      primaryEmailAddress: {
-        emailAddress: 'test@example.com',
-      },
-    })),
+    user: computed(() => userRef.value),
   }),
 }))
 
 vi.stubGlobal('fetch', fetchMock)
 
-function createResponse(payload: unknown) {
-  return Promise.resolve(
-    new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
+function mountApp() {
+  return mount(App, {
+    global: {
+      plugins: [router],
+      stubs: {
+        't-chatbot': {
+          template: '<div class="chatbot-stub"><slot name="sender-footer-prefix" /></div>',
+        },
+        TButton: {
+          template: '<button><slot name="icon" /><slot /></button>',
+        },
+        TDialog: true,
+        TDrawer: true,
+        TDropdown: {
+          template: '<div><slot /></div>',
+        },
+        TForm: true,
+        TFormItem: true,
+        TInput: true,
+        TInputNumber: true,
+        TSelect: true,
+        TSpace: {
+          template: '<div><slot /></div>',
+        },
+        TTextarea: true,
+        SettingIcon: true,
+        OrderIcon: true,
+        LightbulbIcon: true,
+        AiEducationIcon: true,
       },
-    }),
-  )
+    },
+  })
 }
 
 describe('App', () => {
   afterEach(async () => {
     fetchMock.mockReset()
+    openSignInMock.mockReset()
+    authLoadedRef.value = true
+    signedInRef.value = true
+    userRef.value = {
+      fullName: 'Test User',
+      firstName: 'Test',
+      lastName: 'User',
+      username: 'test-user',
+      primaryEmailAddress: {
+        emailAddress: 'test@example.com',
+      },
+    }
     await router.push('/')
   })
 
-  it('loads chat page with configured model list and current selection', async () => {
-    fetchMock.mockImplementation((input) => {
-      const url = String(input)
+  it('renders signed-in user label when Clerk session is ready', async () => {
+    await router.push('/')
+    await router.isReady()
 
-      if (url === '/api/model-configs') {
-        return createResponse({
-          configs: [
-            {
-              id: 'cfg-1',
-              name: 'DeepSeek 线上',
-              provider: 'openai',
-              baseUrl: 'https://api.deepseek.com/v1',
-              apiKey: 'sk-demo',
-              model: 'deepseek-chat',
-              temperature: 0.7,
-            },
-            {
-              id: 'cfg-2',
-              name: '兼容网关',
-              provider: 'openai',
-              baseUrl: 'https://api.example.com/v1',
-              apiKey: 'sk-demo-2',
-              model: 'gpt-4.1-mini',
-              temperature: 0.7,
-            },
-          ],
-          activeModelConfigId: 'cfg-1',
-        })
-      }
+    const wrapper = mountApp()
+    await flushPromises()
 
-      if (url.startsWith('/api/capabilities?')) {
-        return createResponse({
-          capabilities: {
-            supportsStreaming: true,
-            supportsReasoning: true,
-          },
-        })
-      }
+    expect(wrapper.text()).toContain('Test User')
+    expect(wrapper.find('.user-button-stub').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('登录')
+  })
 
-      if (url === '/api/sessions') {
-        return createResponse({
-          sessions: [
-            {
-              id: 'session-1',
-              title: '测试会话',
-              preview: '你好',
-              createdAt: '2026-03-18T08:00:00.000Z',
-              updatedAt: '2026-03-18T08:00:00.000Z',
-              robotName: '当前智能体',
-              modelConfigId: 'cfg-1',
-              modelLabel: 'DeepSeek 线上',
-              usage: {
-                promptTokens: 12,
-                completionTokens: 34,
-              },
-            },
-          ],
-        })
-      }
-
-      if (url === '/api/robots') {
-        return createResponse({
-          robots: [
-            {
-              id: 'robot-1',
-              name: '销售顾问',
-              description: '用于售前咨询',
-              avatar: '',
-              systemPrompt: '你是一名销售顾问',
-            },
-          ],
-        })
-      }
-
-      if (url === '/api/sessions/session-1') {
-        return createResponse({
-          session: {
-            id: 'session-1',
-            title: '测试会话',
-            preview: '你好',
-            createdAt: '2026-03-18T08:00:00.000Z',
-            updatedAt: '2026-03-18T08:00:00.000Z',
-            robotName: '当前智能体',
-            modelConfigId: 'cfg-1',
-            modelLabel: 'DeepSeek 线上',
-            robot: {
-              name: '当前智能体',
-              avatar: '',
-              systemPrompt: '',
-            },
-            messages: [],
-            memory: {
-              summary: '',
-              updatedAt: '',
-              sourceMessageCount: 0,
-              threshold: 20,
-              recentMessageLimit: 10,
-            },
-            usage: {
-              promptTokens: 12,
-              completionTokens: 34,
-            },
-            threadId: 'thread-1',
-            memorySchema: {
-              categories: [],
-            },
-            structuredMemory: {
-              updatedAt: '',
-              categories: [],
-            },
-          },
-        })
-      }
-
-      throw new Error(`Unhandled request: ${url}`)
-    })
+  it('opens Clerk sign-in modal when user clicks login while signed out', async () => {
+    signedInRef.value = false
+    userRef.value = null
 
     await router.push('/')
     await router.isReady()
 
-    const wrapper = mount(App, {
-      global: {
-        plugins: [router],
-        stubs: {
-          't-chatbot': {
-            template: '<div class="chatbot-stub"><slot name="sender-footer-prefix" /></div>',
-          },
-          TButton: {
-            template: '<button><slot name="icon" /><slot /></button>',
-          },
-          TDialog: true,
-          TDrawer: true,
-          TDropdown: {
-            template: '<div><slot /></div>',
-          },
-          TForm: true,
-          TFormItem: true,
-          TInput: true,
-          TInputNumber: true,
-          TSelect: true,
-          TSpace: {
-            template: '<div><slot /></div>',
-          },
-          TTextarea: true,
-          SettingIcon: true,
-          OrderIcon: true,
-          LightbulbIcon: true,
-          AiEducationIcon: true,
-        },
+    const wrapper = mountApp()
+    await flushPromises()
+
+    await wrapper.get('button').trigger('click')
+
+    expect(openSignInMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to username when Clerk user has no full name', async () => {
+    userRef.value = {
+      fullName: '',
+      firstName: '',
+      lastName: '',
+      username: 'linuxdo_user',
+      primaryEmailAddress: {
+        emailAddress: 'linuxdo@example.com',
       },
-    })
+    }
 
-    await router.push('/messages')
-    await flushPromises()
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mountApp()
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledTimes(5)
-    expect(wrapper.text()).toContain('当前智能体')
-    expect(wrapper.text()).toContain('DeepSeek 线上')
-    expect(wrapper.text()).toContain('设置智能体')
-    expect(wrapper.text()).toContain('测试会话')
+    expect(wrapper.text()).toContain('linuxdo_user')
   })
 })

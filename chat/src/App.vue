@@ -22,7 +22,39 @@ const clerk = useClerk()
 const { getToken, isLoaded, isSignedIn } = useAuth()
 const { user } = useUser()
 
-const currentUserLabel = computed(() => user.value?.fullName || user.value?.primaryEmailAddress?.emailAddress || '已登录')
+function buildCurrentUserLabel() {
+  const current = user.value
+  if (!current) {
+    return '已登录'
+  }
+
+  const fullName = String(current.fullName || '').trim()
+  if (fullName) {
+    return fullName
+  }
+
+  const nameFromParts = [current.firstName, current.lastName]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .join(' ')
+  if (nameFromParts) {
+    return nameFromParts
+  }
+
+  const username = String(current.username || '').trim()
+  if (username) {
+    return username
+  }
+
+  const email = String(current.primaryEmailAddress?.emailAddress || '').trim()
+  if (email) {
+    return email
+  }
+
+  return '已登录'
+}
+
+const currentUserLabel = computed(() => buildCurrentUserLabel())
 
 function openSignInModal() {
   clerk.value?.openSignIn?.()

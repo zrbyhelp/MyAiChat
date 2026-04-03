@@ -33,7 +33,13 @@ cp chat/.env.example chat/.env
 
 当前主要变量：
 
-- `VITE_CLERK_PUBLISHABLE_KEY`：Clerk 前端公钥
+- `VITE_CLERK_PUBLISHABLE_KEY`：Clerk 前端公钥，普通登录与 `linux.do` 第三方登录都复用它
+
+`linux.do` 接入约定：
+
+- 在 Clerk Dashboard 中把 `linux.do` 配置为外部身份提供方，不在仓库里自建 OAuth 流程
+- 本地联调时至少将 `http://localhost:5173` 加入 Clerk 允许域名与回调地址
+- 登录后 `chat` 仍向 `main/upload` 发送 Clerk token，因此后端无需新增登录接口
 
 ## 开发命令
 
@@ -60,4 +66,5 @@ pnpm spell:check
 
 - 默认通过 `main` 的 `/api/*` 与 `/admin-api/*` 交互
 - 本地前端默认地址：`http://localhost:5173`
+- 若启用 `linux.do` 登录，请先确认 Clerk 中已启用该 provider，且回调域名与当前前端地址一致
 - 若聊天链路异常，优先检查浏览器 Network 中 `POST /api/chat/stream` 的 SSE 返回
