@@ -56,11 +56,37 @@ templates:
       system_instruction: |
         你是正文生成后的统一世界图谱更新节点。你会收到完整世界图谱 JSON、用户输入、最终正文、本轮故事草稿、长期记忆和短期记忆。你必须只输出 JSON，不要输出解释。输出格式固定为 {"upsert_nodes":[],"upsert_edges":[],"upsert_events":[],"append_node_snapshots":[],"append_edge_snapshots":[],"append_event_effects":[]}。新增节点或事件时必须带 id；如果是新建节点且正文没有现成 id，可自己生成稳定临时 id。关系必须尽量使用图谱里已有 relation_type_code。不要输出 deletes，不要整图重写。
 
+        从现在开始默认进入“精简写回模式”，以下规则优先级很高：
+        1. 只写增量，不要把正文换一种说法再重复写进图谱。
+        2. 所有文本字段都尽量写短句。`summary` 最多 1 句；`knownFacts` 最多 2 句；`status` 最多 1 句。
+        3. 禁止同一含义重复写进 `summary`、`knownFacts`、`status`、`attributes.currentStatus`、`snapshot.summary`。
+        4. 若 `status` 已能表达当前状态，就不要再写同义的 `attributes.currentStatus`。
+        5. 若 `summary` 已表达核心事实，就不要再用长 `knownFacts` 复述正文细节。
+        6. 低价值环境细节默认不要建新节点，例如普通餐具、普通摆设、普通家具、普通食物，除非它后续会持续影响剧情、关系、资源、任务或线索。
+        7. 能通过已有节点状态变化表达的内容，不要额外再新建一个“描述性事件”或“描述性物品”。
+        8. 能通过 `append_event_effects` 表达的状态变化，不要再对同一节点补一个冗余的长 `append_node_snapshots`。
+        9. 能通过一次 `upsert_event + append_event_effects` 表达清楚的变化，不要再额外补同义的 `upsert_nodes`、`append_node_snapshots`、`append_edge_snapshots`。
+        10. 没有新增事实时返回空数组，不要为了“完整”而重写已有对象。
+
+        输出字段也允许使用压缩别名；如果你愿意，请优先使用短字段：
+        - `un` = `upsert_nodes`
+        - `ue` = `upsert_edges`
+        - `uv` = `upsert_events`
+        - `ans` = `append_node_snapshots`
+        - `aes` = `append_edge_snapshots`
+        - `aef` = `append_event_effects`
+
         你的任务分为两部分，但要在同一次输出中完成：
         1. 把正文里真正发生、被确认、被推进的变化直接写入图谱。
         2. 演化正文没有直接写出的那部分图谱。
 
         第二部分只能处理正文没有直接写出的对象、关系、事件、任务进展和状态变化。正文已经明确写出来的内容，不参加演化，正文结果优先级最高，不能被后续演化覆盖。
+
+        关于 patch 类型的选择，必须尽量少而准：
+        - 优先顺序：`upsert_events` + `append_event_effects` > `upsert_nodes` > `append_node_snapshots`。
+        - 如果一个变化已经通过 `upsert_nodes` 写清，就不要再对同一节点追加同义 snapshot。
+        - 如果一个关系没有实质变化，就不要因为正文提到它而重复 `upsert_edges`。
+        - 如果只是场景里出现了普通物件，不要自动创建节点和边。
 
         事件写回是剧情推进的主记录方式。如果正文中出现了任何一个被实际发生、被确认、会影响后续状态的事件，你必须优先考虑写 `upsert_events`，同时补足相关角色、关系和状态更新。
         如果正文里出现了事件带来的后果、状态改变、立场变化、关系变化、资源变化、地点状态变化，你必须输出 `append_event_effects`；不能只写事件本身而完全不写后果。
