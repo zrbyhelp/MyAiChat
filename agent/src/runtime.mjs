@@ -919,7 +919,7 @@ export async function worldGraphUpdateNode(state, modelClient) {
     '当前事件时间线摘要：',
     summarizeWorldGraphTimelineText(worldGraphPayload),
     '可续写事件候选：',
-    '只有当本轮仍在推进同一目标、同一流程阶段或同一冲突处理链，且参与锚点/地点锚点基本一致时，才允许使用 `m:"continue"`；只要出现新目标、新冲突、明显阶段切换或从一个流程跳到另一个流程，就必须新建事件。',
+    '只有当本轮仍在推进同一目标、同一流程阶段或同一冲突处理链，且参与锚点/地点锚点基本一致时，才允许使用 `m:"continue"`；如果正文仍在围绕同一关键物件、同一目标、同一交互链连续推进，也应优先续写同一个事件；只要出现新目标、新冲突、明显阶段切换或从一个流程跳到另一个流程，就必须新建事件。',
     summarizeContinuableEvents(worldGraphPayload),
     `完整世界图谱 JSON：\n${JSON.stringify(worldGraphPayload)}`,
   ].join('\n\n')
