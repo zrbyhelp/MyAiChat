@@ -98,6 +98,16 @@ export const BUILTIN_WORLD_RELATION_TYPES = [
     isBuiltin: true,
   },
   {
+    id: 'builtin-associated-location',
+    code: 'associated_location',
+    label: '关联地点',
+    description: '事件与地点存在关联，不表示唯一发生地点，可同时关联多个地点',
+    directionality: 'directed',
+    sourceObjectTypes: ['event'],
+    targetObjectTypes: ['location'],
+    isBuiltin: true,
+  },
+  {
     id: 'builtin-participates-in',
     code: 'participates_in',
     label: '参与',

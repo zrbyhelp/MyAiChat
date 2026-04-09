@@ -14,22 +14,8 @@
           关系类型
         </button>
       </div>
-      <div v-if="!isReadOnly" class="meta-panel">
-        <div class="meta-panel-head">
-          <strong>世界设定</strong>
-          <TButton size="small" theme="primary" :loading="savingMeta" @click="saveGraphMeta">保存</TButton>
-        </div>
-        <TForm label-align="top" class="meta-form">
-          <TFormItem label="标题"><TInput v-model="meta.title" /></TFormItem>
-          <TFormItem label="概要"><TTextarea v-model="meta.summary" :autosize="{ minRows: 2, maxRows: 4 }" /></TFormItem>
-          <TFormItem label="历法 ID"><TInput v-model="meta.calendar.calendarId" /></TFormItem>
-          <TFormItem label="历法名称"><TInput v-model="meta.calendar.calendarName" /></TFormItem>
-          <TFormItem label="纪元"><TTextarea v-model="calendarErasInput" :autosize="{ minRows: 2, maxRows: 3 }" placeholder="每行一项" /></TFormItem>
-          <TFormItem label="月份名称"><TTextarea v-model="calendarMonthNamesInput" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="每行一项" /></TFormItem>
-          <TFormItem label="日期名称"><TTextarea v-model="calendarDayNamesInput" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="每行一项" /></TFormItem>
-          <TFormItem label="时段名称"><TTextarea v-model="calendarTimeOfDayLabelsInput" :autosize="{ minRows: 2, maxRows: 3 }" placeholder="每行一项" /></TFormItem>
-          <TFormItem label="格式模板"><TInput v-model="meta.calendar.formatTemplate" placeholder="{era} {yearLabel}年 {monthLabel} {dayLabel} {timeOfDayLabel}" /></TFormItem>
-        </TForm>
+      <div v-if="!isReadOnly" class="sidebar-tools">
+        <TButton class="world-settings-button" size="small" variant="outline" @click="openMetaEditor">世界设定</TButton>
       </div>
       <div class="sidebar-search">
         <TInput v-model="searchKeyword" borderless placeholder="搜索" />
@@ -75,6 +61,8 @@
           :current-sequence-index="currentSequenceIndex"
           :layout="meta.layout"
           :read-only="isReadOnly"
+          :show-event-nodes="isSessionMode"
+          :show-all-edges="isSessionMode && showAllSessionRelations"
           :fit-request-key="fitRequestKey"
           @select-node="selectNode"
           @select-edge="selectEdge"
@@ -119,6 +107,34 @@
               <span>属性</span>
               <div class="node-detail-grid">
                 <div v-for="item in selectedNodeDetailItems" :key="item.key" class="node-detail-item">
+                  <small>{{ item.label }}</small>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <aside v-else-if="selectedCanvasEdge && isReadOnly" class="node-detail-panel">
+          <div class="node-detail-head">
+            <div>
+              <span class="node-detail-type">关系</span>
+              <strong>{{ selectedCanvasEdgeRelationLabel }}</strong>
+              <small>{{ selectedCanvasEdgeSourceName }} -> {{ selectedCanvasEdgeTargetName }}</small>
+            </div>
+            <TButton variant="text" size="small" @click="clearGraphSelection">关闭</TButton>
+          </div>
+
+          <div class="node-detail-body">
+            <div class="node-detail-section">
+              <span>说明</span>
+              <p>{{ selectedCanvasEdge.summary || '暂无说明' }}</p>
+            </div>
+
+            <div v-if="selectedEdgeDetailItems.length" class="node-detail-section">
+              <span>详情</span>
+              <div class="node-detail-grid">
+                <div v-for="item in selectedEdgeDetailItems" :key="item.key" class="node-detail-item">
                   <small>{{ item.label }}</small>
                   <strong>{{ item.value }}</strong>
                 </div>
@@ -381,12 +397,42 @@
           </section>
         </div>
 
+        <div v-if="metaEditorVisible && !isReadOnly" class="editor-popup-layer" @click.self="closeMetaEditor">
+          <section class="editor-popup meta-editor-popup">
+            <div class="editor-head">
+              <div>
+                <strong>世界设定</strong>
+                <small>修改标题、概要、历法和展示信息</small>
+              </div>
+              <TButton variant="text" size="small" @click="closeMetaEditor">关闭</TButton>
+            </div>
+
+            <div class="editor-body">
+              <TForm label-align="top" class="meta-form meta-form-popup">
+                <TFormItem label="标题"><TInput v-model="meta.title" /></TFormItem>
+                <TFormItem label="概要"><TTextarea v-model="meta.summary" :autosize="{ minRows: 2, maxRows: 4 }" /></TFormItem>
+                <TFormItem label="历法 ID"><TInput v-model="meta.calendar.calendarId" /></TFormItem>
+                <TFormItem label="历法名称"><TInput v-model="meta.calendar.calendarName" /></TFormItem>
+                <TFormItem label="纪元"><TTextarea v-model="calendarErasInput" :autosize="{ minRows: 2, maxRows: 3 }" placeholder="每行一项" /></TFormItem>
+                <TFormItem label="月份名称"><TTextarea v-model="calendarMonthNamesInput" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="每行一项" /></TFormItem>
+                <TFormItem label="日期名称"><TTextarea v-model="calendarDayNamesInput" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="每行一项" /></TFormItem>
+                <TFormItem label="时段名称"><TTextarea v-model="calendarTimeOfDayLabelsInput" :autosize="{ minRows: 2, maxRows: 3 }" placeholder="每行一项" /></TFormItem>
+                <TFormItem label="格式模板"><TInput v-model="meta.calendar.formatTemplate" placeholder="{era} {yearLabel}年 {monthLabel} {dayLabel} {timeOfDayLabel}" /></TFormItem>
+              </TForm>
+              <div class="editor-actions">
+                <TButton theme="primary" :loading="savingMeta" @click="saveGraphMeta">保存世界设定</TButton>
+                <TButton variant="outline" @click="closeMetaEditor">取消</TButton>
+              </div>
+            </div>
+          </section>
+        </div>
+
         <div v-if="timelineEventDetailNode" class="editor-popup-layer" @click.self="closeTimelineEventDetail">
           <section class="timeline-event-detail-popup">
             <div class="editor-head">
               <div>
                 <strong>{{ timelineEventDetailNode.name || '未命名事件' }}</strong>
-                <small>{{ buildTimelineLabel(timelineEventDetailNode, normalizeNumber(timelineEventDetailNode.timeline?.sequenceIndex, timelineEventDetailNode.startSequenceIndex)) }}</small>
+                <small>{{ timelineEventDetailEntry ? getTimelinePointLabel(timelineEventDetailEntry.sequenceIndex) : '' }}</small>
               </div>
               <TButton variant="text" size="small" @click="closeTimelineEventDetail">关闭</TButton>
             </div>
@@ -418,9 +464,12 @@
           <div class="timeline-current">
             <span>当前时间点</span>
             <strong>{{ currentTimelineLabel }}</strong>
-            <small>可见对象 {{ canvasNodes.length }} / 关系 {{ canvasEdges.length }}</small>
+            <small>{{ timelineVisibilitySummary }}</small>
           </div>
           <div class="timeline-actions">
+            <TButton v-if="isSessionMode" size="small" variant="outline" @click="toggleSessionRelationVisibility">
+              {{ showAllSessionRelations ? '仅看关联关系' : '全部显示关系' }}
+            </TButton>
             <TButton
               class="timeline-toggle-button"
               size="small"
@@ -473,15 +522,15 @@
             @lostpointercapture="handleTimelineEventStripPointerUp"
           >
             <button
-              v-for="eventNode in currentTimelineEvents"
-              :key="eventNode.id"
+              v-for="eventEntry in currentTimelineEvents"
+              :key="eventEntry.key"
               class="timeline-event-chip"
-              :data-event-id="eventNode.id"
-              @click="handleTimelineEventChipClick(eventNode.id, $event)"
+              :data-event-id="eventEntry.eventId"
+              @click="handleTimelineEventChipClick(eventEntry.key, $event)"
             >
               <span>事件</span>
-              <strong>{{ eventNode.name }}</strong>
-              <small class="timeline-event-summary">{{ getTimelineEventPreviewText(eventNode) }}</small>
+              <strong>{{ eventEntry.name }}</strong>
+              <small class="timeline-event-summary">{{ getTimelineEventPreviewText(eventEntry) }}</small>
             </button>
             <div v-if="!currentTimelineEvents.length" class="timeline-event-empty">当前时间点暂无事件，可直接新增事件或新增节点。</div>
           </div>
@@ -506,6 +555,7 @@ import {
 
 import WorldGraphCanvasX6 from '@/components/chat/WorldGraphCanvasX6.vue'
 import { buildSessionGraphLayout } from '@/components/chat/worldGraphLayout'
+import { getRenderableWorldGraphCanvasEdges } from '@/components/chat/worldGraphCanvasVisibility'
 import {
   createRobotWorldEdge,
   createRobotWorldNode,
@@ -636,6 +686,8 @@ const autoplayTimer = ref<number | null>(null)
 const layoutSaveTimer = ref<number | null>(null)
 const activationFitTimer = ref<number | null>(null)
 const savingMeta = ref(false)
+const metaEditorVisible = ref(false)
+const showAllSessionRelations = ref(false)
 const pendingLayout = ref<WorldGraphLayout | null>(null)
 const lastPersistedLayout = ref<WorldGraphLayout>({ viewportX: 0, viewportY: 0, zoom: 1 })
 const fitRequestKey = ref(0)
@@ -645,7 +697,7 @@ const timelineEventStripStartX = ref(0)
 const timelineEventStripStartScrollLeft = ref(0)
 const timelineEventStripDragging = ref(false)
 const timelineEventStripSuppressClick = ref(false)
-const timelineEventDetailNodeId = ref('')
+const timelineEventDetailKey = ref('')
 const meta = reactive<RobotWorldGraphMeta>({
   robotId: '',
   title: '',
@@ -675,6 +727,15 @@ const emptyStateText = computed(() =>
   isSessionMode.value ? '当前会话还没有消息图谱。' : '当前智能体还没有世界设定图谱。',
 )
 const showRelationTypeTab = computed(() => !isReadOnly.value)
+
+interface TimelineEventEntry {
+  key: string
+  eventId: string
+  sequenceIndex: number
+  name: string
+  summary: string
+  usesTimelineLabel: boolean
+}
 
 function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(toRaw(value))) as T
@@ -898,7 +959,7 @@ function applySessionAutoLayout(nodes: WorldNode[]) {
     return nodes
   }
 
-  const visibleNodes = nodes.filter((node) => node.objectType !== 'event' && normalizeNumber(node.startSequenceIndex, 0) <= currentSequenceIndex.value)
+  const visibleNodes = nodes.filter((node) => normalizeNumber(node.startSequenceIndex, 0) <= currentSequenceIndex.value)
   if (!visibleNodes.length) {
     return nodes
   }
@@ -940,25 +1001,44 @@ function applyLoadedGraphPresentation() {
   currentSequenceIndex.value = Math.min(currentSequenceIndex.value, timelineMaxSequenceIndex.value)
 }
 
+function hasOwnSnapshotField(value: unknown, key: string): boolean {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.prototype.hasOwnProperty.call(value, key))
+}
+
 function normalizeNodeSnapshot(value?: Partial<WorldNodeSnapshot> | null): WorldNodeSnapshot {
   return {
     sequenceIndex: Math.max(0, Math.round(normalizeNumber(value?.sequenceIndex, 0))),
-    name: normalizeString(value?.name),
-    summary: normalizeString(value?.summary),
-    status: normalizeString(value?.status),
-    tags: Array.isArray(value?.tags) ? value.tags.map((item) => normalizeString(item)).filter(Boolean) : [],
-    attributes: value?.attributes && typeof value.attributes === 'object' && !Array.isArray(value.attributes) ? Object.fromEntries(Object.entries(value.attributes).map(([key, item]) => [key, item ?? ''])) : {},
+    name: hasOwnSnapshotField(value, 'name') ? normalizeString(value?.name) : undefined,
+    summary: hasOwnSnapshotField(value, 'summary') ? normalizeString(value?.summary) : undefined,
+    knownFacts: hasOwnSnapshotField(value, 'knownFacts') ? normalizeString(value?.knownFacts) : undefined,
+    preferencesAndConstraints:
+      hasOwnSnapshotField(value, 'preferencesAndConstraints') ? normalizeString(value?.preferencesAndConstraints) : undefined,
+    taskProgress: hasOwnSnapshotField(value, 'taskProgress') ? normalizeString(value?.taskProgress) : undefined,
+    longTermMemory: hasOwnSnapshotField(value, 'longTermMemory') ? normalizeString(value?.longTermMemory) : undefined,
+    status: hasOwnSnapshotField(value, 'status') ? normalizeString(value?.status) : undefined,
+    tags: hasOwnSnapshotField(value, 'tags')
+      ? (Array.isArray(value?.tags) ? value.tags.map((item) => normalizeString(item)).filter(Boolean) : [])
+      : undefined,
+    attributes: hasOwnSnapshotField(value, 'attributes')
+      ? (value?.attributes && typeof value.attributes === 'object' && !Array.isArray(value.attributes)
+        ? Object.fromEntries(Object.entries(value.attributes).map(([key, item]) => [key, item ?? '']))
+        : {})
+      : undefined,
   }
 }
 
 function normalizeEdgeSnapshot(value?: Partial<WorldEdgeSnapshot> | null): WorldEdgeSnapshot {
   return {
     sequenceIndex: Math.max(0, Math.round(normalizeNumber(value?.sequenceIndex, 0))),
-    relationTypeCode: normalizeString(value?.relationTypeCode),
-    relationLabel: normalizeString(value?.relationLabel),
-    summary: normalizeString(value?.summary),
-    status: normalizeString(value?.status),
-    intensity: typeof value?.intensity === 'number' && Number.isFinite(value.intensity) ? Math.max(0, Math.min(100, Math.round(value.intensity))) : null,
+    relationTypeCode: hasOwnSnapshotField(value, 'relationTypeCode') ? normalizeString(value?.relationTypeCode) : undefined,
+    relationLabel: hasOwnSnapshotField(value, 'relationLabel') ? normalizeString(value?.relationLabel) : undefined,
+    summary: hasOwnSnapshotField(value, 'summary') ? normalizeString(value?.summary) : undefined,
+    status: hasOwnSnapshotField(value, 'status') ? normalizeString(value?.status) : undefined,
+    intensity: hasOwnSnapshotField(value, 'intensity')
+      ? (typeof value?.intensity === 'number' && Number.isFinite(value.intensity)
+        ? Math.max(0, Math.min(100, Math.round(value.intensity)))
+        : null)
+      : undefined,
   }
 }
 
@@ -1020,11 +1100,33 @@ function projectNodeAtSequence(node: WorldNode, sequenceIndex: number): WorldNod
   const projected = cloneValue(node)
   const snapshots = [...(node.timelineSnapshots || [])].sort((left, right) => left.sequenceIndex - right.sequenceIndex).filter((snapshot) => snapshot.sequenceIndex <= sequenceIndex)
   for (const snapshot of snapshots) {
-    projected.name = snapshot.name || projected.name
-    projected.summary = snapshot.summary || projected.summary
-    projected.status = snapshot.status || projected.status
-    projected.tags = snapshot.tags?.length ? [...snapshot.tags] : []
-    projected.attributes = { ...projected.attributes, ...(snapshot.attributes || {}) }
+    if (snapshot.name !== undefined) {
+      projected.name = snapshot.name
+    }
+    if (snapshot.summary !== undefined) {
+      projected.summary = snapshot.summary
+    }
+    if (snapshot.knownFacts !== undefined) {
+      projected.knownFacts = snapshot.knownFacts
+    }
+    if (snapshot.preferencesAndConstraints !== undefined) {
+      projected.preferencesAndConstraints = snapshot.preferencesAndConstraints
+    }
+    if (snapshot.taskProgress !== undefined) {
+      projected.taskProgress = snapshot.taskProgress
+    }
+    if (snapshot.longTermMemory !== undefined) {
+      projected.longTermMemory = snapshot.longTermMemory
+    }
+    if (snapshot.status !== undefined) {
+      projected.status = snapshot.status
+    }
+    if (snapshot.tags !== undefined) {
+      projected.tags = [...snapshot.tags]
+    }
+    if (snapshot.attributes !== undefined) {
+      projected.attributes = { ...projected.attributes, ...snapshot.attributes }
+    }
   }
   return projected
 }
@@ -1039,11 +1141,21 @@ function projectEdgeAtSequence(edge: WorldEdge, sequenceIndex: number): WorldEdg
   const projected = cloneValue(edge)
   const snapshots = [...(edge.timelineSnapshots || [])].sort((left, right) => left.sequenceIndex - right.sequenceIndex).filter((snapshot) => snapshot.sequenceIndex <= sequenceIndex)
   for (const snapshot of snapshots) {
-    projected.relationTypeCode = snapshot.relationTypeCode || projected.relationTypeCode
-    projected.relationLabel = snapshot.relationLabel || projected.relationLabel
-    projected.summary = snapshot.summary || projected.summary
-    projected.status = snapshot.status || projected.status
-    projected.intensity = snapshot.intensity ?? projected.intensity
+    if (snapshot.relationTypeCode !== undefined) {
+      projected.relationTypeCode = snapshot.relationTypeCode
+    }
+    if (snapshot.relationLabel !== undefined) {
+      projected.relationLabel = snapshot.relationLabel
+    }
+    if (snapshot.summary !== undefined) {
+      projected.summary = snapshot.summary
+    }
+    if (snapshot.status !== undefined) {
+      projected.status = snapshot.status
+    }
+    if (snapshot.intensity !== undefined) {
+      projected.intensity = snapshot.intensity
+    }
   }
   return projected
 }
@@ -1184,7 +1296,11 @@ const projectedWorldState = computed(() => {
 })
 
 const currentWorldNodes = computed(() => projectedWorldState.value.nodes)
-const canvasNodes = computed(() => currentWorldNodes.value.filter((node) => node.objectType !== 'event'))
+const canvasNodes = computed(() =>
+  isSessionMode.value
+    ? currentWorldNodes.value
+    : currentWorldNodes.value.filter((node) => node.objectType !== 'event'),
+)
 const canvasNodeMap = computed(() => new Map(canvasNodes.value.map((node) => [node.id, node])))
 const projectedNodeMap = computed(() => new Map(currentWorldNodes.value.map((node) => [node.id, node])))
 const futureNodes = computed(() =>
@@ -1198,12 +1314,77 @@ const canvasEdges = computed(() => {
   return projectedEdges.value
     .filter((edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId))
 })
+const displayedCanvasEdges = computed(() =>
+  getRenderableWorldGraphCanvasEdges({
+    nodes: currentWorldNodes.value,
+    edges: projectedEdges.value,
+    currentSequenceIndex: currentSequenceIndex.value,
+    showEventNodes: isSessionMode.value,
+    selectedNodeId: selectedNodeId.value,
+    selectedEdgeId: selectedEdgeId.value,
+    linkingSourceNodeId: linkingSourceNodeId.value,
+    showAllEdges: isSessionMode.value && showAllSessionRelations.value,
+  }),
+)
 const projectedEdgeMap = computed(() => new Map(canvasEdges.value.map((edge) => [edge.id, edge])))
+const timelineVisibilitySummary = computed(() => {
+  if (!isSessionMode.value) {
+    return `可见对象 ${canvasNodes.value.length} / 关系 ${canvasEdges.value.length}`
+  }
+  if (showAllSessionRelations.value) {
+    return `可见对象 ${canvasNodes.value.length} / 关系 ${displayedCanvasEdges.value.length}`
+  }
+  return `可见对象 ${canvasNodes.value.length} / 关系 ${displayedCanvasEdges.value.length}（全部 ${canvasEdges.value.length}）`
+})
+const relationTypeMap = computed(() => new Map(relationTypes.value.map((type) => [type.code, type])))
 
-const allEventNodes = computed(() =>
+const rawEventNodes = computed(() =>
   rawNodes.value
     .filter((node) => node.objectType === 'event' && node.timeline)
     .sort((left, right) => normalizeNumber(left.timeline?.sequenceIndex, left.startSequenceIndex) - normalizeNumber(right.timeline?.sequenceIndex, right.startSequenceIndex)),
+)
+
+function buildTimelineEventEntries(node: WorldNode): TimelineEventEntry[] {
+  if (node.objectType !== 'event' || !node.timeline) {
+    return []
+  }
+  const baseSequenceIndex = normalizeNumber(node.timeline?.sequenceIndex, node.startSequenceIndex)
+  const baseProjected = projectNodeAtSequence(node, baseSequenceIndex) || node
+  const entries: TimelineEventEntry[] = [{
+    key: `${node.id}@${baseSequenceIndex}@base`,
+    eventId: node.id,
+    sequenceIndex: baseSequenceIndex,
+    name: baseProjected.name || node.name || node.id,
+    summary: normalizeString(baseProjected.summary),
+    usesTimelineLabel: true,
+  }]
+  const snapshotSequenceIndexes = [...new Set(
+    (Array.isArray(node.timelineSnapshots) ? node.timelineSnapshots : [])
+      .map((snapshot) => normalizeNumber(snapshot.sequenceIndex, -1))
+      .filter((sequenceIndex) => sequenceIndex >= 0 && sequenceIndex !== baseSequenceIndex),
+  )].sort((left, right) => left - right)
+  for (const sequenceIndex of snapshotSequenceIndexes) {
+    const projected = projectNodeAtSequence(node, sequenceIndex) || node
+    entries.push({
+      key: `${node.id}@${sequenceIndex}@snapshot`,
+      eventId: node.id,
+      sequenceIndex,
+      name: projected.name || node.name || node.id,
+      summary: normalizeString(projected.summary),
+      usesTimelineLabel: false,
+    })
+  }
+  return entries
+}
+
+const allTimelineEventEntries = computed(() =>
+  rawEventNodes.value
+    .flatMap((node) => buildTimelineEventEntries(node))
+    .sort((left, right) =>
+      left.sequenceIndex - right.sequenceIndex
+      || Number(right.usesTimelineLabel) - Number(left.usesTimelineLabel)
+      || compareDisplayText(left.name, right.name)
+      || compareDisplayText(left.eventId, right.eventId)),
 )
 
 const timelineMaxSequenceIndex = computed(() => {
@@ -1212,7 +1393,7 @@ const timelineMaxSequenceIndex = computed(() => {
     currentSequenceIndex.value,
     ...rawNodes.value.map((node) => node.startSequenceIndex),
     ...rawNodes.value.flatMap((node) => (Array.isArray(node.timelineSnapshots) ? node.timelineSnapshots : []).map((snapshot) => snapshot.sequenceIndex)),
-    ...allEventNodes.value.map((node) => normalizeNumber(node.timeline?.sequenceIndex, node.startSequenceIndex)),
+    ...allTimelineEventEntries.value.map((entry) => entry.sequenceIndex),
     ...rawEdges.value.map((edge) => edge.startSequenceIndex),
     ...rawEdges.value.flatMap((edge) => (Array.isArray(edge.timelineSnapshots) ? edge.timelineSnapshots : []).map((snapshot) => snapshot.sequenceIndex)),
   ]
@@ -1225,8 +1406,8 @@ const timelineMaxSequenceIndex = computed(() => {
 })
 
 const currentTimelineEvents = computed(() =>
-  currentWorldNodes.value
-    .filter((node) => node.objectType === 'event' && normalizeNumber(node.timeline?.sequenceIndex, node.startSequenceIndex) === currentSequenceIndex.value)
+  allTimelineEventEntries.value
+    .filter((entry) => entry.sequenceIndex === currentSequenceIndex.value)
     .sort(compareTimelineEventOrder),
 )
 
@@ -1241,62 +1422,98 @@ function buildTimelineLabel(eventNode?: WorldNode | null, fallbackSequenceIndex?
   return `时间点 ${fallbackSequenceIndex ?? 0}`
 }
 
-function compareTimelineEventOrder(left: WorldNode, right: WorldNode) {
-  const leftSequenceIndex = normalizeNumber(left.timeline?.sequenceIndex, left.startSequenceIndex)
-  const rightSequenceIndex = normalizeNumber(right.timeline?.sequenceIndex, right.startSequenceIndex)
+function compareTimelineEventOrder(left: TimelineEventEntry, right: TimelineEventEntry) {
+  const leftSequenceIndex = left.sequenceIndex
+  const rightSequenceIndex = right.sequenceIndex
   if (leftSequenceIndex !== rightSequenceIndex) {
     return leftSequenceIndex - rightSequenceIndex
   }
-
-  for (const key of timelineLabelKeys) {
-    const compared = compareTimelineLabelValue(left.timeline?.[key], right.timeline?.[key])
-    if (compared !== 0) {
-      return compared
+  if (left.usesTimelineLabel && right.usesTimelineLabel) {
+    const leftNode = rawEventNodes.value.find((item) => item.id === left.eventId) || null
+    const rightNode = rawEventNodes.value.find((item) => item.id === right.eventId) || null
+    for (const key of timelineLabelKeys) {
+      const compared = compareTimelineLabelValue(leftNode?.timeline?.[key], rightNode?.timeline?.[key])
+      if (compared !== 0) {
+        return compared
+      }
     }
   }
-
-  const createdAtCompared = compareDisplayText(left.createdAt, right.createdAt)
-  if (createdAtCompared !== 0) {
-    return createdAtCompared
-  }
-
   const nameCompared = compareDisplayText(left.name, right.name)
   if (nameCompared !== 0) {
     return nameCompared
   }
-
-  return compareDisplayText(left.id, right.id)
+  return compareDisplayText(left.key, right.key)
 }
 
 function getTimelinePointLabel(sequenceIndex: number) {
-  const eventNode = allEventNodes.value.find((item) => normalizeNumber(item.timeline?.sequenceIndex, item.startSequenceIndex) === sequenceIndex) ?? null
+  const eventEntry = allTimelineEventEntries.value.find((item) => item.sequenceIndex === sequenceIndex) || null
+  if (!eventEntry) {
+    return buildTimelineLabel(null, sequenceIndex)
+  }
+  if (!eventEntry.usesTimelineLabel) {
+    return `时间点 ${sequenceIndex}`
+  }
+  const eventNode = rawEventNodes.value.find((item) => item.id === eventEntry.eventId) || null
   return buildTimelineLabel(eventNode, sequenceIndex)
 }
 
 function getTimelinePointEventCount(sequenceIndex: number) {
-  return allEventNodes.value.filter((item) => normalizeNumber(item.timeline?.sequenceIndex, item.startSequenceIndex) === sequenceIndex).length
+  return allTimelineEventEntries.value.filter((item) => item.sequenceIndex === sequenceIndex).length
 }
 
-function getTimelineEventPreviewText(eventNode: WorldNode) {
-  return normalizeString(eventNode.summary) || buildTimelineLabel(eventNode, normalizeNumber(eventNode.timeline?.sequenceIndex, eventNode.startSequenceIndex))
+function getTimelineEventPreviewText(eventEntry: TimelineEventEntry) {
+  return normalizeString(eventEntry.summary) || getTimelinePointLabel(eventEntry.sequenceIndex)
 }
 
 const currentTimelineLabel = computed(() => getTimelinePointLabel(currentSequenceIndex.value))
-const timelineEventDetailNode = computed(() => {
-  if (!timelineEventDetailNodeId.value) {
+const timelineEventDetailEntry = computed(() => {
+  if (!timelineEventDetailKey.value) {
     return null
   }
-  return rawNodes.value.find((item) => item.id === timelineEventDetailNodeId.value && item.objectType === 'event') || null
+  return allTimelineEventEntries.value.find((item) => item.key === timelineEventDetailKey.value) || null
+})
+const timelineEventDetailNode = computed(() => {
+  if (!timelineEventDetailEntry.value) {
+    return null
+  }
+  const rawEventNode = rawEventNodes.value.find((item) => item.id === timelineEventDetailEntry.value?.eventId) || null
+  if (!rawEventNode) {
+    return null
+  }
+  return projectNodeAtSequence(rawEventNode, timelineEventDetailEntry.value.sequenceIndex) || rawEventNode
 })
 const selectedNodeFields = computed(() => (nodeDraft.value?.objectType ? nodeFieldMap[nodeDraft.value.objectType] || [] : []))
 const selectedCanvasNode = computed(() => canvasNodeMap.value.get(selectedNodeId.value) || null)
+const selectedCanvasEdge = computed(() => projectedEdgeMap.value.get(selectedEdgeId.value) || null)
+
+function getProjectedNodeById(nodeId: string) {
+  return projectedNodeMap.value.get(nodeId) || rawNodes.value.find((node) => node.id === nodeId) || null
+}
+
+function getGraphNodeDisplayName(nodeId: string) {
+  const node = getProjectedNodeById(nodeId)
+  if (!node) {
+    return normalizeString(nodeId) || '未命名对象'
+  }
+  const objectLabel = objectTypeLabel[node.objectType]
+  return `${objectLabel}: ${node.name || node.id || '未命名对象'}`
+}
+
+function formatSequencePointLabel(value: unknown) {
+  const sequenceIndex = normalizeNumber(value, -1)
+  if (sequenceIndex < 0) {
+    return ''
+  }
+  return getTimelinePointLabel(sequenceIndex)
+}
+
 const selectedNodeDetailItems = computed(() => {
   const node = selectedCanvasNode.value
   if (!node) {
     return []
   }
   const fields = nodeFieldMap[node.objectType] || []
-  return fields
+  const detailItems = fields
     .map((field) => {
       const rawValue = ['knownFacts', 'preferencesAndConstraints', 'taskProgress', 'longTermMemory'].includes(field.key)
         ? node[field.key as 'knownFacts' | 'preferencesAndConstraints' | 'taskProgress' | 'longTermMemory']
@@ -1309,6 +1526,86 @@ const selectedNodeDetailItems = computed(() => {
       }
     })
     .filter((item) => item.value)
+
+  const statusValue = normalizeString(node.attributes?.currentStatus ?? node.status)
+  if (statusValue) {
+    detailItems.unshift({
+      key: 'currentStatus',
+      label: '状态',
+      value: statusValue,
+    })
+  }
+
+  return detailItems
+})
+const selectedCanvasEdgeSourceName = computed(() =>
+  selectedCanvasEdge.value ? getGraphNodeDisplayName(selectedCanvasEdge.value.sourceNodeId) : '',
+)
+const selectedCanvasEdgeTargetName = computed(() =>
+  selectedCanvasEdge.value ? getGraphNodeDisplayName(selectedCanvasEdge.value.targetNodeId) : '',
+)
+const selectedCanvasEdgeRelationLabel = computed(() => {
+  const edge = selectedCanvasEdge.value
+  if (!edge) {
+    return ''
+  }
+  return normalizeString(edge.relationLabel) || relationTypeMap.value.get(edge.relationTypeCode)?.label || edge.relationTypeCode
+})
+const selectedEdgeDetailItems = computed(() => {
+  const edge = selectedCanvasEdge.value
+  if (!edge) {
+    return []
+  }
+
+  const detailItems = [
+    {
+      key: 'relationType',
+      label: '关系类型',
+      value: selectedCanvasEdgeRelationLabel.value,
+    },
+    {
+      key: 'sourceNode',
+      label: '源节点',
+      value: selectedCanvasEdgeSourceName.value,
+    },
+    {
+      key: 'targetNode',
+      label: '目标节点',
+      value: selectedCanvasEdgeTargetName.value,
+    },
+    {
+      key: 'startSequenceIndex',
+      label: '起始时间点',
+      value: formatSequencePointLabel(edge.startSequenceIndex),
+    },
+  ]
+
+  const status = normalizeString(edge.status)
+  if (status) {
+    detailItems.push({
+      key: 'status',
+      label: '状态',
+      value: status,
+    })
+  }
+
+  if (edge.intensity !== null && edge.intensity !== undefined) {
+    detailItems.push({
+      key: 'intensity',
+      label: '强度',
+      value: String(edge.intensity),
+    })
+  }
+
+  if (typeof edge.endSequenceIndex === 'number' && Number.isFinite(edge.endSequenceIndex)) {
+    detailItems.push({
+      key: 'endSequenceIndex',
+      label: '结束时间点',
+      value: formatSequencePointLabel(edge.endSequenceIndex),
+    })
+  }
+
+  return detailItems.filter((item) => normalizeString(item.value))
 })
 const eventEffectTargetNodeOptions = computed(() =>
   canvasNodes.value.map((node) => ({
@@ -1608,6 +1905,13 @@ function restartAutoplay() {
   scheduleAutoplayStep()
 }
 
+function toggleSessionRelationVisibility() {
+  if (!isSessionMode.value) {
+    return
+  }
+  showAllSessionRelations.value = !showAllSessionRelations.value
+}
+
 function switchPanel(panel: 'graph' | 'relation-types') {
   if (panel === 'relation-types' && isReadOnly.value) {
     return
@@ -1619,6 +1923,17 @@ function switchPanel(panel: 'graph' | 'relation-types') {
 
 function closeWorldGraph() {
   emit('close')
+}
+
+function openMetaEditor() {
+  if (isReadOnly.value) {
+    return
+  }
+  metaEditorVisible.value = true
+}
+
+function closeMetaEditor() {
+  metaEditorVisible.value = false
 }
 
 async function saveGraphMeta() {
@@ -1643,6 +1958,7 @@ async function saveGraphMeta() {
     })
     Object.assign(meta, response.meta)
     syncCalendarInputs()
+    closeMetaEditor()
     MessagePlugin.success('世界设定已保存')
   } catch (error) {
     MessagePlugin.error(error instanceof Error ? error.message : '保存世界设定失败')
@@ -1726,16 +2042,20 @@ function selectEdge(edgeId: string) {
   }
 }
 
-function selectTimelineEvent(nodeId: string) {
-  const node = currentTimelineEvents.value.find((item) => item.id === nodeId) || rawNodes.value.find((item) => item.id === nodeId && item.objectType === 'event')
-  if (!node) {
+function selectTimelineEvent(entryKey: string) {
+  const entry = currentTimelineEvents.value.find((item) => item.key === entryKey)
+  if (!entry) {
     return
   }
   if (isSessionMode.value) {
-    timelineEventDetailNodeId.value = node.id
+    timelineEventDetailKey.value = entry.key
     return
   }
   if (isReadOnly.value) {
+    return
+  }
+  const node = rawEventNodes.value.find((item) => item.id === entry.eventId)
+  if (!node) {
     return
   }
   selectedNodeId.value = ''
@@ -1745,17 +2065,17 @@ function selectTimelineEvent(nodeId: string) {
 }
 
 function closeTimelineEventDetail() {
-  timelineEventDetailNodeId.value = ''
+  timelineEventDetailKey.value = ''
 }
 
-function handleTimelineEventChipClick(nodeId: string, event: MouseEvent) {
+function handleTimelineEventChipClick(entryKey: string, event: MouseEvent) {
   if (timelineEventStripSuppressClick.value) {
     event.preventDefault()
     event.stopPropagation()
     timelineEventStripSuppressClick.value = false
     return
   }
-  selectTimelineEvent(nodeId)
+  selectTimelineEvent(entryKey)
 }
 
 function handleTimelineEventStripPointerDown(event: PointerEvent) {
@@ -2441,7 +2761,7 @@ async function autoLayout() {
     return
   }
   const previousNodes = rawNodes.value
-  const targetNodes = rawNodes.value.filter((node) => node.objectType !== 'event')
+  const targetNodes = rawNodes.value
   if (!targetNodes.length) {
     return
   }
@@ -2513,6 +2833,14 @@ watch(
   },
 )
 watch(
+  () => isReadOnly.value,
+  (value) => {
+    if (value) {
+      closeMetaEditor()
+    }
+  },
+)
+watch(
   () => props.active,
   (value) => {
     if (!value) {
@@ -2551,8 +2879,8 @@ watch(projectedEdges, (edges) => {
   }
 })
 watch(timelineEventDetailNode, (value) => {
-  if (!value && timelineEventDetailNodeId.value) {
-    timelineEventDetailNodeId.value = ''
+  if (!value && timelineEventDetailKey.value) {
+    timelineEventDetailKey.value = ''
   }
 })
 watch(typeDraft, (value) => {
@@ -2599,10 +2927,11 @@ onBeforeUnmount(() => {
 .sidebar-tabs.single{grid-template-columns:1fr}
 .sidebar-tab{height:42px;border:0;border-radius:16px;background:#eef0f3;color:#5b6168;font-size:14px;font-weight:600;cursor:pointer;transition:.18s ease}
 .sidebar-tab.active{background:#111827;color:#fff}
-.meta-panel{display:grid;gap:12px;padding:0 18px 16px}
-.meta-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.meta-panel-head strong{color:#111827;font-size:14px;font-weight:700}
+.sidebar-tools{padding:0 18px 12px}
+.world-settings-button{width:100%}
 .meta-form{display:grid;gap:4px}
+.meta-form-popup{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px}
+.meta-form-popup :deep(.t-form__item){min-width:0}
 .sidebar-search{padding:0 18px 12px}
 .sidebar-search :deep(.t-input){border-radius:16px;background:#eef0f3}
 .sidebar-list{flex:1;min-height:0;padding:0 10px 12px;overflow:auto}
@@ -2639,6 +2968,7 @@ onBeforeUnmount(() => {
 .relation-picker,.editor-popup{width:min(520px,calc(100vw - 48px));overflow:auto;border-radius:28px;background:rgba(255,255,255,.98);box-shadow:0 28px 80px rgba(15,23,42,.2)}
 .relation-picker{display:grid;gap:12px;padding:22px}
 .editor-popup{display:flex;flex-direction:column;max-height:min(720px,calc(100vh - 140px))}
+.meta-editor-popup{width:min(760px,calc(100vw - 48px))}
 .timeline-event-detail-popup{display:flex;flex-direction:column;width:min(560px,calc(100vw - 48px));max-height:min(620px,calc(100vh - 140px));border-radius:28px;background:rgba(255,255,255,.98);box-shadow:0 28px 80px rgba(15,23,42,.2);overflow:hidden}
 .relation-picker-title{color:#111827;font-size:20px;font-weight:700}
 .relation-picker-subtitle{color:#6b7280;font-size:13px}
@@ -2684,7 +3014,7 @@ onBeforeUnmount(() => {
   .sidebar{height:auto;border-right:0;border-bottom:1px solid rgba(15,23,42,.08)}
   .sidebar-tabs{gap:6px;padding:12px}
   .sidebar-tab{height:38px;border-radius:14px;font-size:13px}
-  .meta-panel{padding:0 12px 12px}
+  .sidebar-tools{padding:0 12px 10px}
   .sidebar-search{padding:0 12px 10px}
   .sidebar-list{padding:0 8px 10px}
   .sidebar-item{min-height:42px;margin-bottom:6px;padding:10px 12px;border-radius:14px}
@@ -2695,8 +3025,9 @@ onBeforeUnmount(() => {
   .node-detail-panel{top:auto;right:12px;bottom:12px;left:12px;width:auto;max-height:min(42%,320px);padding:14px;border-radius:20px}
   .node-detail-head strong{font-size:18px}
   .node-detail-grid{grid-template-columns:1fr}
-  .relation-picker,.editor-popup{width:calc(100vw - 24px)}
+  .relation-picker,.editor-popup,.meta-editor-popup{width:calc(100vw - 24px)}
   .editor-popup{max-height:min(760px,calc(100dvh - 24px))}
+  .meta-form-popup{grid-template-columns:1fr}
   .timeline-dock{gap:12px;min-height:144px;padding:14px 14px 16px}
   .timeline-dock.collapsed{min-height:72px;padding:12px 14px}
   .timeline-event-chip{width:180px;min-width:180px;max-width:180px;padding:12px 14px}

@@ -381,20 +381,24 @@ export interface WorldTimelineEffect {
 
 export interface WorldNodeSnapshot {
   sequenceIndex: number
-  name: string
-  summary: string
-  status: string
-  tags: string[]
-  attributes: Record<string, string | number | boolean | null>
+  name?: string
+  summary?: string
+  knownFacts?: string
+  preferencesAndConstraints?: string
+  taskProgress?: string
+  longTermMemory?: string
+  status?: string
+  tags?: string[]
+  attributes?: Record<string, string | number | boolean | null>
 }
 
 export interface WorldEdgeSnapshot {
   sequenceIndex: number
-  relationTypeCode: string
-  relationLabel: string
-  summary: string
-  status: string
-  intensity: number | null
+  relationTypeCode?: string
+  relationLabel?: string
+  summary?: string
+  status?: string
+  intensity?: number | null
 }
 
 export interface WorldNode {

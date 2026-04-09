@@ -92,4 +92,22 @@ describe('worldGraphLayout', () => {
       }
     }
   })
+
+  it('includes visible event nodes in auto layout decisions and generated positions', () => {
+    const nodes = [
+      createNode({ id: 'hero', position: { x: 120, y: 120 } }),
+      createNode({ id: 'event-1', objectType: 'event', position: { x: 121, y: 121 }, startSequenceIndex: 1 }),
+      createNode({ id: 'location-1', objectType: 'location', position: { x: 122, y: 122 }, startSequenceIndex: 1 }),
+      createNode({ id: 'org-1', objectType: 'organization', position: { x: 123, y: 123 }, startSequenceIndex: 1 }),
+    ]
+
+    expect(shouldAutoLayoutSessionGraph(nodes, 1)).toBe(true)
+
+    const layout = buildSessionGraphLayout(nodes, { width: 960, height: 640 })
+    const eventNode = layout.find((node) => node.id === 'event-1')
+
+    expect(eventNode).toBeTruthy()
+    expect(Number.isFinite(eventNode?.position.x)).toBe(true)
+    expect(Number.isFinite(eventNode?.position.y)).toBe(true)
+  })
 })

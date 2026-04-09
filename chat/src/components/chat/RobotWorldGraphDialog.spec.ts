@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { RobotWorldGraph, WorldNode, WorldTimeline } from '@/types/ai'
+import type { AIRobotCard, RobotWorldGraph, WorldEdge, WorldNode, WorldTimeline } from '@/types/ai'
 
 const apiMocks = vi.hoisted(() => ({
   createRobotWorldEdge: vi.fn(),
@@ -25,6 +25,8 @@ vi.mock('@/components/chat/WorldGraphCanvasX6.vue', () => ({
       nodes: { type: Array, default: () => [] },
       edges: { type: Array, default: () => [] },
       layout: { type: Object, default: () => ({}) },
+      showEventNodes: { type: Boolean, default: false },
+      showAllEdges: { type: Boolean, default: false },
       fitRequestKey: { type: Number, default: 0 },
     },
     template: '<div class="world-graph-canvas-stub" />',
@@ -76,7 +78,26 @@ function createEventNode(overrides: Partial<WorldNode> = {}): WorldNode {
   })
 }
 
-function createGraphData(nodes: WorldNode[]): RobotWorldGraph {
+function createEdge(overrides: Partial<WorldEdge> = {}): WorldEdge {
+  return {
+    id: overrides.id || 'edge-1',
+    sourceNodeId: overrides.sourceNodeId || 'source',
+    targetNodeId: overrides.targetNodeId || 'target',
+    relationTypeCode: overrides.relationTypeCode || 'ally',
+    relationLabel: overrides.relationLabel || '同伴',
+    summary: overrides.summary || '',
+    directionality: overrides.directionality || 'directed',
+    intensity: overrides.intensity ?? null,
+    status: overrides.status || '',
+    startSequenceIndex: overrides.startSequenceIndex ?? 0,
+    endSequenceIndex: overrides.endSequenceIndex ?? null,
+    timelineSnapshots: overrides.timelineSnapshots || [],
+    createdAt: overrides.createdAt || '',
+    updatedAt: overrides.updatedAt || '',
+  }
+}
+
+function createGraphData(nodes: WorldNode[], edges: WorldEdge[] = []): RobotWorldGraph {
   return {
     meta: {
       robotId: 'session-graph',
@@ -100,14 +121,35 @@ function createGraphData(nodes: WorldNode[]): RobotWorldGraph {
     },
     relationTypes: [],
     nodes,
-    edges: [],
+    edges,
   }
 }
 
-function mountDialog(graphData: RobotWorldGraph, options: { mode?: 'editor' | 'session'; readOnly?: boolean } = {}) {
+function createRobot(overrides: Partial<AIRobotCard> = {}): AIRobotCard {
+  return {
+    id: overrides.id || 'robot-1',
+    name: overrides.name || '测试智能体',
+    description: overrides.description || '测试描述',
+    avatar: overrides.avatar || '',
+    persistToServer: overrides.persistToServer ?? true,
+    commonPrompt: overrides.commonPrompt || '',
+    systemPrompt: overrides.systemPrompt || '',
+    memoryModelConfigId: overrides.memoryModelConfigId || '',
+    outlineModelConfigId: overrides.outlineModelConfigId || '',
+    knowledgeRetrievalModelConfigId: overrides.knowledgeRetrievalModelConfigId || '',
+    worldGraphModelConfigId: overrides.worldGraphModelConfigId || '',
+    memorySchema: overrides.memorySchema || { categories: [] },
+    worldGraph: overrides.worldGraph || null,
+  }
+}
+
+function mountDialog(
+  graphData: RobotWorldGraph,
+  options: { mode?: 'editor' | 'session'; readOnly?: boolean; currentRobot?: AIRobotCard | null } = {},
+) {
   return mount(RobotWorldGraphDialog, {
     props: {
-      currentRobot: null,
+      currentRobot: options.currentRobot ?? null,
       graphData,
       mode: options.mode ?? (options.readOnly === false ? 'editor' : 'session'),
       readOnly: options.readOnly,
@@ -265,6 +307,265 @@ describe('RobotWorldGraphDialog', () => {
     expect(wrapper.text()).toContain('时间点 2')
   })
 
+  it('renders relation edges when the timeline reaches their effective timepoint', async () => {
+    const wrapper = mountDialog(
+      createGraphData(
+        [
+          createNode({ id: 'a', startSequenceIndex: 0, position: { x: 120, y: 120 } }),
+          createNode({ id: 'b', startSequenceIndex: 2, position: { x: 320, y: 180 } }),
+        ],
+        [
+          createEdge({
+            id: 'rel-1',
+            sourceNodeId: 'a',
+            targetNodeId: 'b',
+            relationTypeCode: 'ally',
+            relationLabel: '同伴',
+            startSequenceIndex: 2,
+          }),
+        ],
+      ),
+      { mode: 'editor' },
+    )
+
+    await flushPromises()
+
+    const canvas = wrapper.findComponent({ name: 'WorldGraphCanvasX6' })
+    expect((canvas.props('edges') as WorldEdge[])).toHaveLength(0)
+
+    const range = wrapper.find('.timeline-range')
+    await range.setValue('2')
+    await flushPromises()
+
+    const renderedEdges = canvas.props('edges') as WorldEdge[]
+    expect(renderedEdges).toHaveLength(1)
+    expect(renderedEdges[0]?.id).toBe('rel-1')
+  })
+
+  it('shows event nodes and event-linked edges in read-only session graphs', async () => {
+    const wrapper = mountDialog(
+      createGraphData(
+        [
+          createNode({ id: 'hero', startSequenceIndex: 0, position: { x: 120, y: 120 }, name: '玩家' }),
+          createEventNode({
+            id: 'event-1',
+            name: '启动神经链接适配',
+            startSequenceIndex: 1,
+            timeline: { sequenceIndex: 1, calendarId: 'calendar-1', yearLabel: '', monthLabel: '', dayLabel: '', timeOfDayLabel: '', phase: '', impactLevel: 0, eventType: '' },
+          }),
+        ],
+        [
+          createEdge({
+            id: 'hero|participates_in|event-1',
+            sourceNodeId: 'hero',
+            targetNodeId: 'event-1',
+            relationTypeCode: 'participates_in',
+            relationLabel: '参与',
+            startSequenceIndex: 1,
+          }),
+        ],
+      ),
+      { mode: 'session' },
+    )
+
+    await flushPromises()
+
+    const canvas = wrapper.findComponent({ name: 'WorldGraphCanvasX6' })
+    const renderedNodes = canvas.props('nodes') as WorldNode[]
+    const renderedEdges = canvas.props('edges') as WorldEdge[]
+
+    expect(canvas.props('showEventNodes')).toBe(true)
+    expect(renderedNodes.map((node) => node.id)).toContain('event-1')
+    expect(renderedEdges.map((edge) => edge.id)).toContain('hero|participates_in|event-1')
+  })
+
+  it('shows node status in the detail panel after selecting a session graph node', async () => {
+    const wrapper = mountDialog(
+      createGraphData([
+        createNode({
+          id: 'hero',
+          name: '玩家',
+          status: 'ID已绑定，等待种族选择',
+          startSequenceIndex: 0,
+          position: { x: 120, y: 120 },
+        }),
+      ]),
+      { mode: 'session' },
+    )
+
+    await flushPromises()
+
+    const canvas = wrapper.findComponent({ name: 'WorldGraphCanvasX6' })
+    canvas.vm.$emit('select-node', 'hero')
+    await flushPromises()
+
+    expect(wrapper.find('.node-detail-panel').exists()).toBe(true)
+    expect(wrapper.text()).toContain('状态')
+    expect(wrapper.text()).toContain('ID已绑定，等待种族选择')
+  })
+
+  it('shows relation details in the session graph after selecting an edge', async () => {
+    const wrapper = mountDialog(
+      createGraphData(
+        [
+          createNode({ id: 'hero', name: '玩家', startSequenceIndex: 0, position: { x: 120, y: 120 } }),
+          createEventNode({
+            id: 'event-1',
+            name: '绑定完成',
+            startSequenceIndex: 1,
+            timeline: { sequenceIndex: 1, calendarId: 'calendar-1', yearLabel: '', monthLabel: '', dayLabel: '', timeOfDayLabel: '', phase: '', impactLevel: 0, eventType: '' },
+          }),
+        ],
+        [
+          createEdge({
+            id: 'hero|participates_in|event-1',
+            sourceNodeId: 'hero',
+            targetNodeId: 'event-1',
+            relationTypeCode: 'participates_in',
+            relationLabel: '参与',
+            summary: '玩家完成了绑定流程。',
+            status: '已确认',
+            intensity: 70,
+            startSequenceIndex: 1,
+          }),
+        ],
+      ),
+      { mode: 'session' },
+    )
+
+    await flushPromises()
+
+    const canvas = wrapper.findComponent({ name: 'WorldGraphCanvasX6' })
+    canvas.vm.$emit('select-edge', 'hero|participates_in|event-1')
+    await flushPromises()
+
+    expect(wrapper.find('.node-detail-panel').exists()).toBe(true)
+    expect(wrapper.text()).toContain('关系')
+    expect(wrapper.text()).toContain('参与')
+    expect(wrapper.text()).toContain('源节点')
+    expect(wrapper.text()).toContain('人物: 玩家')
+    expect(wrapper.text()).toContain('目标节点')
+    expect(wrapper.text()).toContain('事件: 绑定完成')
+    expect(wrapper.text()).toContain('玩家完成了绑定流程。')
+    expect(wrapper.text()).toContain('已确认')
+    expect(wrapper.text()).toContain('70')
+  })
+
+  it('toggles full relation rendering in the session graph', async () => {
+    const wrapper = mountDialog(
+      createGraphData(
+        [
+          createNode({ id: 'hero', name: '玩家', startSequenceIndex: 0, position: { x: 120, y: 120 } }),
+          createNode({ id: 'guild', name: '公会', startSequenceIndex: 0, position: { x: 320, y: 180 }, objectType: 'organization' }),
+          createNode({ id: 'city', name: '主城', startSequenceIndex: 0, position: { x: 520, y: 240 }, objectType: 'location' }),
+        ],
+        [
+          createEdge({ id: 'hero|alliance|guild', sourceNodeId: 'hero', targetNodeId: 'guild', relationTypeCode: 'alliance', relationLabel: '联盟', startSequenceIndex: 0 }),
+          createEdge({ id: 'hero|located_in|city', sourceNodeId: 'hero', targetNodeId: 'city', relationTypeCode: 'located_in', relationLabel: '位于', startSequenceIndex: 0 }),
+        ],
+      ),
+      { mode: 'session' },
+    )
+
+    await flushPromises()
+
+    const canvas = wrapper.findComponent({ name: 'WorldGraphCanvasX6' })
+    expect(canvas.props('showAllEdges')).toBe(false)
+    expect(wrapper.text()).toContain('关系 0（全部 2）')
+
+    const relationToggleButton = wrapper.findAll('.timeline-actions button').find((item) => item.text() === '全部显示关系')
+    expect(relationToggleButton?.exists()).toBe(true)
+    await relationToggleButton!.trigger('click')
+    await flushPromises()
+
+    expect(canvas.props('showAllEdges')).toBe(true)
+    expect(wrapper.text()).toContain('关系 2')
+  })
+
+  it('keeps event nodes hidden in editable world graphs', async () => {
+    const wrapper = mountDialog(
+      createGraphData(
+        [
+          createNode({ id: 'hero', startSequenceIndex: 0, position: { x: 120, y: 120 }, name: '玩家' }),
+          createEventNode({
+            id: 'event-1',
+            name: '启动神经链接适配',
+            startSequenceIndex: 1,
+            timeline: { sequenceIndex: 1, calendarId: 'calendar-1', yearLabel: '', monthLabel: '', dayLabel: '', timeOfDayLabel: '', phase: '', impactLevel: 0, eventType: '' },
+          }),
+        ],
+        [
+          createEdge({
+            id: 'hero|participates_in|event-1',
+            sourceNodeId: 'hero',
+            targetNodeId: 'event-1',
+            relationTypeCode: 'participates_in',
+            relationLabel: '参与',
+            startSequenceIndex: 1,
+          }),
+        ],
+      ),
+      { mode: 'editor' },
+    )
+
+    await flushPromises()
+
+    const canvas = wrapper.findComponent({ name: 'WorldGraphCanvasX6' })
+    const renderedNodes = canvas.props('nodes') as WorldNode[]
+    const renderedEdges = canvas.props('edges') as WorldEdge[]
+
+    expect(canvas.props('showEventNodes')).toBe(false)
+    expect(renderedNodes.map((node) => node.id)).not.toContain('event-1')
+    expect(renderedEdges.map((edge) => edge.id)).not.toContain('hero|participates_in|event-1')
+  })
+
+  it('opens world settings in a popup instead of keeping the editor form in the sidebar', async () => {
+    const wrapper = mountDialog(createGraphData([createNode({ id: 'hero', name: '玩家' })]), {
+      mode: 'editor',
+      currentRobot: createRobot(),
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('.meta-panel').exists()).toBe(false)
+    expect(wrapper.find('.meta-editor-popup').exists()).toBe(false)
+    expect(wrapper.find('.sidebar-list').exists()).toBe(true)
+
+    await wrapper.find('.world-settings-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.meta-editor-popup').exists()).toBe(true)
+    expect(wrapper.find('.meta-form-popup').exists()).toBe(true)
+  })
+
+  it('includes event nodes when running editor auto layout', async () => {
+    apiMocks.updateRobotWorldNode.mockImplementation(async (_robotId: string, _nodeId: string, payload: WorldNode) => payload)
+
+    const wrapper = mountDialog(
+      createGraphData([
+        createNode({ id: 'hero', name: '玩家', position: { x: 120, y: 120 } }),
+        createEventNode({
+          id: 'event-1',
+          name: '绑定完成',
+          startSequenceIndex: 1,
+          position: { x: 122, y: 122 },
+          timeline: { sequenceIndex: 1, calendarId: 'calendar-1', yearLabel: '', monthLabel: '', dayLabel: '', timeOfDayLabel: '', phase: '', impactLevel: 0, eventType: '' },
+        }),
+      ]),
+      { mode: 'editor', currentRobot: createRobot() },
+    )
+
+    await flushPromises()
+
+    const canvas = wrapper.findComponent({ name: 'WorldGraphCanvasX6' })
+    canvas.vm.$emit('request-auto-layout')
+    await flushPromises()
+
+    expect(apiMocks.updateRobotWorldNode).toHaveBeenCalled()
+    const updatedNodeIds = apiMocks.updateRobotWorldNode.mock.calls.map((call) => call[1])
+    expect(updatedNodeIds).toContain('event-1')
+  })
+
   it('sorts timeline events by timeline order instead of name', async () => {
     const wrapper = mountDialog(
       createGraphData([
@@ -320,5 +621,45 @@ describe('RobotWorldGraphDialog', () => {
     expect(wrapper.find('.timeline-event-detail-popup').exists()).toBe(true)
     expect(wrapper.text()).toContain('关键事件')
     expect(wrapper.text()).toContain(longSummary)
+  })
+
+  it('shows the same event on multiple timeline points when event snapshots continue it', async () => {
+    const wrapper = mountDialog(
+      createGraphData([
+        createEventNode({
+          id: 'event-continue',
+          name: '调查启动',
+          summary: '调查刚刚开始。',
+          startSequenceIndex: 2,
+          timelineSnapshots: [
+            { sequenceIndex: 4, name: '调查推进到取证阶段', summary: '已经进入取证阶段。' },
+          ],
+          timeline: { sequenceIndex: 2, calendarId: 'calendar-1', yearLabel: '第一年', monthLabel: '一月', dayLabel: '1日', timeOfDayLabel: '清晨', phase: '', impactLevel: 0, eventType: '' },
+        }),
+      ]),
+    )
+
+    await flushPromises()
+    await wrapper.find('.timeline-toggle-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.timeline-event-chip strong').text()).toBe('调查推进到取证阶段')
+    expect(wrapper.text()).toContain('时间点 4')
+
+    const range = wrapper.find('.timeline-range')
+    await range.setValue('2')
+    await flushPromises()
+
+    expect(wrapper.find('.timeline-event-chip strong').text()).toBe('调查启动')
+    expect(wrapper.text()).toContain('第一年 / 一月 / 1日 / 清晨')
+
+    await range.setValue('4')
+    await flushPromises()
+    await wrapper.find('.timeline-event-chip').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.timeline-event-detail-popup').exists()).toBe(true)
+    expect(wrapper.text()).toContain('调查推进到取证阶段')
+    expect(wrapper.text()).toContain('已经进入取证阶段。')
   })
 })

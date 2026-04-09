@@ -68,6 +68,11 @@ import type {
   WorldNode,
   WorldObjectType,
 } from '@/types/ai'
+import {
+  getRenderableWorldGraphCanvasEdges,
+  getVisibleWorldGraphCanvasEdges,
+  shouldShowWorldGraphCanvasNode,
+} from './worldGraphCanvasVisibility'
 
 const props = defineProps<{
   nodes: WorldNode[]
@@ -79,6 +84,8 @@ const props = defineProps<{
   currentSequenceIndex: number
   layout: WorldGraphLayout
   readOnly?: boolean
+  showEventNodes?: boolean
+  showAllEdges?: boolean
   fitRequestKey?: number
 }>()
 
@@ -121,15 +128,18 @@ function resolveEdgeLabel(edge: WorldEdge) {
 }
 
 function isNodeVisibleOnCanvas(node: WorldNode) {
-  const startSequenceIndex = typeof node.startSequenceIndex === 'number' ? node.startSequenceIndex : Number(node.startSequenceIndex || 0)
-  return node.objectType !== 'event' && startSequenceIndex <= props.currentSequenceIndex
+  return shouldShowWorldGraphCanvasNode(node, props.currentSequenceIndex, Boolean(props.showEventNodes))
 }
 
 const visibleNodes = () => props.nodes.filter(isNodeVisibleOnCanvas)
 
 function visibleEdges() {
-  const visibleNodeIds = new Set(visibleNodes().map((node) => node.id))
-  return props.edges.filter((edge) => visibleNodeIds.has(edge.sourceNodeId) && visibleNodeIds.has(edge.targetNodeId))
+  return getVisibleWorldGraphCanvasEdges(
+    props.nodes,
+    props.edges,
+    props.currentSequenceIndex,
+    Boolean(props.showEventNodes),
+  )
 }
 
 function getActiveFocusNodeId() {
@@ -150,21 +160,33 @@ function isEdgeFocused(edge: WorldEdge) {
 }
 
 function resolveEdgeOpacity(edge: WorldEdge) {
-  return isEdgeFocused(edge) ? 1 : 0
-}
+  if (!props.showAllEdges) {
+    return isEdgeFocused(edge) ? 1 : 0
+  }
 
-function renderableEdges() {
-  const edges = visibleEdges()
   if (props.selectedEdgeId) {
-    return edges.filter((edge) => edge.id === props.selectedEdgeId)
+    return edge.id === props.selectedEdgeId ? 1 : 0.2
   }
 
   const focusNodeId = getActiveFocusNodeId()
   if (focusNodeId) {
-    return edges.filter((edge) => edge.sourceNodeId === focusNodeId || edge.targetNodeId === focusNodeId)
+    return edge.sourceNodeId === focusNodeId || edge.targetNodeId === focusNodeId ? 1 : 0.35
   }
 
-  return []
+  return 0.72
+}
+
+function renderableEdges() {
+  return getRenderableWorldGraphCanvasEdges({
+    nodes: props.nodes,
+    edges: props.edges,
+    currentSequenceIndex: props.currentSequenceIndex,
+    showEventNodes: Boolean(props.showEventNodes),
+    selectedNodeId: props.selectedNodeId,
+    selectedEdgeId: props.selectedEdgeId,
+    linkingSourceNodeId: props.linkingSourceNodeId,
+    showAllEdges: Boolean(props.showAllEdges),
+  })
 }
 
 function getNodeCenter(node: WorldNode) {
@@ -701,7 +723,7 @@ function destroyGraph() {
 }
 
 watch(
-  () => [props.nodes, props.edges, props.relationTypes],
+  () => [props.nodes, props.edges, props.relationTypes, props.currentSequenceIndex, props.showEventNodes, props.showAllEdges],
   async () => {
     renderGraph()
     await nextTick()

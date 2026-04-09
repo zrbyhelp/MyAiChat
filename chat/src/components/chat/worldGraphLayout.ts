@@ -20,7 +20,7 @@ function normalizeSequenceIndex(value: unknown) {
 
 function getLayoutEligibleNodes(nodes: WorldNode[], currentSequenceIndex?: number) {
   const visibleSequenceIndex = normalizeSequenceIndex(currentSequenceIndex)
-  return nodes.filter((node) => node.objectType !== 'event' && normalizeSequenceIndex(node.startSequenceIndex) <= visibleSequenceIndex)
+  return nodes.filter((node) => normalizeSequenceIndex(node.startSequenceIndex) <= visibleSequenceIndex)
 }
 
 function readFinitePosition(node: WorldNode): NodePosition | null {

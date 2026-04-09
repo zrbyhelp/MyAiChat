@@ -8,7 +8,15 @@ import test from 'node:test'
 import { createApp } from './app.mjs'
 import { createModelClient } from './model-client.mjs'
 import { getPromptDefaults, resetPromptConfigCache } from './prompt-config.mjs'
-import { buildAnswererMessages, buildInitialState, normalizeStructuredMemory, refreshStateMemoryContext, storyOutlineNode, worldGraphWritebackNode } from './runtime.mjs'
+import {
+  buildAnswererMessages,
+  buildInitialState,
+  normalizeStructuredMemory,
+  normalizeWorldGraphWritebackOps,
+  refreshStateMemoryContext,
+  storyOutlineNode,
+  worldGraphWritebackNode,
+} from './runtime.mjs'
 import { ThreadStore } from './thread-store.mjs'
 
 class CapturingModelClient {
@@ -127,6 +135,24 @@ class CapturingModelClient {
       return {
         text: '{"upsert_nodes":[],"upsert_edges":[],"upsert_events":[]}',
         usage: { prompt_tokens: 13, completion_tokens: 5 },
+      }
+    }
+    if (config.model === 'graph-short-model') {
+      return {
+        text: JSON.stringify({
+          e: [
+            {
+              i: 'event_cc_race_selection',
+              n: '玩家CC种族选择',
+              c: [
+                { i: 'character_cc', t: 'c.n', v: 'CC' },
+                { i: 'character_cc', t: 'c.tp', v: '种族选择阶段' },
+                { i: 'character_cc|located_in|location_character_creation_space', t: 'r.s', v: '玩家CC目前位于角色创建空间。' },
+              ],
+            },
+          ],
+        }),
+        usage: { prompt_tokens: 14, completion_tokens: 8 },
       }
     }
     if (config.model === 'outline-capture-model') {
@@ -413,8 +439,9 @@ test('buildAnswererMessages and world graph related nodes keep story setting pla
   assert.match(messages[0].content, /通用前缀/)
   assert.match(messages[0].content, /角色设定/)
   assert.equal(messages[1].role, 'user')
-  assert.match(messages[1].content, /完整世界图谱 JSON/)
-  assert.match(messages[1].content, /"robotId":"robot-1"/)
+  assert.match(messages[1].content, /故事设定：\n角色设定/)
+  assert.match(messages[1].content, /向量检索结果：\n无/)
+  assert.match(messages[1].content, /最近一轮历史消息：\nuser: old/)
 
   const outlinePayload = await storyOutlineNode(state, client)
   assert.equal(outlinePayload.story_outline, '先描述误会升级，再安排角色正面回应。')
@@ -426,11 +453,260 @@ test('buildAnswererMessages and world graph related nodes keep story setting pla
   const graphCall = client.calls.find((item) => item.kind === 'text' && item.config.model === 'graph-model')
   assert.ok(graphCall)
   assert.match(graphCall.systemInstruction, /主要故事设定：\n角色设定/)
+  assert.match(graphCall.systemInstruction, /同一目标、同一流程阶段或同一冲突处理链/)
   assert.doesNotMatch(graphCall.userContent, /主要故事设定：/)
   assert.match(graphCall.userContent, /当前最大 sequenceIndex：1/)
   assert.match(graphCall.userContent, /当前事件时间线摘要：/)
   assert.match(graphCall.userContent, /\[1\] 进入墓道/)
+  assert.match(graphCall.userContent, /可续写事件候选：/)
+  assert.match(graphCall.userContent, /同一目标、同一流程阶段或同一冲突处理链/)
+  assert.match(graphCall.userContent, /event-1 \| 最近时间点 1 \| 进入墓道/)
+  assert.match(graphCall.userContent, /参与锚点 无/)
+  assert.match(graphCall.userContent, /地点锚点 无/)
   assert.match(graphCall.userContent, /吴邪开始高度警惕/)
+})
+
+test('normalizes compact world graph writeback protocol into canonical shape', () => {
+  const normalized = normalizeWorldGraphWritebackOps({
+    e: [
+      {
+        i: 'event_cc_race_selection',
+        m: 'continue',
+        n: '玩家CC种族选择',
+        c: [
+          { i: 'character_cc', t: 'c.n', v: 'CC' },
+          { i: 'character_cc', t: 'c.tp', v: '种族选择阶段' },
+          { i: 'character_cc|located_in|location_character_creation_space', t: 'r.s', v: '玩家CC目前位于角色创建空间。' },
+        ],
+      },
+    ],
+  })
+
+  assert.equal(normalized.events[0]?.id, 'event_cc_race_selection')
+  assert.equal(normalized.events[0]?.mode, 'continue')
+  assert.equal(normalized.events[0]?.name, '玩家CC种族选择')
+  assert.equal(normalized.events[0]?.summary, '')
+  assert.deepEqual(
+    normalized.events[0]?.changes.map((item) => item.type),
+    ['character.name', 'character.taskProgress', 'relation.summary'],
+  )
+})
+
+test('world graph writeback node keeps continue mode and empty change lists in compact protocol', async () => {
+  const client = new CapturingModelClient()
+  const state = {
+    thread_id: 'thread-continue-event',
+    prompt: '继续推进',
+    final_response: '调查事件有了新进展。',
+    common_prompt: '通用前缀',
+    system_prompt: '角色设定',
+    story_outline: '继续调查流程。',
+    structured_memory: { long_term_memory: '', short_term_memory: '' },
+    world_graph_payload: {
+      meta: { robotId: 'robot-1' },
+      relationTypes: [],
+      nodes: [
+        {
+          id: 'event-investigation',
+          objectType: 'event',
+          name: '调查启动',
+          summary: '调查刚刚开始。',
+          timeline: { sequenceIndex: 2 },
+          timelineSnapshots: [{ sequenceIndex: 3, name: '调查推进', summary: '调查已经进入取证阶段。' }],
+          effects: [],
+        },
+      ],
+      edges: [],
+    },
+    auxiliary_model_configs: {
+      world_graph: {
+        provider: 'openai',
+        base_url: 'http://example.com',
+        api_key: 'test-key',
+        model: 'graph-short-model',
+        temperature: 0.7,
+      },
+    },
+    model_config: {
+      provider: 'openai',
+      base_url: 'http://example.com',
+      api_key: 'test-key',
+      model: 'answer-model',
+      temperature: 0.7,
+    },
+  }
+  client.invokeText = async (config, systemInstruction, userContent) => {
+    client.calls.push({ kind: 'text', config, systemInstruction, userContent })
+    return {
+      text: JSON.stringify({
+        e: [
+          {
+            i: 'event-investigation',
+            m: 'continue',
+            n: '调查进一步推进',
+            c: [],
+          },
+        ],
+      }),
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    }
+  }
+
+  const result = await worldGraphWritebackNode(state, client)
+  assert.deepEqual(result.world_graph_update_ops, {
+    e: [
+      {
+        i: 'event-investigation',
+        m: 'continue',
+        n: '调查进一步推进',
+        c: [],
+      },
+    ],
+  })
+})
+
+test('world graph writeback node preserves multiple continue events in one response', async () => {
+  const client = new CapturingModelClient()
+  const state = {
+    thread_id: 'thread-multi-continue-event',
+    prompt: '继续推进多个旧事件',
+    final_response: '两个旧事件都各自推进了新阶段。',
+    common_prompt: '通用前缀',
+    system_prompt: '角色设定',
+    story_outline: '分别推进调查线和撤离线。',
+    structured_memory: { long_term_memory: '', short_term_memory: '' },
+    world_graph_payload: {
+      meta: { robotId: 'robot-1' },
+      relationTypes: [],
+      nodes: [
+        {
+          id: 'event-investigation',
+          objectType: 'event',
+          name: '调查启动',
+          summary: '调查刚刚开始。',
+          timeline: { sequenceIndex: 2 },
+          timelineSnapshots: [],
+          effects: [],
+        },
+        {
+          id: 'event-escape',
+          objectType: 'event',
+          name: '撤离准备',
+          summary: '队伍开始收拾装备。',
+          timeline: { sequenceIndex: 3 },
+          timelineSnapshots: [],
+          effects: [],
+        },
+      ],
+      edges: [],
+    },
+    auxiliary_model_configs: {
+      world_graph: {
+        provider: 'openai',
+        base_url: 'http://example.com',
+        api_key: 'test-key',
+        model: 'graph-short-model',
+        temperature: 0.7,
+      },
+    },
+    model_config: {
+      provider: 'openai',
+      base_url: 'http://example.com',
+      api_key: 'test-key',
+      model: 'answer-model',
+      temperature: 0.7,
+    },
+  }
+  client.invokeText = async (config, systemInstruction, userContent) => {
+    client.calls.push({ kind: 'text', config, systemInstruction, userContent })
+    return {
+      text: JSON.stringify({
+        e: [
+          {
+            i: 'event-investigation',
+            m: 'continue',
+            n: '调查进入比对阶段',
+            c: [],
+          },
+          {
+            i: 'event-escape',
+            m: 'continue',
+            n: '撤离进入路线确认阶段',
+            c: [],
+          },
+        ],
+      }),
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    }
+  }
+
+  const result = await worldGraphWritebackNode(state, client)
+  assert.deepEqual(result.world_graph_update_ops, {
+    e: [
+      {
+        i: 'event-investigation',
+        m: 'continue',
+        n: '调查进入比对阶段',
+        c: [],
+      },
+      {
+        i: 'event-escape',
+        m: 'continue',
+        n: '撤离进入路线确认阶段',
+        c: [],
+      },
+    ],
+  })
+})
+
+test('world graph writeback node returns compact protocol while preserving raw model output path', async () => {
+  const client = new CapturingModelClient()
+  const state = {
+    thread_id: 'thread-compact-graph',
+    prompt: '继续推进',
+    final_response: 'CC 进入种族选择阶段。',
+    common_prompt: '通用前缀',
+    system_prompt: '角色设定',
+    story_outline: '先完成角色创建。',
+    structured_memory: { long_term_memory: '', short_term_memory: '' },
+    world_graph_payload: {
+      meta: { robotId: 'robot-1' },
+      relationTypes: [{ code: 'located_in', label: '位于' }],
+      nodes: [],
+      edges: [],
+    },
+    auxiliary_model_configs: {
+      world_graph: {
+        provider: 'openai',
+        base_url: 'http://example.com',
+        api_key: 'test-key',
+        model: 'graph-short-model',
+        temperature: 0.7,
+      },
+    },
+    model_config: {
+      provider: 'openai',
+      base_url: 'http://example.com',
+      api_key: 'test-key',
+      model: 'answer-model',
+      temperature: 0.7,
+    },
+  }
+
+  const result = await worldGraphWritebackNode(state, client)
+  assert.deepEqual(result.world_graph_update_ops, {
+    e: [
+      {
+        i: 'event_cc_race_selection',
+        n: '玩家CC种族选择',
+        c: [
+          { i: 'character_cc', t: 'c.n', v: 'CC' },
+          { i: 'character_cc', t: 'c.tp', v: '种族选择阶段' },
+          { i: 'character_cc|located_in|location_character_creation_space', t: 'r.s', v: '玩家CC目前位于角色创建空间。' },
+        ],
+      },
+    ],
+  })
 })
 
 test('runs stream completes and persists thread state', async () => {

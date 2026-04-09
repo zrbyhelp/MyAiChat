@@ -48,9 +48,45 @@ function normalizeStringArray(value) {
     .filter(Boolean)
 }
 
+function readOptionalNormalizedString(source, key) {
+  return Object.prototype.hasOwnProperty.call(source, key)
+    ? normalizeString(source[key])
+    : undefined
+}
+
+function readOptionalNormalizedStringArray(source, key) {
+  return Object.prototype.hasOwnProperty.call(source, key)
+    ? normalizeStringArray(source[key])
+    : undefined
+}
+
+function readOptionalNormalizedAttributes(source, key) {
+  return Object.prototype.hasOwnProperty.call(source, key)
+    ? normalizeAttributes(source[key])
+    : undefined
+}
+
 function normalizeObjectType(value, fallback = 'character') {
   const objectType = String(value || '').trim().toLowerCase()
   return WORLD_OBJECT_TYPES.includes(objectType) ? objectType : fallback
+}
+
+function inferObjectTypeFromId(value) {
+  const normalized = normalizeString(value).toLowerCase()
+  if (!normalized) {
+    return ''
+  }
+  for (const objectType of WORLD_OBJECT_TYPES) {
+    if (
+      normalized === objectType
+      || normalized.startsWith(`${objectType}-`)
+      || normalized.startsWith(`${objectType}_`)
+      || normalized.startsWith(`${objectType}:`)
+    ) {
+      return objectType
+    }
+  }
+  return ''
 }
 
 function normalizeDirectionality(value) {
@@ -210,11 +246,15 @@ function normalizeNodeSnapshot(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
     sequenceIndex: Math.max(0, Math.round(normalizeFiniteNumber(source.sequenceIndex, 0))),
-    name: normalizeString(source.name),
-    summary: normalizeString(source.summary),
-    status: normalizeString(source.status),
-    tags: normalizeStringArray(source.tags),
-    attributes: normalizeAttributes(source.attributes),
+    name: readOptionalNormalizedString(source, 'name'),
+    summary: readOptionalNormalizedString(source, 'summary'),
+    status: readOptionalNormalizedString(source, 'status'),
+    knownFacts: readOptionalNormalizedString(source, 'knownFacts'),
+    preferencesAndConstraints: readOptionalNormalizedString(source, 'preferencesAndConstraints'),
+    taskProgress: readOptionalNormalizedString(source, 'taskProgress'),
+    longTermMemory: readOptionalNormalizedString(source, 'longTermMemory'),
+    tags: readOptionalNormalizedStringArray(source, 'tags'),
+    attributes: readOptionalNormalizedAttributes(source, 'attributes'),
   }
 }
 
@@ -291,6 +331,55 @@ function normalizeNode(input, fallback = {}) {
     createdAt: normalizeString(input?.createdAt, fallback.createdAt || nowIso()),
     updatedAt: nowIso(),
   }
+}
+
+function hasPollutedEventNodeSignature(node) {
+  if (!node || node.objectType !== 'event') {
+    return false
+  }
+  if (
+    normalizeString(node.status)
+    || normalizeString(node.knownFacts)
+    || normalizeString(node.preferencesAndConstraints)
+    || normalizeString(node.taskProgress)
+    || normalizeString(node.longTermMemory)
+  ) {
+    return true
+  }
+  if (Array.isArray(node.tags) && node.tags.length) {
+    return true
+  }
+  if (node.attributes && typeof node.attributes === 'object' && Object.keys(node.attributes).length) {
+    return true
+  }
+  return (Array.isArray(node.timelineSnapshots) ? node.timelineSnapshots : []).some((snapshot) =>
+    snapshot?.status !== undefined
+    || snapshot?.knownFacts !== undefined
+    || snapshot?.preferencesAndConstraints !== undefined
+    || snapshot?.taskProgress !== undefined
+    || snapshot?.longTermMemory !== undefined
+    || (Array.isArray(snapshot?.tags) && snapshot.tags.length)
+    || (snapshot?.attributes && typeof snapshot.attributes === 'object' && Object.keys(snapshot.attributes).length),
+  )
+}
+
+function repairPossiblyPollutedEventNode(node) {
+  const normalized = normalizeNode(node)
+  const inferredObjectType = inferObjectTypeFromId(normalized.id)
+  if (
+    normalized.objectType !== 'event'
+    || !inferredObjectType
+    || inferredObjectType === 'event'
+    || !hasPollutedEventNodeSignature(normalized)
+  ) {
+    return normalized
+  }
+  return normalizeNode({
+    ...normalized,
+    objectType: inferredObjectType,
+    timeline: null,
+    effects: [],
+  })
 }
 
 function normalizeEdge(input, fallback = {}) {
@@ -828,7 +917,7 @@ export function normalizeWorldGraphSnapshot(input, fallback = {}) {
     },
     relationTypes: normalizeRelationTypes(source.relationTypes ?? source.relation_types ?? fallback.relationTypes),
     nodes: (Array.isArray(source.nodes) ? source.nodes : Array.isArray(fallback.nodes) ? fallback.nodes : []).map((item) =>
-      normalizeNode(item),
+      repairPossiblyPollutedEventNode(item),
     ),
     edges: (Array.isArray(source.edges) ? source.edges : Array.isArray(fallback.edges) ? fallback.edges : []).map((item) =>
       normalizeEdge(item),
@@ -1234,9 +1323,9 @@ function normalizeWritebackEdgeRef(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
     edgeId: normalizeString(source.edgeId || source.edge_id || source.id),
-    sourceNodeId: normalizeString(source.sourceNodeId || source.source_node_id),
-    targetNodeId: normalizeString(source.targetNodeId || source.target_node_id),
-    relationTypeCode: normalizeString(source.relationTypeCode || source.relation_type_code),
+    sourceNodeId: normalizeString(source.sourceNodeId || source.source_node_id || source.sourceId || source.source_id || source.source),
+    targetNodeId: normalizeString(source.targetNodeId || source.target_node_id || source.targetId || source.target_id || source.target),
+    relationTypeCode: normalizeString(source.relationTypeCode || source.relation_type_code || source.relationTypeId || source.relation_type_id || source.relationType || source.relation_type),
   }
 }
 
@@ -1264,22 +1353,457 @@ function normalizeWritebackEventEffectOp(value) {
   }
 }
 
-function normalizeWorldGraphWritebackOps(value) {
+const WRITEBACK_OBJECT_TYPE_TO_SHORT = Object.freeze({
+  character: 'c',
+  organization: 'o',
+  location: 'l',
+  item: 'i',
+})
+
+const WRITEBACK_OBJECT_TYPE_FROM_SHORT = Object.freeze(
+  Object.fromEntries(Object.entries(WRITEBACK_OBJECT_TYPE_TO_SHORT).map(([key, value]) => [value, key])),
+)
+
+const WRITEBACK_NODE_FIELD_TO_SHORT = Object.freeze({
+  name: 'n',
+  summary: 's',
+  status: 'st',
+  knownFacts: 'kf',
+  preferencesAndConstraints: 'pc',
+  taskProgress: 'tp',
+  longTermMemory: 'lm',
+  tag: 'tg',
+})
+
+const WRITEBACK_NODE_FIELD_FROM_SHORT = Object.freeze(
+  Object.fromEntries(Object.entries(WRITEBACK_NODE_FIELD_TO_SHORT).map(([key, value]) => [value, key])),
+)
+
+const WRITEBACK_RELATION_FIELD_TO_SHORT = Object.freeze({
+  summary: 's',
+  status: 'st',
+  intensity: 'in',
+  label: 'lb',
+})
+
+const WRITEBACK_RELATION_FIELD_FROM_SHORT = Object.freeze(
+  Object.fromEntries(Object.entries(WRITEBACK_RELATION_FIELD_TO_SHORT).map(([key, value]) => [value, key])),
+)
+
+function hasOwn(source, key) {
+  return Object.prototype.hasOwnProperty.call(source, key)
+}
+
+function readOwnValue(source, ...keys) {
+  for (const key of keys) {
+    if (hasOwn(source, key)) {
+      return source[key]
+    }
+  }
+  return undefined
+}
+
+function expandWritebackTypeAlias(value) {
+  const type = normalizeString(value)
+  if (!type) {
+    return ''
+  }
+  if (type.startsWith('relation.')) {
+    return type
+  }
+  const relationMatch = /^r\.([a-z]+)$/i.exec(type)
+  if (relationMatch) {
+    const relationField = WRITEBACK_RELATION_FIELD_FROM_SHORT[relationMatch[1]]
+    return relationField ? `relation.${relationField}` : type
+  }
+
+  const parts = type.split('.').map((item) => item.trim()).filter(Boolean)
+  if (parts.length < 2) {
+    return type
+  }
+  const objectType = WRITEBACK_OBJECT_TYPE_FROM_SHORT[parts[0]]
+  if (!objectType) {
+    return type
+  }
+  if (parts[1] === 'a' && parts.length >= 3) {
+    return `${objectType}.attribute.${parts.slice(2).join('.')}`
+  }
+  const fieldName = WRITEBACK_NODE_FIELD_FROM_SHORT[parts[1]]
+  return fieldName && parts.length === 2 ? `${objectType}.${fieldName}` : type
+}
+
+function normalizeWritebackEventChangeContent(value) {
+  if (
+    value === null
+    || typeof value === 'string'
+    || typeof value === 'number'
+    || typeof value === 'boolean'
+  ) {
+    return value
+  }
+  return String(value ?? '')
+}
+
+function normalizeWritebackEventChange(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
-    upsertNodes: (Array.isArray(source.upsertNodes) ? source.upsertNodes : source.upsert_nodes || [])
+    id: normalizeString(readOwnValue(source, 'id', 'i')),
+    type: expandWritebackTypeAlias(readOwnValue(source, 'type', 't')),
+    content: normalizeWritebackEventChangeContent(readOwnValue(source, 'content', 'v')),
+  }
+}
+
+function normalizeWritebackEventMode(value) {
+  return normalizeString(value).toLowerCase() === 'continue' ? 'continue' : 'new'
+}
+
+function normalizeWritebackEventRecord(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  return {
+    id: normalizeString(readOwnValue(source, 'id', 'i')),
+    mode: normalizeWritebackEventMode(readOwnValue(source, 'mode', 'm')),
+    name: normalizeString(readOwnValue(source, 'name', 'n')),
+    summary: normalizeString(readOwnValue(source, 'summary', 's')),
+    changes: (Array.isArray(readOwnValue(source, 'changes', 'c')) ? readOwnValue(source, 'changes', 'c') : []).map(normalizeWritebackEventChange),
+  }
+}
+
+function parseRelationCompositeId(value) {
+  const segments = normalizeString(value).split('|').map((item) => item.trim())
+  if (segments.length !== 3 || segments.some((item) => !item)) {
+    return null
+  }
+  return {
+    sourceNodeId: segments[0],
+    relationTypeCode: segments[1],
+    targetNodeId: segments[2],
+  }
+}
+
+const EVENT_AUTO_RELATION_CODES = Object.freeze({
+  participatesIn: 'participates_in',
+  associatedLocation: 'associated_location',
+})
+
+function buildRelationCompositeId(sourceNodeId, relationTypeCode, targetNodeId) {
+  return `${normalizeString(sourceNodeId)}|${normalizeString(relationTypeCode)}|${normalizeString(targetNodeId)}`
+}
+
+function ensureBuiltinRelationTypes(relationTypes, relationTypeCodes = []) {
+  const normalized = Array.isArray(relationTypes) ? relationTypes.map((item) => normalizeRelationType(item)) : []
+  const nextRelationTypes = [...normalized]
+  const existingCodes = new Set(nextRelationTypes.map((item) => item.code).filter(Boolean))
+
+  for (const relationTypeCode of relationTypeCodes.map((item) => normalizeString(item)).filter(Boolean)) {
+    if (existingCodes.has(relationTypeCode)) {
+      continue
+    }
+    const builtin = BUILTIN_WORLD_RELATION_TYPES.find((item) => item.code === relationTypeCode)
+    if (!builtin) {
+      continue
+    }
+    nextRelationTypes.push(normalizeRelationType(builtin))
+    existingCodes.add(relationTypeCode)
+  }
+
+  return nextRelationTypes
+}
+
+function isAutoManagedCurrentEventRelation(relationRef, eventId) {
+  if (!relationRef?.sourceNodeId || !relationRef?.targetNodeId || !relationRef?.relationTypeCode || !eventId) {
+    return false
+  }
+
+  if (
+    relationRef.relationTypeCode === EVENT_AUTO_RELATION_CODES.participatesIn &&
+    relationRef.targetNodeId === eventId
+  ) {
+    return true
+  }
+
+  if (
+    relationRef.relationTypeCode === EVENT_AUTO_RELATION_CODES.associatedLocation &&
+    relationRef.sourceNodeId === eventId
+  ) {
+    return true
+  }
+
+  if (
+    relationRef.relationTypeCode === 'located_in' &&
+    relationRef.sourceNodeId === eventId
+  ) {
+    return true
+  }
+
+  return false
+}
+
+const WRITEBACK_NODE_FIELDS = new Set([
+  'name',
+  'summary',
+  'status',
+  'knownFacts',
+  'preferencesAndConstraints',
+  'taskProgress',
+  'longTermMemory',
+  'tag',
+])
+
+const WRITEBACK_RELATION_FIELDS = new Set(['summary', 'status', 'intensity', 'label'])
+
+function parseWritebackNodeChangeType(value) {
+  const type = normalizeString(value)
+  if (!type) {
+    return null
+  }
+  const parts = type.split('.').map((item) => item.trim()).filter(Boolean)
+  if (parts.length < 2) {
+    return null
+  }
+  const objectType = normalizeObjectType(parts[0], '')
+  if (!objectType) {
+    return null
+  }
+  if (parts[1] === 'attribute' && parts.length >= 3) {
+    return { objectType, field: `attribute.${parts.slice(2).join('.')}` }
+  }
+  if (parts.length === 2 && WRITEBACK_NODE_FIELDS.has(parts[1])) {
+    return { objectType, field: parts[1] }
+  }
+  return null
+}
+
+function parseWritebackRelationChangeType(value) {
+  const type = normalizeString(value)
+  if (!type) {
+    return null
+  }
+  const parts = type.split('.').map((item) => item.trim()).filter(Boolean)
+  if (parts.length === 2 && parts[0] === 'relation' && WRITEBACK_RELATION_FIELDS.has(parts[1])) {
+    return { field: parts[1] }
+  }
+  return null
+}
+
+function createGeneratedWritebackEventId(usedIds) {
+  let counter = 1
+  while (usedIds.has(`event-auto-${counter}`)) {
+    counter += 1
+  }
+  const nextId = `event-auto-${counter}`
+  usedIds.add(nextId)
+  return nextId
+}
+
+function appendSyntheticWritebackChange(changes, nextChange) {
+  if (!nextChange?.id || !nextChange?.type) {
+    return changes
+  }
+  const list = Array.isArray(changes) ? changes : []
+  const exists = list.some((item) => item.id === nextChange.id && item.type === nextChange.type)
+  return exists ? list : [nextChange, ...list]
+}
+
+function classifyMalformedTopLevelWritebackRecord(record, snapshot) {
+  const recordId = normalizeString(record?.id)
+  if (!recordId) {
+    return null
+  }
+
+  const existingNode = (Array.isArray(snapshot?.nodes) ? snapshot.nodes : []).find((item) => item.id === recordId) || null
+  if (existingNode && existingNode.objectType !== 'event') {
+    return { kind: 'node', recordId, objectType: existingNode.objectType }
+  }
+
+  if ((Array.isArray(snapshot?.edges) ? snapshot.edges : []).some((item) => item.id === recordId) || parseRelationCompositeId(recordId)) {
+    return { kind: 'relation', recordId }
+  }
+
+  if (inferObjectTypeFromId(recordId) === 'event') {
+    return null
+  }
+
+  const changes = Array.isArray(record?.changes) ? record.changes : []
+  if (!changes.length) {
+    return null
+  }
+  if (changes.some((change) => normalizeString(change?.id) !== recordId)) {
+    return null
+  }
+
+  let inferredNodeType = ''
+  let relationOnly = true
+  for (const change of changes) {
+    const relationInfo = parseWritebackRelationChangeType(change?.type)
+    if (relationInfo) {
+      continue
+    }
+    relationOnly = false
+    const nodeInfo = parseWritebackNodeChangeType(change?.type)
+    if (!nodeInfo) {
+      return null
+    }
+    if (!inferredNodeType) {
+      inferredNodeType = nodeInfo.objectType
+      continue
+    }
+    if (inferredNodeType !== nodeInfo.objectType) {
+      return null
+    }
+  }
+
+  if (relationOnly) {
+    return { kind: 'relation', recordId }
+  }
+  if (inferredNodeType) {
+    return { kind: 'node', recordId, objectType: inferredNodeType }
+  }
+  return null
+}
+
+function buildSpilloverWritebackChanges(record, spillover) {
+  const recordId = normalizeString(record?.id)
+  let changes = (Array.isArray(record?.changes) ? record.changes : [])
+    .map(normalizeWritebackEventChange)
+    .filter((item) => item.id && item.type)
+
+  if (spillover?.kind === 'node' && spillover.objectType) {
+    if (normalizeString(record?.summary)) {
+      changes = appendSyntheticWritebackChange(changes, {
+        id: recordId,
+        type: `${spillover.objectType}.summary`,
+        content: normalizeString(record.summary),
+      })
+    }
+    if (normalizeString(record?.name)) {
+      changes = appendSyntheticWritebackChange(changes, {
+        id: recordId,
+        type: `${spillover.objectType}.name`,
+        content: normalizeString(record.name),
+      })
+    }
+    return changes
+  }
+
+  if (spillover?.kind === 'relation') {
+    if (normalizeString(record?.summary)) {
+      changes = appendSyntheticWritebackChange(changes, {
+        id: recordId,
+        type: 'relation.summary',
+        content: normalizeString(record.summary),
+      })
+    }
+    if (normalizeString(record?.name)) {
+      changes = appendSyntheticWritebackChange(changes, {
+        id: recordId,
+        type: 'relation.label',
+        content: normalizeString(record.name),
+      })
+    }
+  }
+
+  return changes
+}
+
+function sanitizeEventStreamWritebackRecords(snapshot, records) {
+  const rawRecords = Array.isArray(records) ? records : []
+  const warnings = []
+  const usedIds = new Set((Array.isArray(snapshot?.nodes) ? snapshot.nodes : []).map((item) => item.id))
+  const sanitizedEvents = []
+  let currentEvent = null
+
+  for (const rawRecord of rawRecords) {
+    const spillover = classifyMalformedTopLevelWritebackRecord(rawRecord, snapshot)
+    if (spillover) {
+      if (!currentEvent) {
+        const generatedId = createGeneratedWritebackEventId(usedIds)
+        const generatedName = normalizeString(
+          rawRecord?.name,
+          normalizeString(rawRecord?.summary, `补录事件 ${sanitizedEvents.length + 1}`),
+        )
+        currentEvent = {
+          id: generatedId,
+          mode: 'new',
+          name: generatedName,
+          summary: normalizeString(rawRecord?.summary, generatedName),
+          changes: [],
+        }
+        sanitizedEvents.push(currentEvent)
+        warnings.push(`写回协议偏离：检测到顶层${spillover.kind === 'node' ? '节点' : '关系'}记录 ${spillover.recordId}，已自动创建补录事件 ${generatedId}`)
+      } else {
+        warnings.push(`写回协议偏离：检测到顶层${spillover.kind === 'node' ? '节点' : '关系'}记录 ${spillover.recordId}，已自动折叠到事件 ${currentEvent.id}`)
+      }
+      currentEvent.changes = [
+        ...(Array.isArray(currentEvent.changes) ? currentEvent.changes : []),
+        ...buildSpilloverWritebackChanges(rawRecord, spillover),
+      ]
+      continue
+    }
+
+    let eventId = normalizeString(rawRecord?.id)
+    const eventMode = normalizeWritebackEventMode(rawRecord?.mode)
+    const eventName = normalizeString(rawRecord?.name)
+    if (!eventId && eventMode === 'new' && eventName) {
+      eventId = createGeneratedWritebackEventId(usedIds)
+      warnings.push(`写回协议偏离：事件 ${eventName} 缺少 id，已自动生成 ${eventId}`)
+    }
+    if (!eventId || !eventName) {
+      warnings.push('事件写回失败：事件 id 或名称不能为空')
+      currentEvent = null
+      continue
+    }
+    usedIds.add(eventId)
+
+    const sanitizedChanges = []
+    for (const change of Array.isArray(rawRecord?.changes) ? rawRecord.changes : []) {
+      const normalizedChange = normalizeWritebackEventChange(change)
+      if (!normalizedChange.id || !normalizedChange.type) {
+        continue
+      }
+      if (normalizedChange.id === eventId) {
+        warnings.push(`写回协议偏离：事件 ${eventId} 的 change ${normalizedChange.type} 指向了事件自身，已自动忽略`)
+        continue
+      }
+      sanitizedChanges.push(normalizedChange)
+    }
+
+    currentEvent = {
+      id: eventId,
+      mode: eventMode,
+      name: eventName,
+      summary: normalizeString(rawRecord?.summary),
+      changes: sanitizedChanges,
+    }
+    sanitizedEvents.push(currentEvent)
+  }
+
+  return { events: sanitizedEvents, warnings }
+}
+
+function normalizeWorldGraphWritebackOps(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const readList = (...keys) => {
+    const matchedKey = keys.find((key) => Array.isArray(source[key]))
+    const raw = matchedKey ? source[matchedKey] : undefined
+    return Array.isArray(raw) ? raw : []
+  }
+  return {
+    events: readList('events', 'e')
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .map(normalizeWritebackEventRecord),
+    upsertNodes: readList('upsertNodes', 'upsert_nodes', 'un')
       .filter((item) => item && typeof item === 'object' && !Array.isArray(item)),
-    upsertEdges: (Array.isArray(source.upsertEdges) ? source.upsertEdges : source.upsert_edges || [])
+    upsertEdges: readList('upsertEdges', 'upsert_edges', 'ue')
       .filter((item) => item && typeof item === 'object' && !Array.isArray(item)),
-    upsertEvents: (Array.isArray(source.upsertEvents) ? source.upsertEvents : source.upsert_events || [])
+    upsertEvents: readList('upsertEvents', 'upsert_events', 'uv')
       .filter((item) => item && typeof item === 'object' && !Array.isArray(item)),
-    appendNodeSnapshots: (Array.isArray(source.appendNodeSnapshots) ? source.appendNodeSnapshots : source.append_node_snapshots || [])
+    appendNodeSnapshots: readList('appendNodeSnapshots', 'append_node_snapshots', 'ans')
       .map(normalizeWritebackNodeSnapshotOp)
       .filter((item) => item.ref.nodeId || item.ref.name),
-    appendEdgeSnapshots: (Array.isArray(source.appendEdgeSnapshots) ? source.appendEdgeSnapshots : source.append_edge_snapshots || [])
+    appendEdgeSnapshots: readList('appendEdgeSnapshots', 'append_edge_snapshots', 'aes')
       .map(normalizeWritebackEdgeSnapshotOp)
       .filter((item) => item.ref.edgeId || (item.ref.sourceNodeId && item.ref.targetNodeId && item.ref.relationTypeCode)),
-    appendEventEffects: (Array.isArray(source.appendEventEffects) ? source.appendEventEffects : source.append_event_effects || [])
+    appendEventEffects: readList('appendEventEffects', 'append_event_effects', 'aef')
       .map(normalizeWritebackEventEffectOp)
       .filter((item) => (item.ref.nodeId || item.ref.name) && item.effects.length),
   }
@@ -1310,6 +1834,737 @@ function upsertEffectById(items, effect) {
   const next = [...list]
   next[index] = effect
   return next
+}
+
+function mergeNormalizedWritebackOps(base, extra) {
+  return {
+    events: [
+      ...(Array.isArray(base?.events) ? base.events : []),
+      ...(Array.isArray(extra?.events) ? extra.events : []),
+    ],
+    upsertNodes: [
+      ...(Array.isArray(base?.upsertNodes) ? base.upsertNodes : []),
+      ...(Array.isArray(extra?.upsertNodes) ? extra.upsertNodes : []),
+    ],
+    upsertEdges: [
+      ...(Array.isArray(base?.upsertEdges) ? base.upsertEdges : []),
+      ...(Array.isArray(extra?.upsertEdges) ? extra.upsertEdges : []),
+    ],
+    upsertEvents: [
+      ...(Array.isArray(base?.upsertEvents) ? base.upsertEvents : []),
+      ...(Array.isArray(extra?.upsertEvents) ? extra.upsertEvents : []),
+    ],
+    appendNodeSnapshots: [
+      ...(Array.isArray(base?.appendNodeSnapshots) ? base.appendNodeSnapshots : []),
+      ...(Array.isArray(extra?.appendNodeSnapshots) ? extra.appendNodeSnapshots : []),
+    ],
+    appendEdgeSnapshots: [
+      ...(Array.isArray(base?.appendEdgeSnapshots) ? base.appendEdgeSnapshots : []),
+      ...(Array.isArray(extra?.appendEdgeSnapshots) ? extra.appendEdgeSnapshots : []),
+    ],
+    appendEventEffects: [
+      ...(Array.isArray(base?.appendEventEffects) ? base.appendEventEffects : []),
+      ...(Array.isArray(extra?.appendEventEffects) ? extra.appendEventEffects : []),
+    ],
+  }
+}
+
+function projectNodeAtSequenceForWriteback(node, sequenceIndex) {
+  if (!node || sequenceIndex < normalizeFiniteNumber(node.startSequenceIndex, 0)) {
+    return null
+  }
+
+  const projected = normalizeNode(node, node)
+  const snapshots = [...(Array.isArray(node.timelineSnapshots) ? node.timelineSnapshots : [])]
+    .sort((left, right) => left.sequenceIndex - right.sequenceIndex)
+    .filter((snapshot) => snapshot.sequenceIndex <= sequenceIndex)
+
+  for (const snapshot of snapshots) {
+    if (snapshot.name !== undefined) {
+      projected.name = snapshot.name
+    }
+    if (snapshot.summary !== undefined) {
+      projected.summary = snapshot.summary
+    }
+    if (snapshot.status !== undefined) {
+      projected.status = snapshot.status
+      projected.attributes = { ...projected.attributes, currentStatus: snapshot.status }
+    }
+    if (snapshot.knownFacts !== undefined) {
+      projected.knownFacts = snapshot.knownFacts
+    }
+    if (snapshot.preferencesAndConstraints !== undefined) {
+      projected.preferencesAndConstraints = snapshot.preferencesAndConstraints
+    }
+    if (snapshot.taskProgress !== undefined) {
+      projected.taskProgress = snapshot.taskProgress
+    }
+    if (snapshot.longTermMemory !== undefined) {
+      projected.longTermMemory = snapshot.longTermMemory
+    }
+    if (snapshot.tags !== undefined) {
+      projected.tags = [...snapshot.tags]
+    }
+    if (snapshot.attributes !== undefined) {
+      projected.attributes = { ...projected.attributes, ...snapshot.attributes }
+    }
+  }
+
+  return projected
+}
+
+function projectEdgeAtSequenceForWriteback(edge, sequenceIndex) {
+  if (!edge || sequenceIndex < normalizeFiniteNumber(edge.startSequenceIndex, 0)) {
+    return null
+  }
+  if (typeof edge.endSequenceIndex === 'number' && Number.isFinite(edge.endSequenceIndex) && sequenceIndex > edge.endSequenceIndex) {
+    return null
+  }
+
+  const projected = normalizeEdge(edge, edge)
+  const snapshots = [...(Array.isArray(edge.timelineSnapshots) ? edge.timelineSnapshots : [])]
+    .sort((left, right) => left.sequenceIndex - right.sequenceIndex)
+    .filter((snapshot) => snapshot.sequenceIndex <= sequenceIndex)
+
+  for (const snapshot of snapshots) {
+    if (snapshot.relationTypeCode) {
+      projected.relationTypeCode = snapshot.relationTypeCode
+    }
+    if (snapshot.relationLabel) {
+      projected.relationLabel = snapshot.relationLabel
+    }
+    if (snapshot.summary) {
+      projected.summary = snapshot.summary
+    }
+    if (snapshot.status) {
+      projected.status = snapshot.status
+    }
+    if (snapshot.intensity !== undefined && snapshot.intensity !== null) {
+      projected.intensity = snapshot.intensity
+    }
+  }
+
+  return projected
+}
+
+function getWorldGraphMaxSequenceIndexForWriteback(graph) {
+  const values = [
+    ...(Array.isArray(graph?.nodes) ? graph.nodes : []).map((item) =>
+      Math.max(
+        normalizeFiniteNumber(item?.startSequenceIndex, 0),
+        normalizeFiniteNumber(item?.timeline?.sequenceIndex, normalizeFiniteNumber(item?.startSequenceIndex, 0)),
+      )),
+    ...(Array.isArray(graph?.nodes) ? graph.nodes : []).flatMap((item) =>
+      (Array.isArray(item?.timelineSnapshots) ? item.timelineSnapshots : []).map((snapshot) =>
+        normalizeFiniteNumber(snapshot?.sequenceIndex, 0))),
+    ...(Array.isArray(graph?.edges) ? graph.edges : []).map((item) =>
+      Math.max(
+        normalizeFiniteNumber(item?.startSequenceIndex, 0),
+        normalizeFiniteNumber(item?.endSequenceIndex, 0),
+      )),
+    ...(Array.isArray(graph?.edges) ? graph.edges : []).flatMap((item) =>
+      (Array.isArray(item?.timelineSnapshots) ? item.timelineSnapshots : []).map((snapshot) =>
+        normalizeFiniteNumber(snapshot?.sequenceIndex, 0))),
+  ]
+  return values.reduce((max, value) => Math.max(max, Math.max(0, Math.round(value))), 0)
+}
+
+function normalizeVisibleTextForOverlap(value) {
+  return normalizeString(value)
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}_]+/gu, '')
+}
+
+function hasVisibleTextOverlap(left, right) {
+  const normalizedLeft = normalizeVisibleTextForOverlap(left)
+  const normalizedRight = normalizeVisibleTextForOverlap(right)
+  if (!normalizedLeft || !normalizedRight) {
+    return false
+  }
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) {
+    return true
+  }
+  const shorter = normalizedLeft.length <= normalizedRight.length ? normalizedLeft : normalizedRight
+  const longer = shorter === normalizedLeft ? normalizedRight : normalizedLeft
+  if (shorter.length < 2) {
+    return shorter === longer
+  }
+  for (let index = 0; index < shorter.length - 1; index += 1) {
+    if (longer.includes(shorter.slice(index, index + 2))) {
+      return true
+    }
+  }
+  return false
+}
+
+function buildNodeLabelMap(nodes) {
+  return new Map((Array.isArray(nodes) ? nodes : [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => [String(item.id || '').trim(), String(item.name || item.id || '').trim()]))
+}
+
+function buildNodeTypeMap(nodes) {
+  return new Map((Array.isArray(nodes) ? nodes : [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => [String(item.id || '').trim(), String(item.objectType || '').trim()]))
+}
+
+function formatAnchorNodeIds(nodes, ids) {
+  const labelMap = buildNodeLabelMap(nodes)
+  const normalizedIds = [...new Set((Array.isArray(ids) ? ids : []).map((item) => normalizeString(item)).filter(Boolean))]
+  const labels = normalizedIds
+    .map((item) => labelMap.get(item) || item)
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  return labels.length ? labels.join('、') : '无'
+}
+
+function collectEventAnchorNodeIdsByType(nodes, edges, eventId) {
+  const typeMap = buildNodeTypeMap(nodes)
+  const participantNodeIds = new Set()
+  const locationNodeIds = new Set()
+
+  for (const edge of Array.isArray(edges) ? edges : []) {
+    if (!edge || typeof edge !== 'object') {
+      continue
+    }
+    const relationTypeCode = normalizeString(edge.relationTypeCode)
+    if (relationTypeCode === EVENT_AUTO_RELATION_CODES.participatesIn && normalizeString(edge.targetNodeId) === eventId) {
+      const sourceNodeId = normalizeString(edge.sourceNodeId)
+      if (['character', 'organization', 'item'].includes(typeMap.get(sourceNodeId) || '')) {
+        participantNodeIds.add(sourceNodeId)
+      }
+      continue
+    }
+    if (relationTypeCode === EVENT_AUTO_RELATION_CODES.associatedLocation && normalizeString(edge.sourceNodeId) === eventId) {
+      const targetNodeId = normalizeString(edge.targetNodeId)
+      if ((typeMap.get(targetNodeId) || '') === 'location') {
+        locationNodeIds.add(targetNodeId)
+      }
+    }
+  }
+
+  return {
+    participantNodeIds: [...participantNodeIds],
+    locationNodeIds: [...locationNodeIds],
+  }
+}
+
+function collectCurrentWritebackAnchorNodeIds(nodes, anchorNodeIds) {
+  const typeMap = buildNodeTypeMap(nodes)
+  const participantNodeIds = []
+  const locationNodeIds = []
+
+  for (const nodeId of [...new Set((Array.isArray(anchorNodeIds) ? anchorNodeIds : []).map((item) => normalizeString(item)).filter(Boolean))]) {
+    const objectType = typeMap.get(nodeId) || ''
+    if (['character', 'organization', 'item'].includes(objectType)) {
+      participantNodeIds.push(nodeId)
+      continue
+    }
+    if (objectType === 'location') {
+      locationNodeIds.push(nodeId)
+    }
+  }
+
+  return { participantNodeIds, locationNodeIds }
+}
+
+function appendSuspiciousContinueWarnings({
+  eventId,
+  eventName,
+  eventSummary,
+  historicalEventText,
+  currentAnchorNodeIds,
+  nodes,
+  edges,
+  warnings,
+}) {
+  const historicalAnchors = collectEventAnchorNodeIdsByType(nodes, edges, eventId)
+  const currentAnchors = collectCurrentWritebackAnchorNodeIds(nodes, currentAnchorNodeIds)
+  const historicalCombined = new Set([...historicalAnchors.participantNodeIds, ...historicalAnchors.locationNodeIds])
+  const currentCombined = [...new Set([...currentAnchors.participantNodeIds, ...currentAnchors.locationNodeIds])]
+
+  if (historicalCombined.size > 0 && currentCombined.length > 0) {
+    const hasSharedAnchor = currentCombined.some((item) => historicalCombined.has(item))
+    if (!hasSharedAnchor) {
+      warnings.push(
+        `疑似误续写：事件 ${eventId} 当前 continue 与历史事件锚点脱节（历史锚点：${formatAnchorNodeIds(nodes, [...historicalCombined])}；本轮锚点：${formatAnchorNodeIds(nodes, currentCombined)}）`,
+      )
+    }
+  }
+
+  const historicalText = [historicalEventText?.name, historicalEventText?.summary].filter(Boolean).join(' ')
+  const currentText = [normalizeString(eventName), normalizeString(eventSummary)].filter(Boolean).join(' ')
+  if (historicalText && currentText && !hasVisibleTextOverlap(historicalText, currentText)) {
+    warnings.push(`疑似误续写：事件 ${eventId} 的标题或概述疑似切换到新事件`)
+  }
+}
+
+function materializeEventDrivenWritebackOps(graph, input) {
+  const payload = normalizeWorldGraphWritebackOps(input)
+  const snapshot = normalizeWorldGraphSnapshot(graph)
+  const sanitized = sanitizeEventStreamWritebackRecords(snapshot, payload.events)
+  const events = Array.isArray(sanitized.events) ? sanitized.events : []
+  const warnings = [...sanitized.warnings]
+  let relationTypes = ensureBuiltinRelationTypes(snapshot.relationTypes)
+  if (!events.length) {
+    return {
+      ops: {
+        upsertNodes: [],
+        upsertEdges: [],
+        upsertEvents: [],
+        appendNodeSnapshots: [],
+        appendEdgeSnapshots: [],
+        appendEventEffects: [],
+      },
+      warnings,
+      relationTypes,
+    }
+  }
+
+  let nodes = [...snapshot.nodes]
+  let edges = [...snapshot.edges]
+  let nextSequenceIndex = getWorldGraphMaxSequenceIndexForWriteback(snapshot) + 1
+  const ops = {
+    upsertNodes: [],
+    upsertEdges: [],
+    upsertEvents: [],
+    appendNodeSnapshots: [],
+    appendEdgeSnapshots: [],
+    appendEventEffects: [],
+  }
+  const existingEventIds = new Set(nodes.filter((item) => item.objectType === 'event').map((item) => item.id))
+
+  for (const rawEvent of events) {
+    const eventId = normalizeString(rawEvent?.id)
+    const eventName = normalizeString(rawEvent?.name)
+    const eventMode = normalizeWritebackEventMode(rawEvent?.mode)
+    let historicalEventText = { name: '', summary: '' }
+    if (!eventId || !eventName) {
+      warnings.push('事件写回失败：事件 id 或名称不能为空')
+      continue
+    }
+
+    let currentEventNode = findNodeByRef(nodes, { nodeId: eventId })
+    if (eventMode === 'continue') {
+      if (!currentEventNode || currentEventNode.objectType !== 'event') {
+        warnings.push(`事件写回失败：续写事件 ${eventId} 不存在或不是事件节点`)
+        continue
+      }
+      const sequenceIndex = nextSequenceIndex
+      nextSequenceIndex += 1
+      const projectedEvent =
+        projectNodeAtSequenceForWriteback(currentEventNode, Math.max(0, sequenceIndex - 1))
+        || normalizeNode(currentEventNode, currentEventNode)
+      historicalEventText = {
+        name: normalizeString(projectedEvent?.name),
+        summary: normalizeString(projectedEvent?.summary),
+      }
+      const snapshotRecord = normalizeNodeSnapshot({
+        sequenceIndex,
+        name: eventName,
+        summary: normalizeString(rawEvent?.summary, projectedEvent.summary || eventName),
+      })
+      ops.appendNodeSnapshots.push({
+        ref: { nodeId: currentEventNode.id },
+        snapshot: snapshotRecord,
+      })
+      currentEventNode = normalizeNode({
+        ...currentEventNode,
+        timelineSnapshots: replaceSnapshotBySequence(currentEventNode.timelineSnapshots, snapshotRecord),
+      }, currentEventNode)
+      nodes = upsertArrayItem(nodes, currentEventNode)
+    } else {
+      if (existingEventIds.has(eventId)) {
+        warnings.push(`事件写回失败：事件 ${eventId} 已存在，m:new 只能追加新事件`)
+        continue
+      }
+      const sequenceIndex = nextSequenceIndex
+      nextSequenceIndex += 1
+      const eventWriteInput = {
+        id: eventId,
+        objectType: 'event',
+        name: eventName,
+        summary: normalizeString(rawEvent?.summary, eventName),
+        startSequenceIndex: sequenceIndex,
+        timeline: {
+          sequenceIndex,
+          calendarId: snapshot.meta?.calendar?.calendarId || DEFAULT_WORLD_CALENDAR.calendarId,
+          yearLabel: '',
+          monthLabel: '',
+          dayLabel: '',
+          timeOfDayLabel: '',
+          phase: '',
+          impactLevel: 0,
+          eventType: '',
+        },
+        effects: [],
+      }
+      ops.upsertEvents.push(eventWriteInput)
+      currentEventNode = normalizeNode(eventWriteInput)
+      nodes = upsertArrayItem(nodes, currentEventNode)
+      existingEventIds.add(eventId)
+    }
+
+    const sequenceIndex = eventMode === 'continue'
+      ? normalizeFiniteNumber(
+        (Array.isArray(currentEventNode?.timelineSnapshots) ? currentEventNode.timelineSnapshots : [])
+          .map((item) => normalizeFiniteNumber(item?.sequenceIndex, 0))
+          .sort((left, right) => right - left)[0],
+        normalizeFiniteNumber(currentEventNode?.timeline?.sequenceIndex, currentEventNode?.startSequenceIndex),
+      )
+      : normalizeFiniteNumber(currentEventNode?.timeline?.sequenceIndex, currentEventNode?.startSequenceIndex)
+
+    const nodeGroups = new Map()
+    const relationGroups = new Map()
+    const eventAnchorNodeIds = new Set()
+    for (const rawChange of Array.isArray(rawEvent?.changes) ? rawEvent.changes : []) {
+      const changeId = normalizeString(rawChange?.id)
+      const changeType = normalizeString(rawChange?.type)
+      if (!changeId || !changeType) {
+        warnings.push(`事件 ${eventId} 写回失败：change 缺少 id 或 type`)
+        continue
+      }
+
+      const parts = changeType.split('.').map((item) => item.trim()).filter(Boolean)
+      if (!parts.length) {
+        warnings.push(`事件 ${eventId} 写回失败：change type 非法`)
+        continue
+      }
+
+      if (parts[0] === 'relation') {
+        const relationField = parts[1]
+        if (!['summary', 'status', 'intensity', 'label'].includes(relationField) || parts.length !== 2) {
+          warnings.push(`事件 ${eventId} 写回失败：关系 change type ${changeType} 不受支持`)
+          continue
+        }
+        const current = relationGroups.get(changeId) || {
+          id: changeId,
+          summary: undefined,
+          status: undefined,
+          intensity: undefined,
+          label: undefined,
+        }
+        if (relationField === 'intensity') {
+          const numericValue = typeof rawChange.content === 'number' ? rawChange.content : Number(rawChange.content)
+          if (!Number.isFinite(numericValue)) {
+            warnings.push(`事件 ${eventId} 写回失败：关系强度必须是数字`)
+            continue
+          }
+          current.intensity = Math.max(0, Math.min(100, Math.round(numericValue)))
+        } else if (relationField === 'label') {
+          current.label = normalizeString(rawChange.content)
+        } else if (relationField === 'summary') {
+          current.summary = normalizeString(rawChange.content)
+        } else if (relationField === 'status') {
+          current.status = normalizeString(rawChange.content)
+        }
+        relationGroups.set(changeId, current)
+        const relationRefFromId = parseRelationCompositeId(changeId)
+        const existingEdgeById = relationRefFromId ? null : findEdgeByRef(edges, { edgeId: changeId })
+        const relationRef = existingEdgeById
+          ? {
+              sourceNodeId: existingEdgeById.sourceNodeId,
+              targetNodeId: existingEdgeById.targetNodeId,
+              relationTypeCode: existingEdgeById.relationTypeCode,
+            }
+          : relationRefFromId
+        if (relationRef && !isAutoManagedCurrentEventRelation(relationRef, eventId)) {
+          if (relationRef.sourceNodeId && relationRef.sourceNodeId !== eventId) {
+            eventAnchorNodeIds.add(relationRef.sourceNodeId)
+          }
+          if (relationRef.targetNodeId && relationRef.targetNodeId !== eventId) {
+            eventAnchorNodeIds.add(relationRef.targetNodeId)
+          }
+        }
+        continue
+      }
+
+      const objectType = normalizeObjectType(parts[0], '')
+      if (!objectType) {
+        warnings.push(`事件 ${eventId} 写回失败：节点 change type ${changeType} 不受支持`)
+        continue
+      }
+
+      const current = nodeGroups.get(changeId) || {
+        id: changeId,
+        objectType,
+        name: undefined,
+        summary: undefined,
+        status: undefined,
+        knownFacts: undefined,
+        preferencesAndConstraints: undefined,
+        taskProgress: undefined,
+        longTermMemory: undefined,
+        tags: undefined,
+        attributes: {},
+      }
+      if (current.objectType !== objectType) {
+        warnings.push(`事件 ${eventId} 写回失败：节点 ${changeId} 的对象类型冲突`)
+        continue
+      }
+
+      if (parts[1] === 'attribute' && parts.length >= 3) {
+        const attributeKey = parts.slice(2).join('.')
+        current.attributes[attributeKey] = normalizeWritebackEventChangeContent(rawChange.content)
+        if (attributeKey === 'currentStatus' && current.status === undefined) {
+          current.status = normalizeString(rawChange.content)
+        }
+        nodeGroups.set(changeId, current)
+        continue
+      }
+
+      if (parts.length !== 2) {
+        warnings.push(`事件 ${eventId} 写回失败：节点 change type ${changeType} 不受支持`)
+        continue
+      }
+
+      const nodeField = parts[1]
+      if (nodeField === 'name') {
+        current.name = normalizeString(rawChange.content)
+      } else if (nodeField === 'summary') {
+        current.summary = normalizeString(rawChange.content)
+      } else if (nodeField === 'status') {
+        current.status = normalizeString(rawChange.content)
+      } else if (nodeField === 'knownFacts') {
+        current.knownFacts = normalizeString(rawChange.content)
+      } else if (nodeField === 'preferencesAndConstraints') {
+        current.preferencesAndConstraints = normalizeString(rawChange.content)
+      } else if (nodeField === 'taskProgress') {
+        current.taskProgress = normalizeString(rawChange.content)
+      } else if (nodeField === 'longTermMemory') {
+        current.longTermMemory = normalizeString(rawChange.content)
+      } else if (nodeField === 'tag') {
+        const nextTag = normalizeString(rawChange.content)
+        current.tags = nextTag
+          ? [...(Array.isArray(current.tags) ? current.tags : []), nextTag]
+          : Array.isArray(current.tags) ? current.tags : []
+      } else {
+        warnings.push(`事件 ${eventId} 写回失败：节点字段 ${changeType} 不受支持`)
+        continue
+      }
+      nodeGroups.set(changeId, current)
+      eventAnchorNodeIds.add(changeId)
+    }
+
+    for (const group of nodeGroups.values()) {
+      const existingNode = findNodeByRef(nodes, { nodeId: group.id })
+      if (!existingNode) {
+        const attributes = { ...(group.attributes || {}) }
+        const status = group.status !== undefined
+          ? group.status
+          : Object.prototype.hasOwnProperty.call(attributes, 'currentStatus')
+            ? normalizeString(attributes.currentStatus)
+            : ''
+        if (status && !Object.prototype.hasOwnProperty.call(attributes, 'currentStatus')) {
+          attributes.currentStatus = status
+        }
+        const newNodeInput = {
+          id: group.id,
+          objectType: group.objectType,
+          name: group.name || group.id,
+          summary: group.summary || '',
+          knownFacts: group.knownFacts || '',
+          preferencesAndConstraints: group.preferencesAndConstraints || '',
+          taskProgress: group.taskProgress || '',
+          longTermMemory: group.longTermMemory || '',
+          status,
+          tags: Array.isArray(group.tags) ? group.tags : [],
+          attributes,
+          startSequenceIndex: sequenceIndex,
+        }
+        ops.upsertNodes.push(newNodeInput)
+        nodes = upsertArrayItem(nodes, normalizeNode(newNodeInput))
+        continue
+      }
+
+      const projectedNode = projectNodeAtSequenceForWriteback(existingNode, Math.max(0, sequenceIndex - 1)) || normalizeNode(existingNode, existingNode)
+      const nextAttributes = { ...(projectedNode.attributes || {}), ...(group.attributes || {}) }
+      const nextStatus = group.status !== undefined
+        ? group.status
+        : Object.prototype.hasOwnProperty.call(group.attributes || {}, 'currentStatus')
+          ? normalizeString(group.attributes.currentStatus)
+          : projectedNode.status
+      if (nextStatus) {
+        nextAttributes.currentStatus = nextStatus
+      }
+      const snapshotRecord = normalizeNodeSnapshot({
+        sequenceIndex,
+        name: group.name !== undefined ? group.name : projectedNode.name,
+        summary: group.summary !== undefined ? group.summary : projectedNode.summary,
+        status: nextStatus,
+        knownFacts: group.knownFacts !== undefined ? group.knownFacts : projectedNode.knownFacts,
+        preferencesAndConstraints:
+          group.preferencesAndConstraints !== undefined ? group.preferencesAndConstraints : projectedNode.preferencesAndConstraints,
+        taskProgress: group.taskProgress !== undefined ? group.taskProgress : projectedNode.taskProgress,
+        longTermMemory: group.longTermMemory !== undefined ? group.longTermMemory : projectedNode.longTermMemory,
+        tags: group.tags !== undefined ? group.tags : projectedNode.tags,
+        attributes: nextAttributes,
+      })
+      ops.appendNodeSnapshots.push({
+        ref: { nodeId: existingNode.id },
+        snapshot: snapshotRecord,
+      })
+      nodes = upsertArrayItem(nodes, normalizeNode({
+        ...existingNode,
+        timelineSnapshots: replaceSnapshotBySequence(existingNode.timelineSnapshots, snapshotRecord),
+      }, existingNode))
+    }
+
+    for (const group of relationGroups.values()) {
+      const existingEdgeById = findEdgeByRef(edges, { edgeId: group.id })
+      const parsedRelationRef = parseRelationCompositeId(group.id)
+      const relationRef = existingEdgeById
+        ? {
+            sourceNodeId: existingEdgeById.sourceNodeId,
+            targetNodeId: existingEdgeById.targetNodeId,
+            relationTypeCode: existingEdgeById.relationTypeCode,
+          }
+        : parsedRelationRef
+
+      if (!relationRef) {
+        warnings.push(`事件 ${eventId} 写回失败：关系 id ${group.id} 既不是现有关系 id，也不是合法的组合键`)
+        continue
+      }
+      if (isAutoManagedCurrentEventRelation(relationRef, eventId)) {
+        warnings.push(`事件 ${eventId} 写回提示：当前事件锚定关系 ${group.id} 由后端自动补齐，已忽略模型返回`)
+        continue
+      }
+      if (relationRef.sourceNodeId && relationRef.sourceNodeId !== eventId) {
+        eventAnchorNodeIds.add(relationRef.sourceNodeId)
+      }
+      if (relationRef.targetNodeId && relationRef.targetNodeId !== eventId) {
+        eventAnchorNodeIds.add(relationRef.targetNodeId)
+      }
+      if (!findNodeByRef(nodes, { nodeId: relationRef.sourceNodeId }) || !findNodeByRef(nodes, { nodeId: relationRef.targetNodeId })) {
+        warnings.push(`事件 ${eventId} 写回失败：关系 ${group.id} 引用了不存在的节点`)
+        continue
+      }
+
+      const existingEdge =
+        existingEdgeById
+        || findEdgeByRef(edges, relationRef)
+      if (!existingEdge) {
+        if (!parsedRelationRef) {
+          warnings.push(`事件 ${eventId} 写回失败：关系 id ${group.id} 不存在，且无法从 id 推断新关系`)
+          continue
+        }
+        const relationType = relationTypes.find((item) => item.code === relationRef.relationTypeCode) || null
+        const newEdgeInput = {
+          id: group.id,
+          sourceNodeId: relationRef.sourceNodeId,
+          targetNodeId: relationRef.targetNodeId,
+          relationTypeCode: relationRef.relationTypeCode,
+          relationLabel: group.label || relationType?.label || relationRef.relationTypeCode,
+          summary: group.summary || '',
+          status: group.status || '',
+          intensity: group.intensity ?? null,
+          startSequenceIndex: sequenceIndex,
+          endSequenceIndex: null,
+          timelineSnapshots: [],
+        }
+        ops.upsertEdges.push(newEdgeInput)
+        edges = upsertArrayItem(edges, normalizeEdge(newEdgeInput))
+        continue
+      }
+
+      const projectedEdge = projectEdgeAtSequenceForWriteback(existingEdge, Math.max(0, sequenceIndex - 1)) || normalizeEdge(existingEdge, existingEdge)
+      const effectiveRelationTypeCode = normalizeString(projectedEdge.relationTypeCode, relationRef.relationTypeCode)
+      const relationType = relationTypes.find((item) => item.code === effectiveRelationTypeCode) || null
+      const snapshotRecord = normalizeEdgeSnapshot({
+        sequenceIndex,
+        relationTypeCode: effectiveRelationTypeCode,
+        relationLabel: group.label || projectedEdge.relationLabel || relationType?.label || effectiveRelationTypeCode,
+        summary: group.summary !== undefined ? group.summary : projectedEdge.summary,
+        status: group.status !== undefined ? group.status : projectedEdge.status,
+        intensity: group.intensity !== undefined ? group.intensity : projectedEdge.intensity,
+      })
+      ops.appendEdgeSnapshots.push({
+        ref: { edgeId: existingEdge.id },
+        snapshot: snapshotRecord,
+      })
+      edges = upsertArrayItem(edges, normalizeEdge({
+        ...existingEdge,
+        timelineSnapshots: replaceSnapshotBySequence(existingEdge.timelineSnapshots, snapshotRecord),
+      }, existingEdge))
+    }
+
+    if (eventMode === 'continue') {
+      appendSuspiciousContinueWarnings({
+        eventId,
+        eventName,
+        eventSummary: normalizeString(rawEvent?.summary),
+        historicalEventText,
+        currentAnchorNodeIds: [...eventAnchorNodeIds],
+        nodes,
+        edges,
+        warnings,
+      })
+    }
+
+    for (const nodeId of eventAnchorNodeIds) {
+      const candidateNode = findNodeByRef(nodes, { nodeId })
+      if (!candidateNode || candidateNode.id === eventId) {
+        continue
+      }
+
+      if (['character', 'organization', 'item'].includes(candidateNode.objectType)) {
+        const autoRelationRef = {
+          sourceNodeId: candidateNode.id,
+          targetNodeId: eventId,
+          relationTypeCode: EVENT_AUTO_RELATION_CODES.participatesIn,
+        }
+        if (!findEdgeByRef(edges, autoRelationRef)) {
+          relationTypes = ensureBuiltinRelationTypes(relationTypes, [EVENT_AUTO_RELATION_CODES.participatesIn])
+          const relationType = relationTypes.find((item) => item.code === EVENT_AUTO_RELATION_CODES.participatesIn) || null
+          const nextEdgeInput = {
+            id: buildRelationCompositeId(candidateNode.id, EVENT_AUTO_RELATION_CODES.participatesIn, eventId),
+            sourceNodeId: candidateNode.id,
+            targetNodeId: eventId,
+            relationTypeCode: EVENT_AUTO_RELATION_CODES.participatesIn,
+            relationLabel: relationType?.label || EVENT_AUTO_RELATION_CODES.participatesIn,
+            summary: '',
+            status: '',
+            intensity: null,
+            startSequenceIndex: sequenceIndex,
+            endSequenceIndex: null,
+            timelineSnapshots: [],
+          }
+          ops.upsertEdges.push(nextEdgeInput)
+          edges = upsertArrayItem(edges, normalizeEdge(nextEdgeInput))
+        }
+      }
+
+      if (candidateNode.objectType === 'location') {
+        const autoRelationRef = {
+          sourceNodeId: eventId,
+          targetNodeId: candidateNode.id,
+          relationTypeCode: EVENT_AUTO_RELATION_CODES.associatedLocation,
+        }
+        if (!findEdgeByRef(edges, autoRelationRef)) {
+          relationTypes = ensureBuiltinRelationTypes(relationTypes, [EVENT_AUTO_RELATION_CODES.associatedLocation])
+          const relationType = relationTypes.find((item) => item.code === EVENT_AUTO_RELATION_CODES.associatedLocation) || null
+          const nextEdgeInput = {
+            id: buildRelationCompositeId(eventId, EVENT_AUTO_RELATION_CODES.associatedLocation, candidateNode.id),
+            sourceNodeId: eventId,
+            targetNodeId: candidateNode.id,
+            relationTypeCode: EVENT_AUTO_RELATION_CODES.associatedLocation,
+            relationLabel: relationType?.label || EVENT_AUTO_RELATION_CODES.associatedLocation,
+            summary: '',
+            status: '',
+            intensity: null,
+            startSequenceIndex: sequenceIndex,
+            endSequenceIndex: null,
+            timelineSnapshots: [],
+          }
+          ops.upsertEdges.push(nextEdgeInput)
+          edges = upsertArrayItem(edges, normalizeEdge(nextEdgeInput))
+        }
+      }
+    }
+  }
+
+  return { ops, warnings, relationTypes }
 }
 
 function findNodeByRef(nodes, ref) {
@@ -1371,9 +2626,18 @@ function buildEdgeWriteInput(input, fallback = {}) {
     ...fallback,
     ...input,
     id: normalizeString(input?.id, fallback.id),
-    sourceNodeId: normalizeString(input?.sourceNodeId || input?.source_node_id, fallback.sourceNodeId),
-    targetNodeId: normalizeString(input?.targetNodeId || input?.target_node_id, fallback.targetNodeId),
-    relationTypeCode: normalizeString(input?.relationTypeCode || input?.relation_type_code, fallback.relationTypeCode),
+    sourceNodeId: normalizeString(
+      input?.sourceNodeId || input?.source_node_id || input?.sourceId || input?.source_id || input?.source,
+      fallback.sourceNodeId,
+    ),
+    targetNodeId: normalizeString(
+      input?.targetNodeId || input?.target_node_id || input?.targetId || input?.target_id || input?.target,
+      fallback.targetNodeId,
+    ),
+    relationTypeCode: normalizeString(
+      input?.relationTypeCode || input?.relation_type_code || input?.relationTypeId || input?.relation_type_id || input?.relationType || input?.relation_type,
+      fallback.relationTypeCode,
+    ),
     relationLabel: normalizeString(input?.relationLabel || input?.relation_label, fallback.relationLabel),
     startSequenceIndex:
       input?.startSequenceIndex !== undefined
@@ -1397,11 +2661,13 @@ function buildEdgeWriteInput(input, fallback = {}) {
 }
 
 export function applyWorldGraphWritebackToSnapshot(graph, input) {
-  const ops = normalizeWorldGraphWritebackOps(input)
   const snapshot = normalizeWorldGraphSnapshot(graph)
+  const normalizedOps = normalizeWorldGraphWritebackOps(input)
+  const materialized = materializeEventDrivenWritebackOps(snapshot, normalizedOps)
+  const ops = mergeNormalizedWritebackOps(normalizedOps, materialized.ops)
   let nodes = [...snapshot.nodes]
   let edges = [...snapshot.edges]
-  const warnings = []
+  const warnings = [...materialized.warnings]
   let appliedNodeCount = 0
   let appliedEdgeCount = 0
   let appliedEffectCount = 0
@@ -1491,6 +2757,7 @@ export function applyWorldGraphWritebackToSnapshot(graph, input) {
         ...snapshot.meta,
         graphVersion: Math.max(snapshot.meta.graphVersion, 0) + (appliedNodeCount || appliedEdgeCount || appliedEffectCount || appliedSnapshotCount ? 1 : 0),
       },
+      relationTypes: materialized.relationTypes,
       nodes,
       edges,
     }),
@@ -1504,10 +2771,13 @@ export function applyWorldGraphWritebackToSnapshot(graph, input) {
 
 export async function applyWorldGraphWritebackOps(user, robotId, input) {
   await ensureGraphMeta(user, robotId)
-  const ops = normalizeWorldGraphWritebackOps(input)
-  let nodes = await listWorldNodes(robotId)
-  let edges = await listWorldEdges(robotId)
-  const warnings = []
+  const currentGraph = await getConfiguredWorldGraph(user, robotId)
+  const normalizedOps = normalizeWorldGraphWritebackOps(input)
+  const materialized = materializeEventDrivenWritebackOps(currentGraph, normalizedOps)
+  const ops = mergeNormalizedWritebackOps(normalizedOps, materialized.ops)
+  let nodes = [...currentGraph.nodes]
+  let edges = [...currentGraph.edges]
+  const warnings = [...materialized.warnings]
   let appliedNodeCount = 0
   let appliedEdgeCount = 0
   let appliedEffectCount = 0

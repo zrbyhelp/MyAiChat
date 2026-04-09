@@ -1,3 +1,5 @@
+import { inspect } from 'node:util'
+
 import { getPromptConfig } from './prompt-config.mjs'
 
 export const DEFAULT_STRUCTURED_MEMORY_HISTORY_LIMIT = 2
@@ -27,6 +29,27 @@ export function debugLog(label, payload) {
   void label
   void payload
   void debugLogsEnabled
+}
+
+function formatConsolePayload(payload) {
+  if (typeof payload === 'string') {
+    return payload
+  }
+  return inspect(payload, {
+    depth: null,
+    maxArrayLength: null,
+    maxStringLength: null,
+    compact: false,
+    breakLength: 120,
+  })
+}
+
+export function graphWritebackLog(label, payload) {
+  if (payload === undefined) {
+    console.log(label)
+    return
+  }
+  console.log(label, formatConsolePayload(payload))
 }
 
 export function normalizePositiveInt(value, fallback) {
@@ -276,13 +299,153 @@ export function historyText(history, limit = DEFAULT_STRUCTURED_MEMORY_HISTORY_L
     || '暂无历史消息。'
 }
 
+function normalizeWritebackChangeContent(value) {
+  if (
+    value === null
+    || typeof value === 'string'
+    || typeof value === 'number'
+    || typeof value === 'boolean'
+  ) {
+    return value
+  }
+  return String(value ?? '')
+}
+
+const WRITEBACK_OBJECT_TYPE_TO_SHORT = Object.freeze({
+  character: 'c',
+  organization: 'o',
+  location: 'l',
+  item: 'i',
+})
+
+const WRITEBACK_OBJECT_TYPE_FROM_SHORT = Object.freeze(
+  Object.fromEntries(Object.entries(WRITEBACK_OBJECT_TYPE_TO_SHORT).map(([key, value]) => [value, key])),
+)
+
+const WRITEBACK_NODE_FIELD_TO_SHORT = Object.freeze({
+  name: 'n',
+  summary: 's',
+  status: 'st',
+  knownFacts: 'kf',
+  preferencesAndConstraints: 'pc',
+  taskProgress: 'tp',
+  longTermMemory: 'lm',
+  tag: 'tg',
+})
+
+const WRITEBACK_NODE_FIELD_FROM_SHORT = Object.freeze(
+  Object.fromEntries(Object.entries(WRITEBACK_NODE_FIELD_TO_SHORT).map(([key, value]) => [value, key])),
+)
+
+const WRITEBACK_RELATION_FIELD_TO_SHORT = Object.freeze({
+  summary: 's',
+  status: 'st',
+  intensity: 'in',
+  label: 'lb',
+})
+
+const WRITEBACK_RELATION_FIELD_FROM_SHORT = Object.freeze(
+  Object.fromEntries(Object.entries(WRITEBACK_RELATION_FIELD_TO_SHORT).map(([key, value]) => [value, key])),
+)
+
+function hasOwn(source, key) {
+  return Object.prototype.hasOwnProperty.call(source, key)
+}
+
+function readOwnValue(source, ...keys) {
+  for (const key of keys) {
+    if (hasOwn(source, key)) {
+      return source[key]
+    }
+  }
+  return undefined
+}
+
+function expandWritebackTypeAlias(value) {
+  const type = String(value || '').trim()
+  if (!type) {
+    return ''
+  }
+  if (type.startsWith('relation.')) {
+    return type
+  }
+  const relationMatch = /^r\.([a-z]+)$/i.exec(type)
+  if (relationMatch) {
+    const relationField = WRITEBACK_RELATION_FIELD_FROM_SHORT[relationMatch[1]]
+    return relationField ? `relation.${relationField}` : type
+  }
+
+  const parts = type.split('.').map((item) => item.trim()).filter(Boolean)
+  if (parts.length < 2) {
+    return type
+  }
+  const objectType = WRITEBACK_OBJECT_TYPE_FROM_SHORT[parts[0]]
+  if (!objectType) {
+    return type
+  }
+  if (parts[1] === 'a' && parts.length >= 3) {
+    return `${objectType}.attribute.${parts.slice(2).join('.')}`
+  }
+  const fieldName = WRITEBACK_NODE_FIELD_FROM_SHORT[parts[1]]
+  return fieldName && parts.length === 2 ? `${objectType}.${fieldName}` : type
+}
+
+function compactWritebackTypeAlias(value) {
+  const type = String(value || '').trim()
+  if (!type) {
+    return ''
+  }
+  const relationMatch = /^relation\.([a-zA-Z]+)$/.exec(type)
+  if (relationMatch) {
+    const shortField = WRITEBACK_RELATION_FIELD_TO_SHORT[relationMatch[1]]
+    return shortField ? `r.${shortField}` : type
+  }
+
+  const parts = type.split('.').map((item) => item.trim()).filter(Boolean)
+  if (parts.length < 2) {
+    return type
+  }
+  const shortObjectType = WRITEBACK_OBJECT_TYPE_TO_SHORT[parts[0]]
+  if (!shortObjectType) {
+    return type
+  }
+  if (parts[1] === 'attribute' && parts.length >= 3) {
+    return `${shortObjectType}.a.${parts.slice(2).join('.')}`
+  }
+  const shortField = WRITEBACK_NODE_FIELD_TO_SHORT[parts[1]]
+  return shortField && parts.length === 2 ? `${shortObjectType}.${shortField}` : type
+}
+
+function normalizeWorldGraphWritebackChange(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  return {
+    id: String(readOwnValue(source, 'id', 'i') || '').trim(),
+    type: expandWritebackTypeAlias(readOwnValue(source, 'type', 't')),
+    content: normalizeWritebackChangeContent(readOwnValue(source, 'content', 'v')),
+  }
+}
+
+function normalizeWorldGraphWritebackEvent(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const rawChanges = Array.isArray(readOwnValue(source, 'changes', 'c')) ? readOwnValue(source, 'changes', 'c') : []
+  return {
+    id: String(readOwnValue(source, 'id', 'i') || '').trim(),
+    mode: String(readOwnValue(source, 'mode', 'm') || '').trim().toLowerCase() === 'continue' ? 'continue' : 'new',
+    name: String(readOwnValue(source, 'name', 'n') || '').trim(),
+    summary: String(readOwnValue(source, 'summary', 's') || '').trim(),
+    changes: rawChanges.map(normalizeWorldGraphWritebackChange),
+  }
+}
+
 export function normalizeWorldGraphWritebackOps(input) {
   const value = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
   const readList = (...keys) => {
-    const raw = keys.find((key) => Array.isArray(value[key])) ? value[keys.find((key) => Array.isArray(value[key]))] : undefined
+    const matchedKey = keys.find((key) => Array.isArray(value[key]))
+    const raw = matchedKey ? value[matchedKey] : undefined
     return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') : []
   }
   return {
+    events: readList('events', 'e').map(normalizeWorldGraphWritebackEvent),
     upsert_nodes: readList('upsert_nodes', 'upsertNodes', 'un'),
     upsert_edges: readList('upsert_edges', 'upsertEdges', 'ue'),
     upsert_events: readList('upsert_events', 'upsertEvents', 'uv'),
@@ -375,48 +538,62 @@ function dedupeEventEffectItem(item) {
 }
 
 function summarizeWritebackOps(ops) {
+  const normalized = normalizeWorldGraphWritebackOps(ops)
   return {
-    upsertNodeCount: Array.isArray(ops?.upsert_nodes) ? ops.upsert_nodes.length : 0,
-    upsertEdgeCount: Array.isArray(ops?.upsert_edges) ? ops.upsert_edges.length : 0,
-    upsertEventCount: Array.isArray(ops?.upsert_events) ? ops.upsert_events.length : 0,
-    appendNodeSnapshotCount: Array.isArray(ops?.append_node_snapshots) ? ops.append_node_snapshots.length : 0,
-    appendEdgeSnapshotCount: Array.isArray(ops?.append_edge_snapshots) ? ops.append_edge_snapshots.length : 0,
-    appendEventEffectCount: Array.isArray(ops?.append_event_effects) ? ops.append_event_effects.length : 0,
+    eventCount: normalized.events.length,
+    eventChangeCount: normalized.events
+      .reduce((count, item) => count + (Array.isArray(item?.changes) ? item.changes.length : 0), 0),
+    upsertNodeCount: normalized.upsert_nodes.length,
+    upsertEdgeCount: normalized.upsert_edges.length,
+    upsertEventCount: normalized.upsert_events.length,
+    appendNodeSnapshotCount: normalized.append_node_snapshots.length,
+    appendEdgeSnapshotCount: normalized.append_edge_snapshots.length,
+    appendEventEffectCount: normalized.append_event_effects.length,
   }
 }
 
 function compactWorldGraphWritebackOps(input) {
   const normalized = normalizeWorldGraphWritebackOps(input)
-  const upsertNodeIds = new Set(normalized.upsert_nodes.map(canonicalNodeId).filter(Boolean))
-  const upsertEdgeIds = new Set(normalized.upsert_edges.map(canonicalEdgeId).filter(Boolean))
-  const effectTargetIds = new Set(normalized.append_event_effects.map(canonicalEffectTargetNodeId).filter(Boolean))
+  const compacted = {}
 
-  return {
-    upsert_nodes: normalized.upsert_nodes
-      .map((item) => dedupeNodeLikeItem(item))
-      .filter((item) => String(item?.id || '').trim() && String(item?.name || '').trim()),
-    upsert_edges: normalized.upsert_edges
-      .map((item) => normalizeObjectRecord(item))
-      .filter((item) =>
-        String(item?.id || '').trim()
-        && String(item?.sourceNodeId || item?.source_node_id || '').trim()
-        && String(item?.targetNodeId || item?.target_node_id || '').trim()
-        && String(item?.relationTypeCode || item?.relation_type_code || '').trim()),
-    upsert_events: normalized.upsert_events
-      .map((item) => dedupeNodeLikeItem(item, { isEvent: true }))
-      .filter((item) => String(item?.id || '').trim() && String(item?.name || '').trim()),
-    append_node_snapshots: normalized.append_node_snapshots
-      .filter((item) => !upsertNodeIds.has(canonicalNodeId(item)))
-      .filter((item) => !effectTargetIds.has(String(item?.nodeId || item?.node_id || '').trim()))
-      .map((item) => dedupeNodeSnapshotItem(item))
-      .filter((item) => String(item?.nodeId || item?.node_id || '').trim()),
-    append_edge_snapshots: normalized.append_edge_snapshots
-      .filter((item) => !upsertEdgeIds.has(canonicalEdgeId(item)))
-      .map((item) => normalizeObjectRecord(item)),
-    append_event_effects: normalized.append_event_effects
-      .map((item) => dedupeEventEffectItem(item))
-      .filter((item) => String(item?.id || '').trim() && String(item?.summary || '').trim()),
+  const compactEvents = normalized.events
+    .map((event) => ({
+      i: String(event?.id || '').trim(),
+      ...(String(event?.mode || '').trim() === 'continue' ? { m: 'continue' } : {}),
+      n: String(event?.name || '').trim(),
+      ...(String(event?.summary || '').trim() ? { s: String(event.summary).trim() } : {}),
+      c: (Array.isArray(event?.changes) ? event.changes : [])
+        .map((change) => ({
+          i: String(change?.id || '').trim(),
+          t: compactWritebackTypeAlias(change?.type),
+          v: normalizeWritebackChangeContent(change?.content),
+        }))
+        .filter((change) => change.i && change.t),
+    }))
+    .filter((event) => event.i && event.n)
+
+  if (compactEvents.length) {
+    compacted.e = compactEvents
   }
+  if (normalized.upsert_nodes.length) {
+    compacted.un = normalized.upsert_nodes.map((item) => normalizeObjectRecord(item))
+  }
+  if (normalized.upsert_edges.length) {
+    compacted.ue = normalized.upsert_edges.map((item) => normalizeObjectRecord(item))
+  }
+  if (normalized.upsert_events.length) {
+    compacted.uv = normalized.upsert_events.map((item) => normalizeObjectRecord(item))
+  }
+  if (normalized.append_node_snapshots.length) {
+    compacted.ans = normalized.append_node_snapshots.map((item) => normalizeObjectRecord(item))
+  }
+  if (normalized.append_edge_snapshots.length) {
+    compacted.aes = normalized.append_edge_snapshots.map((item) => normalizeObjectRecord(item))
+  }
+  if (normalized.append_event_effects.length) {
+    compacted.aef = normalized.append_event_effects.map((item) => normalizeObjectRecord(item))
+  }
+  return compacted
 }
 
 function resolveCommonPrompt(state) {
@@ -726,7 +903,7 @@ export async function worldGraphUpdateNode(state, modelClient) {
     : {}
   if (!String(worldGraphPayload?.meta?.robotId || '').trim()) {
     return {
-      world_graph_update_ops: normalizeWorldGraphWritebackOps({}),
+      world_graph_update_ops: compactWorldGraphWritebackOps({}),
       usage: emptyUsage(),
     }
   }
@@ -738,10 +915,16 @@ export async function worldGraphUpdateNode(state, modelClient) {
     `内部故事草稿：\n${formatStoryDraftForPrompt(state.story_outline)}`,
     `用户最新输入：${state.prompt}`,
     `最终正文：\n${state.final_response || ''}`,
+    `当前最大 sequenceIndex：${getWorldGraphMaxSequenceIndex(worldGraphPayload)}`,
+    '当前事件时间线摘要：',
+    summarizeWorldGraphTimelineText(worldGraphPayload),
+    '可续写事件候选：',
+    '只有当本轮仍在推进同一目标、同一流程阶段或同一冲突处理链，且参与锚点/地点锚点基本一致时，才允许使用 `m:"continue"`；只要出现新目标、新冲突、明显阶段切换或从一个流程跳到另一个流程，就必须新建事件。',
+    summarizeContinuableEvents(worldGraphPayload),
     `完整世界图谱 JSON：\n${JSON.stringify(worldGraphPayload)}`,
   ].join('\n\n')
   const startedAt = Date.now()
-  debugLog('[agent:world-graph-update:start]', {
+  graphWritebackLog('[agent:world-graph-update:start]', {
     threadId: String(state.thread_id || state.threadId || ''),
     robotId: String(worldGraphPayload?.meta?.robotId || ''),
     nodeCount: Array.isArray(worldGraphPayload?.nodes) ? worldGraphPayload.nodes.length : 0,
@@ -763,7 +946,7 @@ export async function worldGraphUpdateNode(state, modelClient) {
   const parsedRaw = parseJsonObject(response.text, {})
   const parsedOps = normalizeWorldGraphWritebackOps(parsedRaw)
   const compactedOps = compactWorldGraphWritebackOps(parsedOps)
-  debugLog('[agent:world-graph-update:done]', {
+  graphWritebackLog('[agent:world-graph-update:done]', {
     threadId: String(state.thread_id || state.threadId || ''),
     robotId: String(worldGraphPayload?.meta?.robotId || ''),
     durationMs: Date.now() - startedAt,
@@ -792,6 +975,8 @@ export async function answerGraphUpdateNode(state, modelClient) {
 export async function worldGraphEvolutionNode(state, modelClient) {
   return worldGraphUpdateNode(state, modelClient)
 }
+
+export const worldGraphWritebackNode = worldGraphUpdateNode
 
 export async function answerNode(state, modelClient, onChunk) {
   const response = await modelClient.streamText(
@@ -847,6 +1032,64 @@ function listTimelineEvents(graph) {
       || String(left?.id || '').localeCompare(String(right?.id || ''), 'zh-CN'))
 }
 
+function projectEventTextAtSequence(event, sequenceIndex) {
+  let name = String(event?.name || '').trim()
+  let summary = String(event?.summary || '').trim()
+  const snapshots = Array.isArray(event?.timelineSnapshots) ? event.timelineSnapshots : []
+  for (const snapshot of [...snapshots]
+    .sort((left, right) => normalizeSequenceIndex(left?.sequenceIndex, 0) - normalizeSequenceIndex(right?.sequenceIndex, 0))
+    .filter((item) => normalizeSequenceIndex(item?.sequenceIndex, 0) <= sequenceIndex)) {
+    if (Object.prototype.hasOwnProperty.call(snapshot || {}, 'name')) {
+      name = String(snapshot?.name || '').trim()
+    }
+    if (Object.prototype.hasOwnProperty.call(snapshot || {}, 'summary')) {
+      summary = String(snapshot?.summary || '').trim()
+    }
+  }
+  return {
+    name: name || String(event?.id || '').trim() || '未命名事件',
+    summary,
+  }
+}
+
+function buildTimelineEventEntries(graph) {
+  const entries = []
+  for (const event of listTimelineEvents(graph)) {
+    const baseSequenceIndex = readEventSequenceIndex(event)
+    const baseText = projectEventTextAtSequence(event, baseSequenceIndex)
+    entries.push({
+      key: `${String(event?.id || '').trim()}@${baseSequenceIndex}@base`,
+      eventId: String(event?.id || '').trim(),
+      sequenceIndex: baseSequenceIndex,
+      name: baseText.name,
+      summary: baseText.summary,
+      usesTimelineLabel: true,
+    })
+
+    for (const snapshot of Array.isArray(event?.timelineSnapshots) ? event.timelineSnapshots : []) {
+      const snapshotSequenceIndex = normalizeSequenceIndex(snapshot?.sequenceIndex, -1)
+      if (snapshotSequenceIndex < 0 || snapshotSequenceIndex === baseSequenceIndex) {
+        continue
+      }
+      const snapshotText = projectEventTextAtSequence(event, snapshotSequenceIndex)
+      entries.push({
+        key: `${String(event?.id || '').trim()}@${snapshotSequenceIndex}@snapshot`,
+        eventId: String(event?.id || '').trim(),
+        sequenceIndex: snapshotSequenceIndex,
+        name: snapshotText.name,
+        summary: snapshotText.summary,
+        usesTimelineLabel: false,
+      })
+    }
+  }
+
+  return entries.sort((left, right) =>
+    left.sequenceIndex - right.sequenceIndex
+    || Number(right.usesTimelineLabel) - Number(left.usesTimelineLabel)
+    || left.name.localeCompare(right.name, 'zh-CN')
+    || left.eventId.localeCompare(right.eventId, 'zh-CN'))
+}
+
 function summarizeEventEffects(event, limit = 2) {
   const summaries = (Array.isArray(event?.effects) ? event.effects : [])
     .map((item) => String(item?.summary || '').trim())
@@ -855,24 +1098,105 @@ function summarizeEventEffects(event, limit = 2) {
   return summaries.length ? `；影响：${summaries.join('；')}` : ''
 }
 
+function getContinuableEventAnchorLabels(graph, eventId) {
+  const participantLabels = new Set()
+  const locationLabels = new Set()
+  const nodesById = new Map((Array.isArray(graph?.nodes) ? graph.nodes : [])
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => [String(item.id || '').trim(), item]))
+
+  for (const edge of Array.isArray(graph?.edges) ? graph.edges : []) {
+    if (!edge || typeof edge !== 'object') {
+      continue
+    }
+    const relationTypeCode = String(edge.relationTypeCode || '').trim()
+    if (relationTypeCode === 'participates_in' && String(edge.targetNodeId || '').trim() === eventId) {
+      const participant = nodesById.get(String(edge.sourceNodeId || '').trim())
+      if (participant && ['character', 'organization', 'item'].includes(String(participant.objectType || '').trim())) {
+        participantLabels.add(String(participant.name || participant.id || '').trim())
+      }
+      continue
+    }
+    if (relationTypeCode === 'associated_location' && String(edge.sourceNodeId || '').trim() === eventId) {
+      const location = nodesById.get(String(edge.targetNodeId || '').trim())
+      if (location && String(location.objectType || '').trim() === 'location') {
+        locationLabels.add(String(location.name || location.id || '').trim())
+      }
+    }
+  }
+
+  return {
+    participantLabels: [...participantLabels].filter(Boolean).sort((left, right) => left.localeCompare(right, 'zh-CN')),
+    locationLabels: [...locationLabels].filter(Boolean).sort((left, right) => left.localeCompare(right, 'zh-CN')),
+  }
+}
+
+function formatContinuableEventAnchorLabels(labels) {
+  return Array.isArray(labels) && labels.length ? labels.join('、') : '无'
+}
+
 function summarizeWorldGraphTimelineText(graph, limit = 8) {
-  const events = listTimelineEvents(graph)
-  if (!events.length) {
+  const entries = buildTimelineEventEntries(graph)
+  if (!entries.length) {
     return '无'
   }
-  return events
+  return entries
     .slice(0, Math.max(1, limit))
-    .map((event) => {
-      const sequenceIndex = readEventSequenceIndex(event)
-      const name = String(event?.name || '').trim() || String(event?.id || '').trim() || '未命名事件'
-      const summary = String(event?.summary || '').trim()
-      return `- [${sequenceIndex}] ${name}${summary ? `：${summary}` : ''}${summarizeEventEffects(event)}`
+    .map((entry) => {
+      const event = (Array.isArray(graph?.nodes) ? graph.nodes : []).find((item) => item?.id === entry.eventId) || null
+      return `- [${entry.sequenceIndex}] ${entry.name}${entry.summary ? `：${entry.summary}` : ''}${summarizeEventEffects(event)}`
     })
     .join('\n')
 }
 
 function getWorldGraphMaxSequenceIndex(graph) {
-  return listTimelineEvents(graph).reduce((max, event) => Math.max(max, readEventSequenceIndex(event)), 0)
+  const values = [
+    ...buildTimelineEventEntries(graph).map((item) => item.sequenceIndex),
+    ...(Array.isArray(graph?.nodes) ? graph.nodes : []).map((item) => normalizeSequenceIndex(item?.startSequenceIndex, 0)),
+    ...(Array.isArray(graph?.nodes) ? graph.nodes : []).flatMap((item) =>
+      (Array.isArray(item?.timelineSnapshots) ? item.timelineSnapshots : []).map((snapshot) => normalizeSequenceIndex(snapshot?.sequenceIndex, 0))),
+    ...(Array.isArray(graph?.edges) ? graph.edges : []).map((item) => normalizeSequenceIndex(item?.startSequenceIndex, 0)),
+    ...(Array.isArray(graph?.edges) ? graph.edges : []).flatMap((item) =>
+      (Array.isArray(item?.timelineSnapshots) ? item.timelineSnapshots : []).map((snapshot) => normalizeSequenceIndex(snapshot?.sequenceIndex, 0))),
+  ]
+  for (const edge of Array.isArray(graph?.edges) ? graph.edges : []) {
+    if (edge?.endSequenceIndex !== undefined && edge?.endSequenceIndex !== null) {
+      values.push(normalizeSequenceIndex(edge.endSequenceIndex, 0))
+    }
+  }
+  return values.reduce((max, value) => Math.max(max, value), 0)
+}
+
+function summarizeContinuableEvents(graph, limit = 8) {
+  const latestEntries = new Map()
+  for (const entry of buildTimelineEventEntries(graph)) {
+    const current = latestEntries.get(entry.eventId)
+    if (!current || entry.sequenceIndex >= current.sequenceIndex) {
+      latestEntries.set(entry.eventId, entry)
+    }
+  }
+  const candidates = [...latestEntries.values()]
+    .sort((left, right) =>
+      right.sequenceIndex - left.sequenceIndex
+      || left.name.localeCompare(right.name, 'zh-CN')
+      || left.eventId.localeCompare(right.eventId, 'zh-CN'))
+    .slice(0, Math.max(1, limit))
+  if (!candidates.length) {
+    return '无'
+  }
+  return candidates
+    .map((entry) => {
+      const anchors = getContinuableEventAnchorLabels(graph, entry.eventId)
+      return [
+        `- ${entry.eventId}`,
+        `最近时间点 ${entry.sequenceIndex}`,
+        `最新标题 ${entry.name}`,
+        `最新摘要 ${entry.summary || '无'}`,
+        `参与锚点 ${formatContinuableEventAnchorLabels(anchors.participantLabels)}`,
+        `地点锚点 ${formatContinuableEventAnchorLabels(anchors.locationLabels)}`,
+      ].join(' | ')
+    })
+    .join('\n')
 }
 
 export function buildWorldGraphEvolutionPrompt(request) {

@@ -39,10 +39,14 @@ import {
   getConfiguredWorldGraph,
   normalizeWorldGraphSnapshot,
 } from './world-graph-service.mjs'
+import { enqueueBackgroundJob } from './background-job-queue.mjs'
 
 const DEFAULT_AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8000'
+const SESSION_BACKGROUND_TASK_KIND_MEMORY = 'memory'
+const SESSION_BACKGROUND_TASK_KIND_WORLD_GRAPH = 'world_graph'
+const sessionBackgroundStatusMap = new Map()
 
-export function getSessionBackgroundStatus(sessionId) {
+function createDefaultSessionBackgroundStatus(sessionId) {
   return {
     sessionId: String(sessionId || '').trim(),
     status: 'idle',
@@ -51,6 +55,63 @@ export function getSessionBackgroundStatus(sessionId) {
     lastError: '',
     updatedAt: new Date().toISOString(),
   }
+}
+
+function setSessionBackgroundStatus(sessionId, nextPartial) {
+  const sessionKey = String(sessionId || '').trim()
+  const current = sessionBackgroundStatusMap.get(sessionKey) || createDefaultSessionBackgroundStatus(sessionKey)
+  const next = {
+    ...current,
+    ...(nextPartial && typeof nextPartial === 'object' ? nextPartial : {}),
+    sessionId: sessionKey,
+    pendingTaskCount: Math.max(0, Math.round(Number(nextPartial?.pendingTaskCount ?? current.pendingTaskCount ?? 0))),
+    updatedAt: new Date().toISOString(),
+  }
+  sessionBackgroundStatusMap.set(sessionKey, next)
+  return { ...next }
+}
+
+export function getSessionBackgroundStatus(sessionId) {
+  const sessionKey = String(sessionId || '').trim()
+  const current = sessionBackgroundStatusMap.get(sessionKey)
+  return current ? { ...current } : createDefaultSessionBackgroundStatus(sessionKey)
+}
+
+function incrementSessionBackgroundPendingTasks(sessionId, count) {
+  const current = getSessionBackgroundStatus(sessionId)
+  return setSessionBackgroundStatus(sessionId, {
+    status: 'queued',
+    pendingTaskCount: current.pendingTaskCount + Math.max(0, Math.round(Number(count || 0))),
+    currentTask: '',
+    lastError: '',
+  })
+}
+
+function markSessionBackgroundTaskStarted(sessionId, taskKind) {
+  return setSessionBackgroundStatus(sessionId, {
+    status: 'running',
+    currentTask: String(taskKind || '').trim(),
+  })
+}
+
+function completeSessionBackgroundTask(sessionId) {
+  const current = getSessionBackgroundStatus(sessionId)
+  const nextPendingTaskCount = Math.max(0, current.pendingTaskCount - 1)
+  return setSessionBackgroundStatus(sessionId, {
+    status: nextPendingTaskCount > 0 ? 'running' : 'idle',
+    pendingTaskCount: nextPendingTaskCount,
+    currentTask: '',
+    lastError: nextPendingTaskCount > 0 ? current.lastError : '',
+  })
+}
+
+function failSessionBackgroundPipeline(sessionId, error, remainingTaskCount = 0) {
+  return setSessionBackgroundStatus(sessionId, {
+    status: 'failed',
+    pendingTaskCount: Math.max(0, Math.round(Number(remainingTaskCount || 0))),
+    currentTask: '',
+    lastError: error instanceof Error ? error.message : '会话异步处理失败',
+  })
 }
 
 export function sanitizeBaseUrl(baseUrl) {
@@ -238,18 +299,26 @@ function hasWorldGraphWritebackOps(value) {
     return false
   }
   return [
+    value.events,
+    value.e,
     value.upsert_nodes,
     value.upsertNodes,
+    value.un,
     value.upsert_edges,
     value.upsertEdges,
+    value.ue,
     value.upsert_events,
     value.upsertEvents,
+    value.uv,
     value.append_node_snapshots,
     value.appendNodeSnapshots,
+    value.ans,
     value.append_edge_snapshots,
     value.appendEdgeSnapshots,
+    value.aes,
     value.append_event_effects,
     value.appendEventEffects,
+    value.aef,
   ].some((item) => Array.isArray(item) && item.length > 0)
 }
 
@@ -265,13 +334,29 @@ function countStructuredMemoryItems(memory) {
 function summarizeWorldGraphWritebackOps(value) {
   const payload = value && typeof value === 'object' ? value : {}
   const count = (item) => (Array.isArray(item) ? item.length : 0)
+  const events = Array.isArray(payload.events)
+    ? payload.events
+    : Array.isArray(payload.e)
+      ? payload.e
+      : []
   return {
-    upsertNodeCount: count(payload.upsert_nodes || payload.upsertNodes),
-    upsertEdgeCount: count(payload.upsert_edges || payload.upsertEdges),
-    upsertEventCount: count(payload.upsert_events || payload.upsertEvents),
-    appendNodeSnapshotCount: count(payload.append_node_snapshots || payload.appendNodeSnapshots),
-    appendEdgeSnapshotCount: count(payload.append_edge_snapshots || payload.appendEdgeSnapshots),
-    appendEventEffectCount: count(payload.append_event_effects || payload.appendEventEffects),
+    eventCount: events.length,
+    eventChangeCount: events.reduce(
+      (total, item) => total + (
+        Array.isArray(item?.changes)
+          ? item.changes.length
+          : Array.isArray(item?.c)
+            ? item.c.length
+            : 0
+      ),
+      0,
+    ),
+    upsertNodeCount: count(payload.upsert_nodes || payload.upsertNodes || payload.un),
+    upsertEdgeCount: count(payload.upsert_edges || payload.upsertEdges || payload.ue),
+    upsertEventCount: count(payload.upsert_events || payload.upsertEvents || payload.uv),
+    appendNodeSnapshotCount: count(payload.append_node_snapshots || payload.appendNodeSnapshots || payload.ans),
+    appendEdgeSnapshotCount: count(payload.append_edge_snapshots || payload.appendEdgeSnapshots || payload.aes),
+    appendEventEffectCount: count(payload.append_event_effects || payload.appendEventEffects || payload.aef),
   }
 }
 
@@ -305,6 +390,29 @@ function summarizeWorldGraphEventTimeline(events) {
 function summarizeGraphTimeline(graph) {
   return summarizeWorldGraphEventTimeline(
     (Array.isArray(graph?.nodes) ? graph.nodes : []).filter((item) => item?.objectType === 'event'),
+  )
+}
+
+function summarizeAppliedWorldGraphWritebackEvents(writebackOps, graph) {
+  const payload = writebackOps && typeof writebackOps === 'object' ? writebackOps : {}
+  const eventIds = [
+    ...(Array.isArray(payload.events) ? payload.events : []),
+    ...(Array.isArray(payload.e) ? payload.e : []),
+    ...(Array.isArray(payload.upsert_events || payload.upsertEvents) ? (payload.upsert_events || payload.upsertEvents) : []),
+    ...(Array.isArray(payload.uv) ? payload.uv : []),
+  ]
+    .map((item) => String(item?.id || item?.i || '').trim())
+    .filter(Boolean)
+
+  if (!eventIds.length) {
+    return []
+  }
+
+  const idSet = new Set(eventIds)
+  return summarizeWorldGraphEventTimeline(
+    (Array.isArray(graph?.nodes) ? graph.nodes : []).filter(
+      (item) => item?.objectType === 'event' && idSet.has(String(item.id || '').trim()),
+    ),
   )
 }
 
@@ -1231,6 +1339,9 @@ export function hydrateBackgroundAgentRequest(agentRequest, session) {
   const latestSession = session && typeof session === 'object' ? session : null
   return {
     ...agentRequest,
+    memory_schema: normalizeMemorySchema(
+      latestSession?.memorySchema || agentRequest?.memory_schema || agentRequest?.memorySchema || {},
+    ),
     structured_memory: normalizeStructuredMemory(
       latestSession?.structuredMemory || agentRequest?.structured_memory || agentRequest?.structuredMemory,
     ),
@@ -1243,7 +1354,10 @@ export function hydrateBackgroundAgentRequest(agentRequest, session) {
 }
 
 export function buildWorldGraphBackgroundAgentRequest(agentRequest, session) {
-  return { ...hydrateBackgroundAgentRequest(agentRequest, session) }
+  const hydrated = { ...hydrateBackgroundAgentRequest(agentRequest, session) }
+  delete hydrated.memory_schema
+  delete hydrated.memorySchema
+  return hydrated
 }
 
 export function buildMemoryAgentRequest(agentRequest, session) {
@@ -1305,6 +1419,31 @@ async function saveSessionWorldGraphFromBase(user, existingSession, graph, usage
       : existingSession.worldGraph || null,
     usage: addUsageTotals(existingSession.usage, usage),
   }))
+}
+
+export function mergeSessionPostProcessingResult(baseSession, memoryResult, worldGraphResult) {
+  const base = normalizeSession(baseSession || {})
+  const mergedUsage = addUsageTotals(
+    addUsageTotals(base.usage, memoryResult?.usage),
+    worldGraphResult?.usage,
+  )
+
+  return normalizeSession({
+    ...base,
+    updatedAt: new Date().toISOString(),
+    structuredMemory: normalizeStructuredMemory(memoryResult?.memory || base.structuredMemory),
+    worldGraph: worldGraphResult?.graph
+      ? normalizeWorldGraphSnapshot(worldGraphResult.graph)
+      : base.worldGraph || null,
+    usage: mergedUsage,
+  })
+}
+
+async function saveMergedSessionPostProcessing(user, baseSession, memoryResult, worldGraphResult) {
+  if (!baseSession) {
+    return null
+  }
+  return saveSessionRecord(user, mergeSessionPostProcessingResult(baseSession, memoryResult, worldGraphResult))
 }
 
 async function commitSession(payload, user, result, existingSession) {
@@ -1697,13 +1836,12 @@ async function runAgentAndCollect(payload, user, onEvent) {
   }
 }
 
-async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
-  const latestSession = await getSessionRecord(user, payload.sessionId)
+async function runStructuredMemoryBackgroundJob(agentRequest, payload, user, existingSession = null) {
+  const latestSession = existingSession || await getSessionRecord(user, payload.sessionId)
   const requestBody = buildMemoryAgentRequest(agentRequest, latestSession)
   try {
     const response = await requestAgentJson('/runs/memory', requestBody, payload, null, '结构化记忆')
     const normalizedMemory = normalizeStructuredMemory(response?.memory)
-    const updatedSession = await patchSessionStructuredMemory(user, payload.sessionId, normalizedMemory, response?.usage)
 
     return {
       requestBody,
@@ -1713,7 +1851,7 @@ async function runStructuredMemoryBackgroundJob(agentRequest, payload, user) {
       },
       memory: normalizedMemory,
       usage: normalizeUsage(response?.usage),
-      session: updatedSession,
+      session: latestSession,
       warnings: [],
     }
   } catch (error) {
@@ -1777,30 +1915,11 @@ async function runWorldGraphUpdateJob(agentRequest, payload, user, existingSessi
       throw error
     }
 
-    let updatedSession = null
-    try {
-      updatedSession = await saveSessionWorldGraphFromBase(
-        user,
-        latestSession,
-        applyResult.graph,
-        response?.usage,
-      )
-    } catch (error) {
-      backgroundLog('[world-graph-update:session_save_failed]', {
-        sessionId: payload.sessionId,
-        threadId: agentRequest.thread_id || agentRequest.threadId,
-        robotId: String(requestBody?.world_graph?.meta?.robotId || requestBody?.worldGraph?.meta?.robotId || ''),
-        writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
-        message: error instanceof Error ? error.message : '世界图谱 session 保存失败',
-      }, 'error')
-      throw error
-    }
-
     return {
       requestBody,
       graph: applyResult.graph,
       usage: normalizeUsage(response?.usage),
-      session: updatedSession,
+      session: latestSession,
       warnings: applyResult.warnings,
       persistenceMode: applyResult.persistenceMode,
       writebackSummary: summarizeWorldGraphWritebackOps(writebackOps),
@@ -1834,8 +1953,8 @@ async function runWorldGraphUpdateJob(agentRequest, payload, user, existingSessi
   }
 }
 
-async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
-  const latestSession = await getSessionRecord(user, payload.sessionId)
+async function runWorldGraphBackgroundJob(agentRequest, payload, user, existingSession = null) {
+  const latestSession = existingSession || await getSessionRecord(user, payload.sessionId)
   const requestBody = {
     ...buildWorldGraphBackgroundAgentRequest(agentRequest, latestSession),
     robot_name: String(agentRequest?.robot?.name || payload?.robot?.name || payload?.sessionSnapshot?.robot?.name || ''),
@@ -1886,7 +2005,6 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
     const writebackPayload = response?.graphrag_writeback || response?.graphRagWriteback || {}
     const mapped = mapGraphRagWritebackToWorldGraphUpdate(writebackPayload, { currentGraph: nextGraph })
     writebackSummary = summarizeWorldGraphWritebackOps(mapped.writebackOps)
-    writebackEvents = summarizeWorldGraphEventTimeline(mapped.writebackOps.upsert_events || mapped.writebackOps.upsertEvents)
     responseUsage = response?.usage || null
 
     await persistGraphRagArtifact(user, {
@@ -1907,6 +2025,7 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
     })
 
     applyWriteback(mapped.writebackOps, mapped.relationTypes)
+    writebackEvents = summarizeAppliedWorldGraphWritebackEvents(mapped.writebackOps, nextGraph)
   } catch (error) {
     backgroundLog('[background-world-graph:graphrag-fallback]', {
       sessionId: payload.sessionId,
@@ -1922,12 +2041,10 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
     )
     const writebackOps = response?.world_graph_writeback_ops || response?.worldGraphWritebackOps || {}
     writebackSummary = summarizeWorldGraphWritebackOps(writebackOps)
-    writebackEvents = summarizeWorldGraphEventTimeline(writebackOps.upsert_events || writebackOps.upsertEvents)
     responseUsage = response?.usage || null
     applyWriteback(writebackOps, [])
+    writebackEvents = summarizeAppliedWorldGraphWritebackEvents(writebackOps, nextGraph)
   }
-
-  const updatedSession = await patchSessionWorldGraph(user, payload.sessionId, nextGraph, responseUsage)
 
   return {
     requestBody,
@@ -1945,13 +2062,143 @@ async function runWorldGraphBackgroundJob(agentRequest, payload, user) {
     }),
     graph: nextGraph,
     usage: normalizeUsage(responseUsage),
-    session: updatedSession,
+    session: latestSession,
     warnings,
     persistenceMode,
     writebackSummary,
     writebackEvents,
     resultTimeline: summarizeGraphTimeline(nextGraph),
     ...applySummary,
+  }
+}
+
+function buildFallbackMemoryPostProcessingResult(baseSession, warningMessage = '') {
+  const memory = normalizeStructuredMemory(baseSession?.structuredMemory)
+  return {
+    requestBody: null,
+    responseSnapshot: {
+      memory: summarizeMemoryForMonitor(memory),
+      usage: normalizeUsage(null),
+    },
+    memory,
+    usage: normalizeUsage(null),
+    session: baseSession,
+    warnings: warningMessage ? [warningMessage] : [],
+  }
+}
+
+function buildFallbackWorldGraphPostProcessingResult(baseSession, warningMessage = '') {
+  const graph = normalizeWorldGraphSnapshot(baseSession?.worldGraph || null)
+  const result = {
+    requestBody: null,
+    graph,
+    usage: normalizeUsage(null),
+    session: baseSession,
+    warnings: warningMessage ? [warningMessage] : [],
+    persistenceMode: 'session-snapshot',
+    writebackSummary: summarizeWorldGraphWritebackOps({}),
+    writebackEvents: [],
+    resultTimeline: summarizeGraphTimeline(graph),
+    appliedRelationTypeCount: 0,
+    appliedNodeCount: 0,
+    appliedEdgeCount: 0,
+    appliedEffectCount: 0,
+    appliedSnapshotCount: 0,
+  }
+  result.responseSnapshot = summarizeWorldGraphWritebackResultForMonitor(result)
+  return result
+}
+
+async function safelyInvokePostProcessingCallback(callback, result, label) {
+  if (typeof callback !== 'function') {
+    return
+  }
+  try {
+    await callback(result)
+  } catch (error) {
+    backgroundLog(label, {
+      message: error instanceof Error ? error.message : '后处理回调执行失败',
+    }, 'error')
+  }
+}
+
+async function runPostProcessingTasksInParallel(agentRequest, payload, user, existingSession, options = {}) {
+  const baseSession = existingSession || await getSessionRecord(user, payload.sessionId)
+  if (!baseSession) {
+    throw new Error('会话不存在，无法执行后处理')
+  }
+
+  const runWorldGraph = options.runWorldGraph !== false
+  const worldGraphRunner = typeof options.worldGraphRunner === 'function'
+    ? options.worldGraphRunner
+    : runWorldGraphUpdateJob
+
+  const memoryTask = (async () => {
+    await safelyInvokePostProcessingCallback(options.onMemoryStarted, null, '[post-processing:memory_started_callback_failed]')
+    try {
+      const result = await runStructuredMemoryBackgroundJob(agentRequest, payload, user, baseSession)
+      await safelyInvokePostProcessingCallback(options.onMemoryCompleted, result, '[post-processing:memory_completed_callback_failed]')
+      return result
+    } catch (error) {
+      const fallbackResult = buildFallbackMemoryPostProcessingResult(
+        baseSession,
+        error instanceof Error ? `结构化记忆更新已跳过：${error.message}` : '结构化记忆更新已跳过',
+      )
+      await safelyInvokePostProcessingCallback(options.onMemoryCompleted, fallbackResult, '[post-processing:memory_completed_callback_failed]')
+      return fallbackResult
+    }
+  })()
+
+  const worldGraphTask = runWorldGraph
+    ? (async () => {
+      await safelyInvokePostProcessingCallback(options.onWorldGraphStarted, null, '[post-processing:world_graph_started_callback_failed]')
+      try {
+        const result = await worldGraphRunner(agentRequest, payload, user, baseSession)
+        await safelyInvokePostProcessingCallback(options.onWorldGraphCompleted, result, '[post-processing:world_graph_completed_callback_failed]')
+        return result
+      } catch (error) {
+        const fallbackResult = buildFallbackWorldGraphPostProcessingResult(
+          baseSession,
+          error instanceof Error ? `世界图谱写回已跳过：${error.message}` : '世界图谱写回已跳过',
+        )
+        await safelyInvokePostProcessingCallback(options.onWorldGraphCompleted, fallbackResult, '[post-processing:world_graph_completed_callback_failed]')
+        return fallbackResult
+      }
+    })()
+    : Promise.resolve(buildFallbackWorldGraphPostProcessingResult(baseSession))
+
+  const [memorySettled, worldGraphSettled] = await Promise.allSettled([memoryTask, worldGraphTask])
+
+  const memoryResult = memorySettled.status === 'fulfilled'
+    ? memorySettled.value
+    : buildFallbackMemoryPostProcessingResult(
+      baseSession,
+      memorySettled.reason instanceof Error
+        ? `结构化记忆更新已跳过：${memorySettled.reason.message}`
+        : '结构化记忆更新已跳过',
+    )
+  const worldGraphResult = worldGraphSettled.status === 'fulfilled'
+    ? worldGraphSettled.value
+    : buildFallbackWorldGraphPostProcessingResult(
+      baseSession,
+      worldGraphSettled.reason instanceof Error
+        ? `世界图谱写回已跳过：${worldGraphSettled.reason.message}`
+        : '世界图谱写回已跳过',
+    )
+  const session = await saveMergedSessionPostProcessing(user, baseSession, memoryResult, worldGraphResult)
+  const mergedSession = session || mergeSessionPostProcessingResult(baseSession, memoryResult, worldGraphResult)
+
+  return {
+    session: mergedSession,
+    memory: normalizeStructuredMemory(memoryResult.memory || mergedSession.structuredMemory),
+    worldGraph: worldGraphResult.graph
+      ? normalizeWorldGraphSnapshot(worldGraphResult.graph)
+      : mergedSession.worldGraph || null,
+    usage: normalizeSessionUsage(mergedSession.usage),
+    memoryResult,
+    worldGraphResult,
+    memoryWarnings: Array.isArray(memoryResult.warnings) ? memoryResult.warnings : [],
+    worldGraphWarnings: Array.isArray(worldGraphResult.warnings) ? worldGraphResult.warnings : [],
   }
 }
 
@@ -2078,6 +2325,8 @@ function enqueueSessionBackgroundJobs(result, payload, user) {
   const agentRequest = result.agentRequest
   const replyId = result.monitorReplyId
   const tasks = buildSessionBackgroundTaskPlan(agentRequest, payload)
+  const memoryTask = tasks.find((task) => task.kind === SESSION_BACKGROUND_TASK_KIND_MEMORY) || null
+  const worldGraphTask = tasks.find((task) => task.kind === SESSION_BACKGROUND_TASK_KIND_WORLD_GRAPH) || null
 
   if (!sessionKey || !tasks.length) {
     return getSessionBackgroundStatus(sessionKey)
@@ -2094,39 +2343,126 @@ function enqueueSessionBackgroundJobs(result, payload, user) {
   void enqueueBackgroundJob({
     sessionKey,
     run: async () => {
-      for (let index = 0; index < tasks.length; index += 1) {
-        const task = tasks[index]
-        markSessionBackgroundTaskStarted(sessionKey, task.kind)
-        try {
-          await runSessionBackgroundTask(task, agentRequest, payload, user, replyId)
-          completeSessionBackgroundTask(sessionKey)
-        } catch (error) {
-          if (replyId) {
-            appendAgentMonitorStep({
-              replyId,
-              stage: `background_${task.kind}_failed`,
-              eventType: `background_${task.kind}_failed`,
-              status: 'failed',
-              summary: error instanceof Error ? error.message : '会话异步处理失败',
-              requestSnapshot: {
-                taskKind: task.kind,
-                taskMeta: task.meta,
-                sessionId: payload.sessionId,
-                threadId: agentRequest.thread_id || agentRequest.threadId || '',
-              },
+      try {
+        await runPostProcessingTasksInParallel(agentRequest, payload, user, result.session, {
+          runWorldGraph: Boolean(worldGraphTask),
+          worldGraphRunner: runWorldGraphBackgroundJob,
+          onMemoryStarted: memoryTask ? async () => {
+            markSessionBackgroundTaskStarted(sessionKey, memoryTask.kind)
+            backgroundLog('[background-memory:started]', {
+              sessionId: payload.sessionId,
+              threadId: agentRequest.thread_id || agentRequest.threadId,
+              persistToServer: true,
+              ...memoryTask.meta,
             })
-          }
-          const remainingTaskCount = tasks.length - index
-          failSessionBackgroundPipeline(sessionKey, error, remainingTaskCount)
-          backgroundLog('[background-session-queue:failed]', {
-            sessionId: sessionKey,
-            threadId: agentRequest.thread_id || agentRequest.threadId,
-            taskKind: task.kind,
-            remainingTaskCount,
-            message: error instanceof Error ? error.message : '会话异步处理失败',
-          }, 'error')
-          throw error
+          } : null,
+          onMemoryCompleted: memoryTask ? async (memoryResult) => {
+            completeSessionBackgroundTask(sessionKey)
+            if (replyId) {
+              appendAgentMonitorStep({
+                replyId,
+                stage: 'background_memory',
+                eventType: 'background_memory',
+                summary: '结构化记忆后台任务完成',
+                requestSnapshot: {
+                  taskMeta: memoryTask.meta,
+                  sessionId: payload.sessionId,
+                  threadId: agentRequest.thread_id || agentRequest.threadId || '',
+                  agentRequest,
+                  requestBody: sanitizeAgentRequestForMonitor(memoryResult.requestBody),
+                },
+                responseSnapshot: {
+                  memory: summarizeMemoryForMonitor(memoryResult.memory),
+                  usage: memoryResult.usage,
+                },
+              })
+            }
+            backgroundLog('[background-memory:succeeded]', {
+              sessionId: payload.sessionId,
+              threadId: agentRequest.thread_id || agentRequest.threadId,
+              persistToServer: true,
+              categoryCount: Array.isArray(memoryResult.memory?.categories) ? memoryResult.memory.categories.length : 0,
+              recordCount: countStructuredMemoryItems(memoryResult.memory),
+              warningCount: Array.isArray(memoryResult.warnings) ? memoryResult.warnings.length : 0,
+              usage: memoryResult.usage,
+            })
+          } : null,
+          onWorldGraphStarted: worldGraphTask ? async () => {
+            markSessionBackgroundTaskStarted(sessionKey, worldGraphTask.kind)
+            backgroundLog('[background-world-graph:started]', {
+              sessionId: payload.sessionId,
+              threadId: agentRequest.thread_id || agentRequest.threadId,
+              persistToServer: true,
+              ...worldGraphTask.meta,
+            })
+          } : null,
+          onWorldGraphCompleted: worldGraphTask ? async (worldGraphResult) => {
+            completeSessionBackgroundTask(sessionKey)
+            if (replyId) {
+              appendAgentMonitorStep({
+                replyId,
+                stage: 'background_world_graph',
+                eventType: 'background_world_graph',
+                summary: '世界图谱后台任务完成',
+                requestSnapshot: {
+                  taskMeta: worldGraphTask.meta,
+                  sessionId: payload.sessionId,
+                  threadId: agentRequest.thread_id || agentRequest.threadId || '',
+                  agentRequest,
+                  requestBody: sanitizeAgentRequestForMonitor(worldGraphResult.requestBody),
+                },
+                responseSnapshot: {
+                  ...summarizeWorldGraphWritebackResultForMonitor(worldGraphResult),
+                },
+              })
+            }
+            backgroundLog('[background-world-graph:succeeded]', {
+              sessionId: payload.sessionId,
+              threadId: agentRequest.thread_id || agentRequest.threadId,
+              persistToServer: true,
+              robotId: worldGraphTask.meta.robotId || null,
+              persistenceMode: worldGraphResult.persistenceMode,
+              writebackSummary: worldGraphResult.writebackSummary,
+              writebackEvents: worldGraphResult.writebackEvents,
+              resultTimeline: worldGraphResult.resultTimeline,
+              appliedNodeCount: worldGraphResult.appliedNodeCount,
+              appliedEdgeCount: worldGraphResult.appliedEdgeCount,
+              appliedEffectCount: worldGraphResult.appliedEffectCount,
+              appliedSnapshotCount: worldGraphResult.appliedSnapshotCount,
+              warningCount: Array.isArray(worldGraphResult.warnings) ? worldGraphResult.warnings.length : 0,
+              usage: worldGraphResult.usage,
+            })
+          } : null,
+        })
+        setSessionBackgroundStatus(sessionKey, {
+          status: 'idle',
+          pendingTaskCount: 0,
+          currentTask: '',
+          lastError: '',
+        })
+      } catch (error) {
+        if (replyId) {
+          appendAgentMonitorStep({
+            replyId,
+            stage: 'background_pipeline_failed',
+            eventType: 'background_pipeline_failed',
+            status: 'failed',
+            summary: error instanceof Error ? error.message : '会话异步处理失败',
+            requestSnapshot: {
+              taskKinds: tasks.map((task) => task.kind),
+              sessionId: payload.sessionId,
+              threadId: agentRequest.thread_id || agentRequest.threadId || '',
+            },
+          })
         }
+        failSessionBackgroundPipeline(sessionKey, error, 0)
+        backgroundLog('[background-session-queue:failed]', {
+          sessionId: sessionKey,
+          threadId: agentRequest.thread_id || agentRequest.threadId,
+          taskKinds: tasks.map((task) => task.kind),
+          message: error instanceof Error ? error.message : '会话异步处理失败',
+        }, 'error')
+        throw error
       }
     },
   }).catch(() => {})
@@ -2134,78 +2470,66 @@ function enqueueSessionBackgroundJobs(result, payload, user) {
   return getSessionBackgroundStatus(sessionKey)
 }
 
-async function runSessionPostProcessingSync(result, payload, user) {
-  const memoryResult = await runStructuredMemoryBackgroundJob(result.agentRequest, payload, user)
-  const worldGraphUpdateResult = await runWorldGraphUpdateJob(result.agentRequest, payload, user, memoryResult.session)
-  if (result.monitorReplyId) {
-    appendAgentMonitorStep({
-      replyId: result.monitorReplyId,
-      stage: 'memory',
-      eventType: 'memory',
-      summary: '长期记忆与短期记忆更新完成',
-      requestSnapshot: {
-        sessionId: payload.sessionId,
-        requestBody: sanitizeAgentRequestForMonitor(memoryResult.requestBody),
-      },
-      responseSnapshot: {
-          memory: summarizeMemoryForMonitor(memoryResult.memory),
-          usage: memoryResult.usage,
-        },
-    })
-    appendAgentMonitorStep({
-      replyId: result.monitorReplyId,
-      stage: 'world_graph_update',
-      eventType: 'world_graph_update',
-      summary: '世界图谱更新完成',
-      requestSnapshot: {
-        sessionId: payload.sessionId,
-        requestBody: sanitizeAgentRequestForMonitor(worldGraphUpdateResult.requestBody),
-      },
-      responseSnapshot: {
-        ...summarizeWorldGraphWritebackResultForMonitor(worldGraphUpdateResult),
-      },
-    })
+function appendMemoryMonitorStep(replyId, payload, memoryResult, stage = 'memory', eventType = 'memory', summary = '长期记忆与短期记忆更新完成') {
+  if (!replyId) {
+    return
   }
-  return {
-    ...result,
-    memory: memoryResult.memory,
-    worldGraph: worldGraphUpdateResult.graph,
-    usage: addUsageTotals(
-      addUsageTotals(result.usage, memoryResult.usage),
-      worldGraphUpdateResult.usage,
-    ),
-    session: worldGraphUpdateResult.session || memoryResult.session || result.session,
-    worldGraphWarnings: [...(worldGraphUpdateResult.warnings || [])],
-  }
+  appendAgentMonitorStep({
+    replyId,
+    stage,
+    eventType,
+    summary,
+    requestSnapshot: {
+      sessionId: payload.sessionId,
+      requestBody: sanitizeAgentRequestForMonitor(memoryResult.requestBody),
+    },
+    responseSnapshot: {
+      memory: summarizeMemoryForMonitor(memoryResult.memory),
+      usage: memoryResult.usage,
+    },
+  })
 }
 
-async function runGraphPostProcessingSync(result, payload, user, memoryResult) {
-  const worldGraphUpdateResult = await runWorldGraphUpdateJob(result.agentRequest, payload, user, memoryResult.session)
-  if (result.monitorReplyId) {
-    appendAgentMonitorStep({
-      replyId: result.monitorReplyId,
-      stage: 'world_graph_update',
-      eventType: 'world_graph_update',
-      summary: '世界图谱更新完成',
-      requestSnapshot: {
-        sessionId: payload.sessionId,
-        requestBody: sanitizeAgentRequestForMonitor(worldGraphUpdateResult.requestBody),
-      },
-      responseSnapshot: {
-        ...summarizeWorldGraphWritebackResultForMonitor(worldGraphUpdateResult),
-      },
-    })
+function appendWorldGraphMonitorStep(replyId, payload, worldGraphResult, stage = 'world_graph_update', eventType = 'world_graph_update', summary = '世界图谱更新完成') {
+  if (!replyId) {
+    return
   }
+  appendAgentMonitorStep({
+    replyId,
+    stage,
+    eventType,
+    summary,
+    requestSnapshot: {
+      sessionId: payload.sessionId,
+      requestBody: sanitizeAgentRequestForMonitor(worldGraphResult.requestBody),
+    },
+    responseSnapshot: {
+      ...summarizeWorldGraphWritebackResultForMonitor(worldGraphResult),
+    },
+  })
+}
+
+async function runSessionPostProcessingSync(result, payload, user) {
+  const postProcessingResult = await runPostProcessingTasksInParallel(
+    result.agentRequest,
+    payload,
+    user,
+    result.session,
+    {
+      runWorldGraph: true,
+      worldGraphRunner: runWorldGraphUpdateJob,
+    },
+  )
+  appendMemoryMonitorStep(result.monitorReplyId, payload, postProcessingResult.memoryResult)
+  appendWorldGraphMonitorStep(result.monitorReplyId, payload, postProcessingResult.worldGraphResult)
   return {
     ...result,
-    memory: memoryResult.memory,
-    worldGraph: worldGraphUpdateResult.graph,
-    usage: addUsageTotals(
-      addUsageTotals(result.usage, memoryResult.usage),
-      worldGraphUpdateResult.usage,
-    ),
-    session: worldGraphUpdateResult.session || memoryResult.session || result.session,
-    worldGraphWarnings: [...(worldGraphUpdateResult.warnings || [])],
+    memory: postProcessingResult.memory,
+    worldGraph: postProcessingResult.worldGraph,
+    usage: postProcessingResult.usage,
+    session: postProcessingResult.session,
+    worldGraphWarnings: [...postProcessingResult.worldGraphWarnings],
+    memoryWarnings: [...postProcessingResult.memoryWarnings],
   }
 }
 
@@ -2327,13 +2651,35 @@ export async function handleChatStream(payload, res, user) {
     const baseResult = await runAgentAndCollect(payload, user, async (event) => {
       forwardAgentEvent(res, event)
     })
-    sendSSE(res, { type: 'memory_status', status: 'running', message: '正在整理长短期记忆' })
-    const memoryResult = await runStructuredMemoryBackgroundJob(baseResult.agentRequest, payload, user)
-    sendSSE(res, { type: 'structured_memory', memory: memoryResult.memory })
-    sendSSE(res, { type: 'memory_status', status: 'success', message: '长短期记忆整理完成' })
-    sendSSE(res, { type: 'ui_loading', message: '正在写回世界图谱' })
-    const result = await runGraphPostProcessingSync(baseResult, payload, user, memoryResult)
-    sendSSE(res, { type: 'session_world_graph', graph: result.worldGraph, warnings: result.worldGraphWarnings || [] })
+    const result = await runPostProcessingTasksInParallel(
+      baseResult.agentRequest,
+      payload,
+      user,
+      baseResult.session,
+      {
+        runWorldGraph: true,
+        worldGraphRunner: runWorldGraphUpdateJob,
+        onMemoryStarted: async () => {
+          sendSSE(res, { type: 'memory_status', status: 'running', message: '正在整理长短期记忆' })
+        },
+        onMemoryCompleted: async (memoryResult) => {
+          sendSSE(res, { type: 'structured_memory', memory: memoryResult.memory })
+          sendSSE(res, { type: 'memory_status', status: 'success', message: '长短期记忆整理完成' })
+          appendMemoryMonitorStep(baseResult.monitorReplyId, payload, memoryResult)
+        },
+        onWorldGraphStarted: async () => {
+          sendSSE(res, { type: 'ui_loading', message: '正在写回世界图谱' })
+        },
+        onWorldGraphCompleted: async (worldGraphResult) => {
+          sendSSE(res, {
+            type: 'session_world_graph',
+            graph: worldGraphResult.graph,
+            warnings: worldGraphResult.warnings || [],
+          })
+          appendWorldGraphMonitorStep(baseResult.monitorReplyId, payload, worldGraphResult)
+        },
+      },
+    )
     sendUsageSSE(res, result.session)
     sendSSE(res, { type: 'done' })
   } catch (error) {

@@ -54,61 +54,81 @@ templates:
       - 输出时优先保证信息完整性：尽量覆盖会影响本轮正文与后续落图的关键人物、物品、组织、地点、事件，不要遗漏已经明确成立的重要信息。
   world_graph_update:
       system_instruction: |
-        你是正文生成后的统一世界图谱更新节点。你会收到完整世界图谱 JSON、用户输入、最终正文、本轮故事草稿、长期记忆和短期记忆。你必须只输出 JSON，不要输出解释。输出格式固定为 {"upsert_nodes":[],"upsert_edges":[],"upsert_events":[],"append_node_snapshots":[],"append_edge_snapshots":[],"append_event_effects":[]}。新增节点或事件时必须带 id；如果是新建节点且正文没有现成 id，可自己生成稳定临时 id。关系必须尽量使用图谱里已有 relation_type_code。不要输出 deletes，不要整图重写。
+        你是正文生成后的统一世界图谱更新节点。你会收到完整世界图谱 JSON、用户输入、最终正文、本轮故事草稿、长期记忆和短期记忆。你必须只输出一个 JSON 对象，不要输出解释、Markdown 或代码块。
 
-        从现在开始默认进入“精简写回模式”，以下规则优先级很高：
-        1. 只写增量，不要把正文换一种说法再重复写进图谱。
-        2. 所有文本字段都尽量写短句。`summary` 最多 1 句；`knownFacts` 最多 2 句；`status` 最多 1 句。
-        3. 禁止同一含义重复写进 `summary`、`knownFacts`、`status`、`attributes.currentStatus`、`snapshot.summary`。
-        4. 若 `status` 已能表达当前状态，就不要再写同义的 `attributes.currentStatus`。
-        5. 若 `summary` 已表达核心事实，就不要再用长 `knownFacts` 复述正文细节。
-        6. 低价值环境细节默认不要建新节点，例如普通餐具、普通摆设、普通家具、普通食物，除非它后续会持续影响剧情、关系、资源、任务或线索。
-        7. 能通过已有节点状态变化表达的内容，不要额外再新建一个“描述性事件”或“描述性物品”。
-        8. 能通过 `append_event_effects` 表达的状态变化，不要再对同一节点补一个冗余的长 `append_node_snapshots`。
-        9. 能通过一次 `upsert_event + append_event_effects` 表达清楚的变化，不要再额外补同义的 `upsert_nodes`、`append_node_snapshots`、`append_edge_snapshots`。
-        10. 没有新增事实时返回空数组，不要为了“完整”而重写已有对象。
+        输出格式固定为：
+        {"e":[{"i":"","m":"","n":"","s":"","c":[{"i":"","t":"","v":""}]}]}
 
-        输出字段也允许使用压缩别名；如果你愿意，请优先使用短字段：
-        - `un` = `upsert_nodes`
-        - `ue` = `upsert_edges`
-        - `uv` = `upsert_events`
-        - `ans` = `append_node_snapshots`
-        - `aes` = `append_edge_snapshots`
-        - `aef` = `append_event_effects`
+        规则如下：
+        1. 只返回 `e`，不要返回 `events`、`upsert_nodes`、`upsert_edges`、`upsert_events`、`append_*`、`deletes` 或任何近似全量对象。
+        2. 每个 event 表示一段剧情推进。事件的先后顺序由你返回的数组顺序决定。不要输出 `sequenceIndex`，后端会按照当前最大时间点之后依次 +1 写入。
+        3. 每个 event 必须包含 `i`、`n`、`c`。`m` 可选，省略视为 `new`；只有当本轮明显仍在推进同一个已有事件的同一目标、同一流程阶段或同一冲突处理链时，才允许返回 `m:"continue"`。`s` 可选：只有当它比 `n` 明显补充了更多事件信息时才返回。没有新增变化时返回 `{"e":[]}`。
+        4. 每条 change 固定只有 `i`、`t`、`v` 三个字段。同一个 `i` 可以在同一事件里返回多条不同 `t` 的 change。
+        5. `v` 只写最终值，不要写 before/after，不要写额外嵌套对象。
+        6. `e[*]` 的每一项都必须是“事件”本身。`m:"new"` 时 `i` 必须是新的事件 id；`m:"continue"` 时 `i` 必须是已有事件 id。不要把节点 id、关系 id、关系组合键放进顶层 `e`。例如：
+           - 正确：`{"e":[{"i":"event_cc_choose_faction","m":"new","n":"玩家选择阵营","c":[...]}]}`
+           - 正确：`{"e":[{"i":"event_cc_character_creation","m":"continue","n":"角色创建流程推进","c":[...]}]}`
+           - 错误：`{"e":[{"i":"character_cc","n":"CC","c":[...]}]}`
+           - 错误：`{"e":[{"i":"character_cc|located_in|location_spawn","c":[...]}]}`
+        7. 节点和关系只能出现在 `c` 里，绝不能单独作为新的顶层 event 返回。不要把“人物块”“地点块”“关系块”拆成多个顶层对象。
+        8. 不要在 `c` 里再写 `i=当前事件 id` 的 `c.n`、`c.s`、`r.s` 之类自描述 change。事件标题与事件概述只写在顶层 `n`、`s`。
+        9. 如果拿不准当前正文是否属于已有事件，请优先参考“可续写事件候选”。只有当本轮仍在推进同一目标、同一阶段、同一冲突处理链，且候选事件的参与锚点/地点锚点与正文基本一致时，才允许 `continue`。只要正文出现新的目标、新的冲突、明显阶段切换、或从一个流程跳到另一个流程，就必须生成新的 `event-...` id。不要留空，不要复用已有非事件节点 id。
+        10. 不要返回“当前事件相关”的锚定关系。以下两类关系由后端自动补齐，你绝不能输出：
+           - `任意角色/组织/物品|participates_in|当前事件 id`
+           - `当前事件 id|associated_location|任意地点`
+        11. 你仍然必须返回“实体之间的稳定关系变化”。当正文已经明确建立、确认或推进了实体之间的关系时，不能只写节点字段，必须补关系 change。重点覆盖：
+           - 角色/角色
+           - 角色/组织
+           - 角色/地点
+           - 角色/物品
+           - 组织/地点
+           - 组织/物品
+           - 物品/地点
+        12. 只有具备持续意义、后续仍成立或会继续影响剧情的关系才应返回。不要把“一次性同场出现”“短暂路过”“仅在本轮发生的动作”误写成长期关系。
 
-        你的任务分为两部分，但要在同一次输出中完成：
-        1. 把正文里真正发生、被确认、被推进的变化直接写入图谱。
-        2. 演化正文没有直接写出的那部分图谱。
+        节点变化写法：
+        - `i` = 节点 id。
+        - `t` 只允许：
+          - `c.n` / `c.s` / `c.st` / `c.kf` / `c.pc` / `c.tp` / `c.lm` / `c.tg` / `c.a.xxx`
+          - `o.n` / `o.s` / `o.st` / `o.kf` / `o.pc` / `o.tp` / `o.lm` / `o.tg` / `o.a.xxx`
+          - `l.n` / `l.s` / `l.st` / `l.kf` / `l.pc` / `l.tp` / `l.lm` / `l.tg` / `l.a.xxx`
+          - `i.n` / `i.s` / `i.st` / `i.kf` / `i.pc` / `i.tp` / `i.lm` / `i.tg` / `i.a.xxx`
+        - 缩写含义：
+          - `n=name`
+          - `s=summary`
+          - `st=status`
+          - `kf=knownFacts`
+          - `pc=preferencesAndConstraints`
+          - `tp=taskProgress`
+          - `lm=longTermMemory`
+          - `tg=tag`
+          - `a.xxx=attribute.xxx`
+        - 如果该节点 id 当前不存在，后端会根据 `t` 前缀创建对应对象类型的新节点。
 
-        第二部分只能处理正文没有直接写出的对象、关系、事件、任务进展和状态变化。正文已经明确写出来的内容，不参加演化，正文结果优先级最高，不能被后续演化覆盖。
+        关系变化写法：
+        - `i` 可以是现有关系 id，也可以是 `sourceNodeId|relationTypeCode|targetNodeId` 这种组合键。
+        - `t` 只允许：`r.s` / `r.st` / `r.in` / `r.lb`
+        - 缩写含义：
+          - `r.s=relation.summary`
+          - `r.st=relation.status`
+          - `r.in=relation.intensity`
+          - `r.lb=relation.label`
+        - 如果 `i` 是现有关系 id，后端会直接更新这条关系。
+        - 如果 `i` 不是现有关系 id，但它是合法的组合键，后端会根据这个组合键查找或新建关系。
+        - 关系必须尽量使用图谱里已有的 `relationTypeCode`。
 
-        关于 patch 类型的选择，必须尽量少而准：
-        - 优先顺序：`upsert_events` + `append_event_effects` > `upsert_nodes` > `append_node_snapshots`。
-        - 如果一个变化已经通过 `upsert_nodes` 写清，就不要再对同一节点追加同义 snapshot。
-        - 如果一个关系没有实质变化，就不要因为正文提到它而重复 `upsert_edges`。
-        - 如果只是场景里出现了普通物件，不要自动创建节点和边。
-
-        事件写回是剧情推进的主记录方式。如果正文中出现了任何一个被实际发生、被确认、会影响后续状态的事件，你必须优先考虑写 `upsert_events`，同时补足相关角色、关系和状态更新。
-        如果正文里出现了事件带来的后果、状态改变、立场变化、关系变化、资源变化、地点状态变化，你必须输出 `append_event_effects`；不能只写事件本身而完全不写后果。
-        `append_event_effects` 默认采用“结构化最小集”：
-        - 每条 effect 至少写 `id` 和 `summary`。
-        - 如果能明确指向某个节点的状态变化，补 `targetNodeId`、`changeTargetType="node-content"` 和 `nodeAttributeChanges`。
-        - 如果能明确指向某段关系变化，补 `changeTargetType="relation"`，并填写 `relationChanges` 或 `relationDraft`。
-        - 如果后果存在但对象不够明确，可以只有 `summary`，但不能空着不写。
-
-        关于事件时间点与 sequenceIndex，必须严格遵守以下规则：
-        1. sequenceIndex 表示时间顺序，数字越小越早；0 是最早的时间点，通常对应开场、初始状态、故事刚开始时已成立的事件。
-        2. 同一个 sequenceIndex 允许存在多个事件。sequenceIndex 不是唯一键，不要因为同一时间点已经有事件，就强行把另一个同时发生/同阶段发生的事件改到别的时间点。
-        3. 如果正文描述的是“当前剧情继续推进后的新事件”，它的 sequenceIndex 不能早于已经发生的前序事件；不要把已经进入剧情后的事件回写到 0，除非正文明确在补写开场前史、初始设定或最早时间点的已知事实。
-        4. 如果正文描述的是与当前时间点并行、同步、同一阶段发生的多个事件，可以把它们写到同一个 sequenceIndex。
-        5. 如果正文描述的是明显晚于当前阶段的新推进、新转折、新后果，才把事件写到更大的 sequenceIndex；不要无根据地跳号，也不要随意重排已有事件。
-        6. 如果图谱里已经有事件 id 或明显可复用的既有事件，请优先 upsert 该事件并保持原有时间顺序一致，不要为了改文案把它挪到更早或更晚的时间点。
-
-        简单判断原则：
-        - “初始化 / 开场 / 故事开始前已成立” -> 倾向最早时间点，可为 0。
-        - “当前场景里同时发生的几件事” -> 可以共享同一个 sequenceIndex。
-        - “剧情已经推进后才发生的新事件” -> sequenceIndex 应不小于当前已发生阶段，通常保持不变或递增，不能倒退。
-        - “新发现导致角色状态/关系/局势发生变化” -> 除了事件本身，还应写 `append_event_effects`。
+        内容要求：
+        - 只写本轮真正新增或被推进的变化，不要把已有节点、已有关系整包重写。
+        - 文本尽量写短句。
+        - 如果正文同时推进了多个主事件，可以一次返回多个 event。
+        - 如果同一个已有事件在正文里出现了多个明确阶段推进，也允许在同一轮返回多条指向同一 `eventId` 的 `continue`。
+        - `continue` 只允许写“该事件自己的延续”。不要把 sibling 变化、新支线、新阶段、新冲突混进同一个 `continue`。
+        - 例如：角色创建流程里的“确认身份”“选择种族”“确认职业”可以继续写同一个创建事件；但“角色创建完成后进入野外并遭遇战斗”必须新开一个战斗事件，不能继续挂在角色创建事件上。
+        - 正文已经明确写出的变化优先；不要用猜测覆盖正文事实。
+        - 当一个事件里同时涉及“事件本身 + 人物变化 + 地点变化 + 关系变化”时，应该返回“1 个 event + 多条 change”，而不是返回“1 个事件对象 + 1 个人物对象 + 1 个关系对象”。
+        - 如果正文明确建立或推进了稳定关系，请优先补关系 change，例如：
+          - 应该返回：`hero|alliance|guild`、`hero|located_in|city`、`artifact|belongs_to|guild`
+          - 不要返回：`hero|participates_in|event_x`、`event_x|associated_location|city`
   document_summary:
     segment_system_instruction: |
       你负责把超长文档的一个片段整理成可用于后续生成与检索的中文摘要。你必须只输出纯文本，不要输出 JSON、标题、序号说明或额外解释。

@@ -13,6 +13,7 @@ import {
   emptyUsage,
   ensureGeneratedRobotPayload,
   formatStageError,
+  graphWritebackLog,
   parseJsonObject,
   storyOutlineNode,
   worldGraphEvolutionNode,
@@ -212,13 +213,28 @@ export async function runGraphRagRetrieve({ modelClient, modelSettings, request 
 
 export async function runGraphRagWriteback({ modelClient, modelSettings, request }) {
   const prompts = getPromptConfig()
+  const startedAt = Date.now()
+  graphWritebackLog('[agent:graphrag-writeback:start]', {
+    sessionId: String(request?.session_id || request?.sessionId || ''),
+    promptLength: String(request?.prompt || '').trim().length,
+    finalResponseLength: String(request?.final_response || request?.finalResponse || '').trim().length,
+  })
   const response = await modelClient.invokeText(
     modelSettings,
     prompts.templates.graphrag.writeback_system_instruction,
     buildGraphRagWritebackPrompt(request),
   )
+  const graphragWriteback = normalizeGraphRagWritebackPayload(parseJsonObject(response.text, {}))
+  graphWritebackLog('[agent:graphrag-writeback:done]', {
+    sessionId: String(request?.session_id || request?.sessionId || ''),
+    durationMs: Date.now() - startedAt,
+    responseLength: String(response?.text || '').length,
+    usage: response.usage,
+    graphrag_writeback: graphragWriteback,
+    rawResponseText: response?.text || '',
+  })
   return {
-    graphrag_writeback: normalizeGraphRagWritebackPayload(parseJsonObject(response.text, {})),
+    graphrag_writeback: graphragWriteback,
     usage: response.usage,
   }
 }
