@@ -70,6 +70,10 @@ describe('useChatMessagePipeline', () => {
     expect(sendPrompt).toHaveBeenCalledTimes(1)
     expect(sendPrompt.mock.calls[0]?.[0]).toContain('城市')
     expect(sendPrompt.mock.calls[0]?.[0]).toContain('上海')
+    expect(sendPrompt.mock.calls[0]?.[1]).toEqual({
+      blockedMessage: '请等待当前回复结束后再提交表单',
+      source: 'form',
+    })
     expect(pipeline.submittedForms[slot.formId]).toBe(true)
   })
 })

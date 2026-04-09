@@ -1,6 +1,7 @@
 import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, onUnmounted, ref, watch, type Ref } from 'vue'
 
+import type { ChatPromptSource } from './replyMode'
 import type { ChatbotInstance } from './useChatView.types'
 
 interface UseChatInteractionGuardOptions {
@@ -12,6 +13,7 @@ export function useChatInteractionGuard(options: UseChatInteractionGuardOptions)
   const interactionLocked = ref(false)
   const bypassNextSend = ref(false)
   const originalSendUserMessage = ref<ChatbotInstance['sendUserMessage'] | null>(null)
+  const pendingSendSource = ref<ChatPromptSource>('manual')
   const isInteractionLocked = computed(
     () => interactionLocked.value || options.isChatResponding.value,
   )
@@ -57,10 +59,12 @@ export function useChatInteractionGuard(options: UseChatInteractionGuardOptions)
           return
         }
 
+        pendingSendSource.value = 'manual'
         beginInteractionLock()
         try {
           await originalSendUserMessage.value?.(params)
         } catch (error) {
+          pendingSendSource.value = 'manual'
           endInteractionLock()
           throw error
         }
@@ -73,8 +77,16 @@ export function useChatInteractionGuard(options: UseChatInteractionGuardOptions)
     restoreOriginalSend(options.chatbotRef.value)
   })
 
-  async function sendPrompt(prompt: string, blockedMessage = '请等待当前回复结束后再操作') {
+  async function sendPromptWithOptions(
+    prompt: string,
+    options?: {
+      blockedMessage?: string
+      source?: ChatPromptSource
+    },
+  ) {
     const normalizedPrompt = prompt.trim()
+    const blockedMessage = options?.blockedMessage || '请等待当前回复结束后再操作'
+    const source = options?.source || 'manual'
     if (!normalizedPrompt) {
       return false
     }
@@ -91,13 +103,21 @@ export function useChatInteractionGuard(options: UseChatInteractionGuardOptions)
         return false
       }
       bypassNextSend.value = true
+      pendingSendSource.value = source
       await sendUserMessage({ prompt: normalizedPrompt })
       return true
     } catch (error) {
       bypassNextSend.value = false
+      pendingSendSource.value = 'manual'
       endInteractionLock()
       throw error
     }
+  }
+
+  function consumePendingSendSource(): ChatPromptSource {
+    const source = pendingSendSource.value
+    pendingSendSource.value = 'manual'
+    return source
   }
 
   return {
@@ -105,6 +125,7 @@ export function useChatInteractionGuard(options: UseChatInteractionGuardOptions)
     isInteractionLocked,
     beginInteractionLock,
     endInteractionLock,
-    sendPrompt,
+    sendPrompt: sendPromptWithOptions,
+    consumePendingSendSource,
   }
 }

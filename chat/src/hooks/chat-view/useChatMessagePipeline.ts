@@ -12,6 +12,7 @@ import {
   withSystemStatusMessages,
   withTimeSeparators,
 } from '@/hooks/chat-view/useChatView.message-utils'
+import type { ChatPromptSource } from '@/hooks/chat-view/replyMode'
 import type {
   ChatbotInstance,
   ChatFormSlot,
@@ -27,7 +28,13 @@ import type { AIFormSchema, SuggestionOption } from '@/types/ai'
 interface UseChatMessagePipelineOptions {
   chatbotRef: Ref<ChatbotInstance | null>
   isInteractionLocked: Ref<boolean>
-  sendPrompt: (prompt: string, blockedMessage?: string) => Promise<boolean>
+  sendPrompt: (
+    prompt: string,
+    options?: {
+      blockedMessage?: string
+      source?: ChatPromptSource
+    },
+  ) => Promise<boolean>
 }
 
 export function useChatMessagePipeline(options: UseChatMessagePipelineOptions) {
@@ -265,7 +272,10 @@ export function useChatMessagePipeline(options: UseChatMessagePipelineOptions) {
 
     submittedForms[slot.formId] = true
     try {
-      const sent = await options.sendPrompt(prompt, '请等待当前回复结束后再提交表单')
+      const sent = await options.sendPrompt(prompt, {
+        blockedMessage: '请等待当前回复结束后再提交表单',
+        source: 'form',
+      })
       if (!sent) {
         submittedForms[slot.formId] = false
       }

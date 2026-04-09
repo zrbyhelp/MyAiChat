@@ -176,6 +176,14 @@ export function normalizeSessionUsage(input) {
   }
 }
 
+export function normalizeReplyMode(input) {
+  const value = String(input || '').trim()
+  if (value === 'story_guidance' || value === 'protagonist_speech') {
+    return value
+  }
+  return 'default'
+}
+
 export function normalizeSessionMemory(input) {
   const threshold =
     typeof input?.threshold === 'number' && Number.isInteger(input.threshold) && input.threshold > 0
@@ -328,6 +336,7 @@ export function normalizeSession(input, index = 0) {
     robot: normalizeSessionRobot(input?.robot),
     modelConfigId: String(input?.modelConfigId || ''),
     modelLabel: String(input?.modelLabel || ''),
+    replyMode: normalizeReplyMode(input?.replyMode || input?.reply_mode),
     threadId: String(input?.threadId || input?.thread_id || input?.id || `thread-${index + 1}`),
     storyOutline: normalizeStoryOutline(
       safeJsonParse(input?.storyOutline || input?.story_outline, input?.storyOutline || input?.story_outline),
@@ -356,6 +365,7 @@ function buildSessionPersistenceComparable(session) {
     robot: normalized.robot,
     modelConfigId: normalized.modelConfigId,
     modelLabel: normalized.modelLabel,
+    replyMode: normalized.replyMode,
     threadId: normalized.threadId,
     storyOutline: normalized.storyOutline,
     messages: normalized.messages,
@@ -394,6 +404,7 @@ export function buildSessionSummary(session) {
     robotName: session.robot?.name || DEFAULT_SESSION_ROBOT.name,
     modelConfigId: session.modelConfigId || '',
     modelLabel: session.modelLabel || '',
+    replyMode: normalizeReplyMode(session.replyMode || session.reply_mode),
     threadId: session.threadId || session.id,
     usage: normalizeSessionUsage(session.usage),
   }

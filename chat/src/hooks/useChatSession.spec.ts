@@ -38,6 +38,7 @@ function createSummary(overrides: Partial<ChatSessionSummary> = {}): ChatSession
     robotName: overrides.robotName || '测试智能体',
     modelConfigId: overrides.modelConfigId || 'model-1',
     modelLabel: overrides.modelLabel || '模型 1',
+    replyMode: overrides.replyMode || 'default',
     usage: overrides.usage || {
       promptTokens: 0,
       completionTokens: 0,

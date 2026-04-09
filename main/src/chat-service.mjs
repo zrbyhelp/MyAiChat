@@ -365,6 +365,14 @@ function normalizeSequenceIndex(value, fallback = 0) {
   return Number.isFinite(candidate) ? Math.max(0, Math.round(candidate)) : fallback
 }
 
+function resolveOriginalPrompt(payload) {
+  const originalPrompt = payload?.originalPrompt ?? payload?.original_prompt
+  if (typeof originalPrompt === 'string') {
+    return originalPrompt
+  }
+  return String(payload?.prompt || '')
+}
+
 function readEventSequenceIndex(event) {
   return normalizeSequenceIndex(
     event?.timeline?.sequenceIndex ?? event?.timeline?.sequence_index ?? event?.startSequenceIndex ?? event?.start_sequence_index,
@@ -975,6 +983,7 @@ function sanitizeAgentRequestForMonitor(agentRequest) {
     thread_id: String(agentRequest.thread_id || agentRequest.threadId || '').trim(),
     session_id: String(agentRequest.session_id || agentRequest.sessionId || '').trim(),
     prompt: String(agentRequest.prompt || '').trim(),
+    original_prompt: String(agentRequest.original_prompt || agentRequest.originalPrompt || '').trim(),
     system_prompt: String(agentRequest.system_prompt || agentRequest.systemPrompt || '').trim(),
     robot: sanitizeRobotForMonitor(agentRequest.robot),
     history: sanitizeHistoryForMonitor(agentRequest.history),
@@ -999,6 +1008,8 @@ function sanitizePayloadForMonitor(payload) {
   return {
     sessionId: String(payload.sessionId || '').trim(),
     prompt: String(payload.prompt || '').trim(),
+    originalPrompt: String(resolveOriginalPrompt(payload) || '').trim(),
+    replyMode: String(payload.replyMode || payload.reply_mode || 'default').trim() || 'default',
     provider: String(payload.provider || '').trim(),
     baseUrl: String(payload.baseUrl || '').trim(),
     model: String(payload.model || '').trim(),
@@ -1148,6 +1159,7 @@ async function buildAgentRequest(payload, user, session, monitorReplyId = '') {
     thread_id: session?.threadId || payload.sessionId,
     session_id: payload.sessionId,
     prompt: String(payload.prompt || ''),
+    original_prompt: resolveOriginalPrompt(payload),
     user: {
       id: user.id,
       email: user.email || null,
@@ -1366,6 +1378,7 @@ export function buildMemoryAgentRequest(agentRequest, session) {
     thread_id: String(hydrated.thread_id || hydrated.threadId || '').trim(),
     session_id: String(hydrated.session_id || hydrated.sessionId || '').trim(),
     prompt: String(hydrated.prompt || '').trim(),
+    original_prompt: String(hydrated.original_prompt || hydrated.originalPrompt || hydrated.prompt || '').trim(),
     final_response: String(hydrated.final_response || hydrated.finalResponse || '').trim(),
     robot: hydrated.robot || null,
     system_prompt: String(hydrated.system_prompt || hydrated.systemPrompt || '').trim(),
@@ -1450,11 +1463,12 @@ async function commitSession(payload, user, result, existingSession) {
   const now = new Date().toISOString()
   const existing = existingSession || await getSessionRecord(user, payload.sessionId)
   const nextMessages = [...(existing?.messages || [])]
+  const originalPrompt = resolveOriginalPrompt(payload)
 
   nextMessages.push({
     id: `user-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     role: 'user',
-    content: String(payload.prompt || ''),
+    content: originalPrompt,
     reasoning: '',
     createdAt: now,
   })
@@ -1474,13 +1488,14 @@ async function commitSession(payload, user, result, existingSession) {
   return saveSessionRecord(user, normalizeSession({
     ...(existing || {}),
     id: payload.sessionId,
-    title: existing?.messages?.length ? existing.title : createSessionTitle(payload.prompt),
-    preview: String(result.message || payload.prompt || ''),
+    title: existing?.messages?.length ? existing.title : createSessionTitle(originalPrompt),
+    preview: String(result.message || originalPrompt || ''),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     robot: normalizeSessionRobot(payload.robot || { name: payload.robotName, systemPrompt: payload.systemPrompt }),
     modelConfigId: payload.modelConfigId || existing?.modelConfigId || '',
     modelLabel: payload.modelLabel || existing?.modelLabel || payload.model || '',
+    replyMode: payload.replyMode || payload.reply_mode || existing?.replyMode || 'default',
     threadId: result.threadId || existing?.threadId || payload.sessionId,
     storyOutline: normalizeStoryOutline(result.storyOutline || existing?.storyOutline || {}),
     messages: nextMessages,

@@ -110,6 +110,8 @@ export interface SessionUsageState {
   completionTokens: number
 }
 
+export type ReplyMode = 'default' | 'story_guidance' | 'protagonist_speech'
+
 export interface ChatSessionMessage {
   role: 'user' | 'assistant'
   content: string
@@ -158,6 +160,7 @@ export interface ChatSessionSummary {
   robotName: string
   modelConfigId: string
   modelLabel: string
+  replyMode: ReplyMode
   usage: SessionUsageState
 }
 

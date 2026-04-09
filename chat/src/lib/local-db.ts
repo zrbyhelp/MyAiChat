@@ -54,6 +54,7 @@ function createSummary(session: ChatSessionDetail): ChatSessionSummary {
     robotName: session.robot.name || '当前智能体',
     modelConfigId: session.modelConfigId || '',
     modelLabel: session.modelLabel || '',
+    replyMode: session.replyMode || 'default',
     usage: session.usage,
   }
 }
@@ -158,6 +159,7 @@ export async function listLocalSessions() {
         ((request.result || []) as ChatSessionDetail[]).map((item) => ({
           ...item,
           persistToServer: false,
+          replyMode: item.replyMode || 'default',
           memory: {
             ...item.memory,
             persistToServer: false,
@@ -183,6 +185,7 @@ export async function getLocalSession(id: string) {
           ? {
               ...session,
               persistToServer: false,
+              replyMode: session.replyMode || 'default',
               memory: {
                 ...session.memory,
                 persistToServer: false,
@@ -200,6 +203,7 @@ export async function putLocalSession(session: ChatSessionDetail) {
     const request = store.put(toPlainIndexedDbValue({
       ...session,
       persistToServer: false,
+      replyMode: session.replyMode || 'default',
       memory: {
         ...session.memory,
         persistToServer: false,

@@ -2267,7 +2267,7 @@ function writeNodeAttribute(key: string, value: unknown, input: NodeFieldInput) 
     nodeDraft.value[key as 'knownFacts' | 'preferencesAndConstraints' | 'taskProgress' | 'longTermMemory'] = normalizeString(value)
     return
   }
-  const nextAttributes = { ...(nodeDraft.value.attributes || {}) }
+  const nextAttributes = { ...nodeDraft.value.attributes }
   nextAttributes[key] = input === 'number' ? (typeof value === 'number' && Number.isFinite(value) ? value : Number(value || 0)) : normalizeString(value)
   nodeDraft.value.attributes = nextAttributes
   if (key === 'currentStatus') {
@@ -2532,7 +2532,7 @@ function mergeNodeDraftIntoRaw(baseNode: WorldNode | null, draft: WorldNode): Wo
       tags: nextTags,
       status: nextStatus,
       startSequenceIndex: draft.objectType === 'event' ? limitedSequenceIndex : currentSequenceIndex.value,
-      timeline: draft.objectType === 'event' ? { ...createEmptyTimeline(currentSequenceIndex.value), ...(draft.timeline || {}), sequenceIndex: limitedSequenceIndex } : null,
+      timeline: draft.objectType === 'event' ? { ...createEmptyTimeline(currentSequenceIndex.value), ...draft.timeline, sequenceIndex: limitedSequenceIndex } : null,
       timelineSnapshots: [],
     }
   }
@@ -2545,7 +2545,7 @@ function mergeNodeDraftIntoRaw(baseNode: WorldNode | null, draft: WorldNode): Wo
     next.tags = nextTags
     next.attributes = { ...draft.attributes }
     if (next.objectType === 'event') {
-      next.timeline = { ...createEmptyTimeline(next.startSequenceIndex), ...(next.timeline || {}), ...(draft.timeline || {}), sequenceIndex: limitedSequenceIndex }
+      next.timeline = { ...createEmptyTimeline(next.startSequenceIndex), ...next.timeline, ...draft.timeline, sequenceIndex: limitedSequenceIndex }
       next.startSequenceIndex = limitedSequenceIndex
       next.effects = Array.isArray(draft.effects) ? draft.effects.map(normalizeTimelineEffectClient) : []
     }

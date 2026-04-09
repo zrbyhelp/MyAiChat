@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 
+import type { ChatPromptSource } from '@/hooks/chat-view/replyMode'
 import { useChatStreaming } from './useChatStreaming'
 import type { ChatRenderMessage } from './useChatView.types'
-import type { RobotWorldGraph, StoryOutlineState } from '@/types/ai'
+import type { ReplyMode, RobotWorldGraph, StoryOutlineState } from '@/types/ai'
 
-function createStreamingTestContext() {
+function createStreamingTestContext(options?: {
+  replyMode?: ReplyMode
+  pendingSendSource?: ChatPromptSource
+}) {
   const beginInteractionLock = vi.fn()
   const applyChatMessages = vi.fn()
   const completeChatResponse = vi.fn()
@@ -40,6 +44,8 @@ function createStreamingTestContext() {
   const pendingAssistantSuggestions = ref(null)
   const pendingAssistantForm = ref(null)
   const pendingAssistantMemoryStatus = ref(null)
+  const currentReplyMode = ref<ReplyMode>(options?.replyMode || 'default')
+  const consumePendingSendSource = vi.fn(() => options?.pendingSendSource || 'manual')
 
   const { chatServiceConfig } = useChatStreaming({
     beginInteractionLock,
@@ -88,6 +94,7 @@ function createStreamingTestContext() {
     },
     currentStoryOutline,
     currentSessionWorldGraph,
+    currentReplyMode,
     rawChatMessages: ref([]),
     effectiveStream: computed(() => true),
     effectiveThinking: computed(() => false),
@@ -105,12 +112,14 @@ function createStreamingTestContext() {
     pendingAssistantMemoryStatus,
     chatMessages,
     applyChatMessages,
+    consumePendingSendSource,
     flushPendingAssistantStructuredContent,
     flushPendingAssistantMemoryStatus,
   })
 
   return {
     chatServiceConfig,
+    consumePendingSendSource,
     chatMessages,
     currentAssistantLoadingText,
     currentMemoryStatusText,
@@ -122,6 +131,61 @@ function createStreamingTestContext() {
 }
 
 describe('useChatStreaming', () => {
+  it('keeps the raw prompt unchanged in default manual mode', async () => {
+    const { chatServiceConfig, consumePendingSendSource } = createStreamingTestContext()
+
+    const request = await chatServiceConfig.value.onRequest?.({ prompt: '原始输入' } as never)
+    const body = JSON.parse(String(request?.body || '{}'))
+
+    expect(body.prompt).toBe('原始输入')
+    expect(body.originalPrompt).toBe('原始输入')
+    expect(body.replyMode).toBe('default')
+    expect(consumePendingSendSource).toHaveBeenCalledTimes(1)
+  })
+
+  it('prefixes the prompt for manual story guidance mode while keeping the original prompt', async () => {
+    const { chatServiceConfig } = createStreamingTestContext({
+      replyMode: 'story_guidance',
+      pendingSendSource: 'manual',
+    })
+
+    const request = await chatServiceConfig.value.onRequest?.({ prompt: '让她先离开祭坛' } as never)
+    const body = JSON.parse(String(request?.body || '{}'))
+
+    expect(body.originalPrompt).toBe('让她先离开祭坛')
+    expect(body.replyMode).toBe('story_guidance')
+    expect(body.prompt).toContain('请将以下输入严格视为作者对剧情走向的幕后引导')
+    expect(body.prompt).toContain('让她先离开祭坛')
+  })
+
+  it('does not prefix suggestion or form sends even when the reply mode is not default', async () => {
+    const suggestionContext = createStreamingTestContext({
+      replyMode: 'protagonist_speech',
+      pendingSendSource: 'suggestion',
+    })
+    const suggestionRequest = await suggestionContext.chatServiceConfig.value.onRequest?.({
+      prompt: '建议按钮内容',
+    } as never)
+    const suggestionBody = JSON.parse(String(suggestionRequest?.body || '{}'))
+
+    expect(suggestionBody.prompt).toBe('建议按钮内容')
+    expect(suggestionBody.originalPrompt).toBe('建议按钮内容')
+    expect(suggestionBody.replyMode).toBe('protagonist_speech')
+
+    const formContext = createStreamingTestContext({
+      replyMode: 'story_guidance',
+      pendingSendSource: 'form',
+    })
+    const formRequest = await formContext.chatServiceConfig.value.onRequest?.({
+      prompt: '表单提交内容',
+    } as never)
+    const formBody = JSON.parse(String(formRequest?.body || '{}'))
+
+    expect(formBody.prompt).toBe('表单提交内容')
+    expect(formBody.originalPrompt).toBe('表单提交内容')
+    expect(formBody.replyMode).toBe('story_guidance')
+  })
+
   it('refreshes chat messages when ui loading event arrives', async () => {
     const { chatServiceConfig, chatMessages, currentAssistantLoadingText, applyChatMessages } =
       createStreamingTestContext()

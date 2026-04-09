@@ -7,6 +7,7 @@ import type {
   SessionBackgroundStatusResponse,
   SessionsResponse,
   MemorySchemaState,
+  ReplyMode,
   SessionMemoryState,
   SessionRobotState,
   ModelCapabilities,
@@ -285,6 +286,7 @@ export function upsertSession(session: {
   storyOutline?: import('@/types/ai').StoryOutlineState
   modelConfigId?: string
   modelLabel?: string
+  replyMode?: ReplyMode
   memorySchema?: MemorySchemaState
   worldGraph?: RobotWorldGraph | null
   persistToServer?: boolean

@@ -724,6 +724,7 @@ test('runs stream completes and persists thread state', async () => {
           thread_id: 'thread-run-test',
           session_id: 'session-run-test',
           prompt: '测试',
+          original_prompt: '这是用户原话',
           user: { id: 'u1' },
           model_config: {
             provider: 'openai',
@@ -770,8 +771,54 @@ test('runs stream completes and persists thread state', async () => {
 
     const stored = await store.load('thread-run-test')
     assert.ok(stored)
+    assert.equal(stored.messages.at(-2)?.content, '这是用户原话')
     assert.equal(stored.messages.at(-1)?.content, 'stub-final')
     assert.deepEqual(stored.numeric_state, { hp: 10 })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('runs stream stores original prompt in thread history when provided', async () => {
+  const client = new CapturingModelClient()
+  const { dir, store } = await createTempStore()
+  try {
+    const app = await createApp({ modelClient: client, store })
+    await withServer(app, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/runs/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          thread_id: 'thread-original-prompt',
+          session_id: 'session-original-prompt',
+          prompt: '请把这句话当成主角台词再处理',
+          original_prompt: '我先进去看看。',
+          user: { id: 'u1' },
+          model_config: {
+            provider: 'openai',
+            base_url: 'http://example.com',
+            api_key: 'test-key',
+            model: 'answer-model',
+            temperature: 0.7,
+          },
+          robot: {
+            common_prompt: '通用前缀',
+            system_prompt: '角色设定',
+          },
+          memory_schema: { categories: [] },
+          structured_memory: { updated_at: '', categories: [] },
+          history: [],
+        }),
+      })
+      assert.equal(response.status, 200)
+      const text = await response.text()
+      assert.match(text, /run_completed/)
+    })
+
+    const stored = await store.load('thread-original-prompt')
+    assert.ok(stored)
+    assert.equal(stored.messages.at(-2)?.content, '我先进去看看。')
+    assert.equal(stored.messages.at(-1)?.content, 'stub-final')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

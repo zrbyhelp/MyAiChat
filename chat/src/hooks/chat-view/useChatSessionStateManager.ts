@@ -1,14 +1,15 @@
-import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, reactive, ref } from 'vue'
 
 import {
   createFormActivityContent,
   formatMessageDatetime,
 } from '@/hooks/chat-view/useChatView.message-utils'
+import { DEFAULT_REPLY_MODE, normalizeReplyMode } from '@/hooks/chat-view/replyMode'
 import type {
   ChatSessionDetail,
   MemorySchemaField,
   MemorySchemaState,
+  ReplyMode,
   RobotWorldGraph,
   SessionMemoryState,
   SessionRobotState,
@@ -293,6 +294,7 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
   const currentUsage = reactive<SessionUsageState>({ ...DEFAULT_SESSION_USAGE })
   const currentStoryOutline = ref<StoryOutlineState>({ ...DEFAULT_STORY_OUTLINE })
   const currentSessionWorldGraph = ref<RobotWorldGraph | null>(null)
+  const currentReplyMode = ref<ReplyMode>(DEFAULT_REPLY_MODE)
 
   const sessionRobot = reactive<SessionRobotState>({
     id: '',
@@ -368,6 +370,10 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     currentSessionWorldGraph.value = graph ? JSON.parse(JSON.stringify(graph)) as RobotWorldGraph : null
   }
 
+  function applyReplyMode(mode?: ReplyMode | null) {
+    currentReplyMode.value = normalizeReplyMode(mode)
+  }
+
   function openMemoryDialog() {
     Object.assign(sessionMemoryDraft, normalizeSessionMemory(currentSessionMemory))
     memoryVisible.value = true
@@ -413,12 +419,14 @@ export function useChatSessionStateManager(options: UseChatSessionStateManagerOp
     structuredMemoryRecordCount,
     sessionPromptTokens,
     sessionCompletionTokens,
+    currentReplyMode,
     applySessionMemory,
     applyStructuredMemory,
     applyMemorySchema,
     applySessionUsage,
     applyStoryOutline,
     applySessionWorldGraph,
+    applyReplyMode,
     openMemoryDialog,
     openSessionRobotDialog,
     applySessionRobot,

@@ -309,7 +309,7 @@ export async function createApp(options = {}) {
 
       const nextMessages = [
         ...history,
-        { role: 'user', content: request.prompt },
+        { role: 'user', content: request.original_prompt || request.prompt },
         { role: 'assistant', content: nextState.final_response || '' },
       ]
 

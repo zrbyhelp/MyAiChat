@@ -721,6 +721,12 @@ export function getModels() {
       defaultValue: '',
       field: 'model_label',
     },
+    replyMode: {
+      type: DataTypes.STRING(40),
+      allowNull: false,
+      defaultValue: 'default',
+      field: 'reply_mode',
+    },
     threadId: {
       type: DataTypes.STRING(160),
       allowNull: false,

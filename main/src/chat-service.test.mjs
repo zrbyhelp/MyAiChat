@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   applyWorldGraphWritebackToSessionGraph,
+  buildMemoryAgentRequest,
   buildWorldGraphBackgroundAgentRequest,
   extractAgentServiceErrorMessage,
   hydrateBackgroundAgentRequest,
@@ -55,6 +56,7 @@ test('hydrates background agent request with latest structural state but keeps s
   const hydrated = hydrateBackgroundAgentRequest(
     {
       prompt: '继续',
+      original_prompt: '原始用户输入',
       final_response: '最新回复',
       history: [{ role: 'user', content: '旧历史' }],
       memory_schema: {
@@ -94,6 +96,7 @@ test('hydrates background agent request with latest structural state but keeps s
   )
 
   assert.equal(hydrated.prompt, '继续')
+  assert.equal(hydrated.original_prompt, '原始用户输入')
   assert.deepEqual(hydrated.history, [{ role: 'user', content: '旧历史' }])
   assert.equal(hydrated.memory_schema.categories[0]?.id, 'character')
   assert.equal(hydrated.structured_memory.updatedAt, '2026-04-01T00:00:00Z')
@@ -103,6 +106,27 @@ test('hydrates background agent request with latest structural state but keeps s
     retrievalQuery: '',
   })
   assert.equal(hydrated.world_graph.meta.graphVersion, 2)
+})
+
+test('builds memory agent request with original prompt preserved for downstream jobs', () => {
+  const requestBody = buildMemoryAgentRequest(
+    {
+      thread_id: 'thread-1',
+      session_id: 'session-1',
+      prompt: '请将以下输入严格视为主角台词',
+      original_prompt: '我先试试看',
+      final_response: '后续回复',
+      robot: { id: 'robot-1', name: '测试智能体' },
+      system_prompt: '系统设定',
+      structured_memory: { updatedAt: '2026-04-01T00:00:00Z', longTermMemory: '', shortTermMemory: '' },
+      model_config: { provider: 'openai', base_url: 'http://example.com', api_key: 'key', model: 'gpt-test', temperature: 0.7 },
+      auxiliary_model_configs: { memory: { provider: 'openai', base_url: 'http://example.com', api_key: 'key', model: 'gpt-memory', temperature: 0.7 } },
+    },
+    null,
+  )
+
+  assert.equal(requestBody.prompt, '请将以下输入严格视为主角台词')
+  assert.equal(requestBody.original_prompt, '我先试试看')
 })
 
 test('omits memory schema from world graph background request while keeping latest structural context', () => {

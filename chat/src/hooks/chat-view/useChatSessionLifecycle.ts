@@ -1,11 +1,13 @@
 import { nextTick, type Ref } from 'vue'
 
+import { DEFAULT_REPLY_MODE } from '@/hooks/chat-view/replyMode'
 import { getRobotWorldGraph, getSession, upsertSession } from '@/lib/api'
 import type {
   AIModelConfigItem,
   AIRobotCard,
   ChatSessionDetail,
   MemorySchemaState,
+  ReplyMode,
   SessionMemoryState,
   SessionRobotState,
   SessionUsageState,
@@ -26,6 +28,7 @@ interface UseChatSessionLifecycleOptions {
   currentSessionMemory: SessionMemoryState
   currentMemorySchema: MemorySchemaState
   currentStoryOutline: Ref<StoryOutlineState>
+  currentReplyMode: Ref<ReplyMode>
   activeModelConfig: Ref<AIModelConfigItem>
   currentModelLabel: Ref<string>
   activeModelConfigId: Ref<string>
@@ -36,6 +39,7 @@ interface UseChatSessionLifecycleOptions {
   applySessionUsage: (usage?: Partial<SessionUsageState> | null) => void
   applyStoryOutline: (value?: Partial<StoryOutlineState> | null) => void
   applySessionWorldGraph: (graph?: import('@/types/ai').RobotWorldGraph | null) => void
+  applyReplyMode: (mode?: ReplyMode | null) => void
   applyChatMessages: (messages: ChatRenderMessage[]) => void
   loadCapabilities: () => Promise<void>
   normalizeSessionMessages: (session: ChatSessionDetail) => ChatRenderMessage[]
@@ -66,6 +70,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       options.applySessionUsage(session.usage)
       options.applyStoryOutline(session.storyOutline || null)
       options.applySessionWorldGraph(session.worldGraph || null)
+      options.applyReplyMode(session.replyMode)
     } catch {
       // 忽略短暂刷新失败，保留当前状态。
     }
@@ -89,6 +94,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
       storyOutline: options.currentStoryOutline.value,
       modelConfigId: options.activeModelConfig.value.id,
       modelLabel: options.currentModelLabel.value,
+      replyMode: options.currentReplyMode.value,
       memorySchema: options.currentMemorySchema,
       worldGraph: options.buildCurrentSessionDetail().worldGraph || null,
       persistToServer: true,
@@ -102,6 +108,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applySessionUsage(response.session.usage)
     options.applyStoryOutline(response.session.storyOutline || null)
     options.applySessionWorldGraph(response.session.worldGraph || null)
+    options.applyReplyMode(response.session.replyMode)
     await options.refreshSessionHistory()
   }
 
@@ -123,6 +130,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applySessionUsage(session.usage)
     options.applyStoryOutline(session.storyOutline || null)
     options.applySessionWorldGraph(session.worldGraph || null)
+    options.applyReplyMode(session.replyMode)
     options.storeActiveSessionId(session.id)
 
     if (
@@ -180,6 +188,7 @@ export function useChatSessionLifecycle(options: UseChatSessionLifecycleOptions)
     options.applySessionUsage(options.defaultSessionUsage)
     options.applyStoryOutline(null)
     options.applySessionWorldGraph(cloneWorldGraph(nextWorldGraph))
+    options.applyReplyMode(DEFAULT_REPLY_MODE)
 
     options.sessionId.value = options.createSessionId()
     options.storeActiveSessionId(options.sessionId.value)

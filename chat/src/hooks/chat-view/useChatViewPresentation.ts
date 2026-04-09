@@ -1,11 +1,18 @@
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { Ref } from 'vue'
 
+import type { ChatPromptSource } from '@/hooks/chat-view/replyMode'
 import type { SuggestionOption } from '@/types/ai'
 
 interface UseChatViewPresentationOptions {
   isInteractionLocked: Ref<boolean>
-  sendPrompt: (prompt: string, blockedMessage?: string) => Promise<boolean>
+  sendPrompt: (
+    prompt: string,
+    options?: {
+      blockedMessage?: string
+      source?: ChatPromptSource
+    },
+  ) => Promise<boolean>
   assistantAvatar: Ref<string>
 }
 
@@ -20,7 +27,7 @@ export function useChatViewPresentation(options: UseChatViewPresentationOptions)
       if (!prompt) {
         return
       }
-      await options.sendPrompt(prompt)
+      await options.sendPrompt(prompt, { source: 'suggestion' })
     },
   }
 

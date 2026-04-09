@@ -175,6 +175,17 @@
         </template>
         <template #sender-footer-prefix>
           <TSpace align="center" size="small" class="sender-footer-actions">
+            <div class="reply-mode-chip">
+              <span class="reply-mode-label">回复类型</span>
+              <TSelect
+                v-model="currentReplyMode"
+                size="small"
+                class="reply-mode-select"
+                :options="replyModeOptions"
+                :disabled="isChatInteractionLocked"
+                @change="handleReplyModeChange"
+              />
+            </div>
             <TButton
               v-if="showThinkingToggle"
               shape="round"
@@ -453,6 +464,7 @@ import { useChatViewBootstrap } from '@/hooks/chat-view/useChatViewBootstrap'
 import { useChatMessagePipeline } from '@/hooks/chat-view/useChatMessagePipeline'
 import { useChatInitializer } from '@/hooks/chat-view/useChatInitializer'
 import { useChatModelManager } from '@/hooks/chat-view/useChatModelManager'
+import { REPLY_MODE_OPTIONS } from '@/hooks/chat-view/replyMode'
 import { serializeChatMessages } from '@/hooks/chat-view/useChatView.message-utils'
 import {
   createModelConfig,
@@ -508,6 +520,7 @@ const {
   beginInteractionLock,
   endInteractionLock,
   sendPrompt,
+  consumePendingSendSource,
 } = useChatInteractionGuard({
   chatbotRef,
   isChatResponding,
@@ -674,12 +687,14 @@ const {
   currentUsage,
   currentStoryOutline,
   currentSessionWorldGraph,
+  currentReplyMode,
   applySessionMemory,
   applyStructuredMemory,
   applyMemorySchema,
   applySessionUsage,
   applyStoryOutline,
   applySessionWorldGraph,
+  applyReplyMode,
   openMemoryDialog,
   openSessionRobotDialog,
   applySessionRobot,
@@ -697,6 +712,7 @@ const auxModelOptions = computed(() => [
     value: item.id,
   })),
 ])
+const replyModeOptions = REPLY_MODE_OPTIONS.map((item) => ({ ...item }))
 function buildCurrentSessionDetail(): ChatSessionDetail {
   const serializedMessages = serializeChatMessages(rawChatMessages.value)
   const createdAt =
@@ -718,6 +734,7 @@ function buildCurrentSessionDetail(): ChatSessionDetail {
     robotName: sessionRobot.name || '当前智能体',
     modelConfigId: activeModelConfig.value.id,
     modelLabel: currentModelLabel.value,
+    replyMode: currentReplyMode.value,
     usage: {
       promptTokens: currentUsage.promptTokens,
       completionTokens: currentUsage.completionTokens,
@@ -768,6 +785,7 @@ const {
   currentSessionMemory,
   currentMemorySchema,
   currentStoryOutline,
+  currentReplyMode,
   activeModelConfig,
   currentModelLabel,
   activeModelConfigId,
@@ -778,6 +796,7 @@ const {
   applySessionUsage,
   applyStoryOutline,
   applySessionWorldGraph,
+  applyReplyMode,
   applyChatMessages,
   loadCapabilities,
   normalizeSessionMessages,
@@ -896,6 +915,10 @@ function toggleMobileSenderExpanded() {
   mobileSenderExpanded.value = !mobileSenderExpanded.value
 }
 
+async function handleReplyModeChange() {
+  await syncCurrentSessionMeta()
+}
+
 useChatbotRuntime({
   chatbotRef,
   isChatResponding,
@@ -1002,6 +1025,7 @@ const { chatServiceConfig } = useChatStreaming({
   currentStructuredMemory,
   currentStoryOutline,
   currentSessionWorldGraph,
+  currentReplyMode,
   rawChatMessages,
   effectiveStream,
   effectiveThinking,
@@ -1019,6 +1043,7 @@ const { chatServiceConfig } = useChatStreaming({
   pendingAssistantMemoryStatus,
   chatMessages,
   applyChatMessages,
+  consumePendingSendSource,
   flushPendingAssistantStructuredContent,
   flushPendingAssistantMemoryStatus,
 })
@@ -1032,3 +1057,55 @@ useChatViewBootstrap({
   routeName: () => String(route.name || ''),
 })
 </script>
+
+<style scoped>
+.sender-footer-actions {
+  flex-wrap: wrap;
+}
+
+.reply-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 251, 0.92));
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.reply-mode-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #52606d;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.reply-mode-select {
+  min-width: 132px;
+}
+
+:deep(.reply-mode-select .t-input) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+:deep(.reply-mode-select .t-input__wrap) {
+  box-shadow: none;
+}
+
+@media (max-width: 768px) {
+  .reply-mode-chip {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .reply-mode-select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+</style>

@@ -28,6 +28,24 @@ describe('useChatInteractionGuard', () => {
     expect(guard.isInteractionLocked.value).toBe(false)
   })
 
+  it('tracks the pending send source for the next request', async () => {
+    const sendUserMessage = vi.fn().mockResolvedValue(undefined)
+    const chatbotRef = ref<ChatbotInstance | null>({
+      sendUserMessage,
+    })
+    const isChatResponding = ref(false)
+    const guard = useChatInteractionGuard({
+      chatbotRef,
+      isChatResponding,
+    })
+
+    const sent = await guard.sendPrompt('建议动作', { source: 'suggestion' })
+
+    expect(sent).toBe(true)
+    expect(guard.consumePendingSendSource()).toBe('suggestion')
+    expect(guard.consumePendingSendSource()).toBe('manual')
+  })
+
   it('blocks duplicate sends while interaction is locked', async () => {
     const warningSpy = vi
       .spyOn(MessagePlugin, 'warning')

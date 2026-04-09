@@ -2,6 +2,10 @@ import type { AIMessageContent, ChatServiceConfig, SSEChunkData } from '@tdesign
 import { MessagePlugin } from 'tdesign-vue-next'
 import { computed, nextTick, type ComputedRef, type Ref } from 'vue'
 
+import {
+  buildReplyModePrompt,
+  type ChatPromptSource,
+} from '@/hooks/chat-view/replyMode'
 import type {
   ChatRenderMessage,
   MemoryStatusState,
@@ -16,6 +20,7 @@ import type {
   SessionUsageState,
   MemorySchemaState,
   RobotWorldGraph,
+  ReplyMode,
   StoryOutlineState,
   StructuredMemoryState,
   SuggestionOption,
@@ -33,6 +38,7 @@ interface UseChatStreamingOptions {
   currentStructuredMemory: StructuredMemoryState
   currentStoryOutline: Ref<StoryOutlineState>
   currentSessionWorldGraph: Ref<RobotWorldGraph | null>
+  currentReplyMode: Ref<ReplyMode>
   rawChatMessages: Ref<ChatRenderMessage[]>
   effectiveStream: ComputedRef<boolean>
   effectiveThinking: ComputedRef<boolean>
@@ -50,6 +56,7 @@ interface UseChatStreamingOptions {
   pendingAssistantMemoryStatus: Ref<MemoryStatusState | null>
   chatMessages: Ref<ChatRenderMessage[]>
   applyChatMessages: (messages: ChatRenderMessage[]) => void
+  consumePendingSendSource: () => ChatPromptSource
   flushPendingAssistantStructuredContent: () => void
   flushPendingAssistantMemoryStatus: () => void
 }
@@ -138,6 +145,11 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
     onRequest: async (params) => {
       finalSessionSynced = false
       options.beginInteractionLock()
+      const nextPrompt = buildReplyModePrompt(
+        String(params.prompt ?? ''),
+        options.currentReplyMode.value,
+        options.consumePendingSendSource(),
+      )
       return {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -187,6 +199,7 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
             structuredMemory: options.currentStructuredMemory,
             storyOutline: options.currentStoryOutline.value,
             worldGraph: options.currentSessionWorldGraph.value,
+            replyMode: options.currentReplyMode.value,
             usage: {
               promptTokens: 0,
               completionTokens: 0,
@@ -195,7 +208,9 @@ export function useChatStreaming(options: UseChatStreamingOptions) {
           stream: options.effectiveStream.value,
           thinking: options.effectiveThinking.value,
           temperature: options.activeModelConfig.value.temperature,
-          prompt: params.prompt ?? '',
+          prompt: nextPrompt.prompt,
+          originalPrompt: nextPrompt.originalPrompt,
+          replyMode: nextPrompt.replyMode,
         }),
       }
     },

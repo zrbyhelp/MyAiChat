@@ -75,6 +75,7 @@ function mapSessionRow(user, row) {
     },
     modelConfigId: row.modelConfigId,
     modelLabel: row.modelLabel,
+    replyMode: row.replyMode,
     threadId: row.threadId,
     storyOutline: safeJsonParse(row.storyOutline || '', row.storyOutline || {}),
     memory: {
@@ -292,6 +293,7 @@ export async function saveSessionRecord(user, session) {
       robotImageFetchPrompt: '',
       modelConfigId: normalized.modelConfigId,
       modelLabel: normalized.modelLabel,
+      replyMode: normalized.replyMode,
       threadId: normalized.threadId,
       storyOutline: JSON.stringify(normalized.storyOutline || normalizeStoryOutline({})),
       memorySummary: normalized.memory.summary,
