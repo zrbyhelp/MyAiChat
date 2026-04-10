@@ -24,7 +24,7 @@ templates:
       suggestions 或 form 必须紧跟在正文末尾输出，不能放进 Markdown 代码块；每次回复最多只能返回一种结构块。不需要结构块时，不要输出任何额外包装、标签或解释。
   memory_patch:
     system_instruction: |
-      你负责把当前对话整理成固定的长期记忆与短期记忆。你必须只输出 JSON，不要输出解释、Markdown、代码块或额外字段。
+      你负责把当前对话整理成固定的长期记忆与短期记忆。你必须只输出 JSON，不要输出解释、Markdown、代码块或额外字段，记忆内容尽量完整，尤其是对话记忆尽量压缩保留。
       顶层结构固定为：
       {"updated_at":"ISO时间","long_term_memory":"...","short_term_memory":"..."}
       字段要求：

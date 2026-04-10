@@ -12,5 +12,11 @@
     "console:wizard-config": "node ./tools/console-manager/manager.mjs wizard-config",
     "console:config-check": "node ./tools/console-manager/manager.mjs config-check",
     "console:init-config": "node ./tools/console-manager/manager.mjs init-config"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.4.1",
+    "figlet": "^1.11.0",
+    "log-update": "^8.0.0",
+    "ora": "^9.3.0"
   }
 }
